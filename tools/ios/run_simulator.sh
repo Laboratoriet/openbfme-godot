@@ -26,6 +26,10 @@ SCHEME=$(basename "$PROJECT" .xcodeproj)
 # The official 4.7.2 template's simulator slice (ios-arm64_x86_64-simulator/libgodot.a) holds x86_64 code only, so an Apple Silicon simulator
 # cannot link it. GODOT_IOS_SIM_LIB: the same engine version built for the arm64 simulator from source (godot 4.7.2-stable:
 # scons platform=ios target=template_debug ios_simulator=yes arch=arm64 generate_bundle=no), put in its place.
+# Godot builds the simulator without Metal, so the simulator runs the Compatibility (OpenGL ES) renderer: the menus, input, layout and
+# rotation can be tried here, a game cannot (its instancing shaders use INSTANCE_CUSTOM, which that renderer lacks; Godot then crashes).
+# A Metal simulator build does not help: Godot's Metal renderer needs GPU family Apple4, more than the simulator's device reports.
+# The game itself runs on a device (Metal, the Mobile renderer); on a Mac, `--rendering-method mobile` shows that renderer.
 SIM_SLICE="$OUT/export/$SCHEME.xcframework/ios-arm64_x86_64-simulator/libgodot.a"
 if [ -n "${GODOT_IOS_SIM_LIB:-}" ]; then
     cp "$GODOT_IOS_SIM_LIB" "$SIM_SLICE"
