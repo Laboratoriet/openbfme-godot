@@ -25,3 +25,13 @@ echo "IOS $PLIST: UIRequiresFullScreen off (resizable: native size on every scre
 plutil -replace UIFileSharingEnabled -bool YES "$PLIST"
 plutil -replace LSSupportsOpeningDocumentsInPlace -bool YES "$PLIST"
 echo "IOS $PLIST: Documents shared (Finder's Files, the Files app's On My iPhone > OpenBFME: copy RotWK and BFME2 there)"
+
+# IOS-7: the increased memory limit (com.apple.developer.kernel.increased-memory-limit): a game on 8.6 GB of retail data, with about 1 GB of
+# video memory in a skirmish (measured: -- --gpu-probe), keeps clear of iOS's default per-app limit; Xcode's automatic signing adds the
+# capability to the App ID.
+ENT="$EXPORT/$SCHEME/$SCHEME.entitlements"
+[ -f "$ENT" ] || { echo "IOS no $ENT" >&2; exit 1; }
+# PlistBuddy, not plutil: plutil takes the dots of the key for a key path
+/usr/libexec/PlistBuddy -c "Delete :com.apple.developer.kernel.increased-memory-limit" "$ENT" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :com.apple.developer.kernel.increased-memory-limit bool true" "$ENT"
+echo "IOS $ENT: increased memory limit"
