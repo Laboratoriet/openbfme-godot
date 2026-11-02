@@ -41,6 +41,8 @@ var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "z
 
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--gpu-probe"):
+		add_child(preload("res://scripts/touch/gpu_probe.gd").new()) # lane IOS-7: frame cost on any platform
 	active = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
 	set_process(active)
 	set_process_input(active)

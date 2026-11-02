@@ -12,8 +12,13 @@
 ##   max_fps        0 (no limit) or a frame cap in frames per second (Engine.max_fps)
 ##   show_fps       the frame-rate counter (scripts/fps_overlay.gd; F11 toggles it)
 ##   render_scale   0.5 .. 1.0, the 3D view's resolution as a fraction of the window's (Viewport.scaling_3d_scale); the menus and the HUD (2D) stay sharp
-##   scaler         bilinear | fsr | fsr2   (Viewport.scaling_3d_mode). The game's renderer is Forward+ (project.godot), which has all three; Godot's
-##                  Mobile renderer has no FSR 2 and the Compatibility renderer bilinear only, so a scaler the renderer lacks is reported, not applied.
+##   scaler         bilinear | fsr | fsr2 | metalfx   (Viewport.scaling_3d_mode). The game's renderer is Forward+ (project.godot), which has all of
+##                  them (metalfx: Apple's MetalFX spatial upscaler, on Metal only); Godot 4.7.2's Mobile renderer has bilinear and MetalFX only
+##                  (servers/rendering/renderer_viewport.cpp: "MetalFX temporal and FSR upscaling are not supported in the Mobile renderer") and the
+##                  Compatibility renderer bilinear only, so a scaler the renderer lacks is reported, not applied.
+## lane IOS-7: a phone or tablet (OS feature "mobile") starts from MOBILE_DEFAULTS when the file does not say otherwise: the 3D view at 67 %,
+## scaled up by MetalFX where the GPU has it, and a 60 fps cap (a phone's 120 Hz screen would double the GPU's work, its heat and its battery
+## use for little in an RTS). The menus and the HUD stay at the screen's own pixels.
 ##                  FSR 3 / DLSS / XeSS are not part of Godot 4.7 (docs/ROADMAP.md: later, through plugins).
 ## The command line wins over the file for the run (--res, --vsync, --max-fps, --fps); it never writes the file.
 ## A value the file holds that is not one of these is an error in `errors` (the game prints it) and that key keeps its default.
@@ -25,7 +30,8 @@ const WINDOW_MODES := ["windowed", "borderless", "fullscreen"]
 const VSYNC_MODES := ["on", "off", "adaptive", "mailbox"]
 const FRAME_LIMITS := [0, 30, 60, 120, 144, 240] # the screen's presets; any other positive value is "custom"
 const MAX_FPS_LIMIT := 1000
-const SCALERS := ["bilinear", "fsr", "fsr2"]
+const SCALERS := ["bilinear", "fsr", "fsr2", "metalfx"]
+const MOBILE_DEFAULTS := {"render_scale": 0.67, "scaler": "metalfx", "max_fps": 60}
 const SCALE_MIN := 0.5
 const SCALE_MAX := 1.0
 ## lane OWNERFIX-1: the anti-aliasing option's TAA is FSR 2's temporal anti-aliasing at the render scale in effect (game_options.gd sets this): the
@@ -44,6 +50,13 @@ var show_fps := false
 var render_scale := 1.0
 var scaler := "bilinear"
 var errors := PackedStringArray()
+
+
+func _init() -> void:
+	if OS.has_feature("mobile"):
+		render_scale = MOBILE_DEFAULTS.render_scale
+		scaler = MOBILE_DEFAULTS.scaler
+		max_fps = MOBILE_DEFAULTS.max_fps
 
 
 static func default_path() -> String:
@@ -243,10 +256,16 @@ static func renderer() -> String:
 static func scalers_for(method: String) -> Array:
 	match method:
 		"forward_plus":
-			return ["bilinear", "fsr", "fsr2"]
+			return ["bilinear", "fsr", "fsr2"] + (["metalfx"] if metalfx_available() else [])
 		"mobile":
-			return ["bilinear", "fsr"]
+			return ["bilinear"] + (["metalfx"] if metalfx_available() else [])
 	return ["bilinear"]
+
+
+## lane IOS-7: MetalFX spatial upscaling: Metal's rendering device on a GPU that has it (Apple silicon, recent iPhones and iPads)
+static func metalfx_available() -> bool:
+	var rd := RenderingServer.get_rendering_device()
+	return rd != null and rd.has_feature(RenderingDevice.SUPPORTS_METALFX_SPATIAL)
 
 
 ## The Resolution list: the common sizes that fit on a screen of `screen_size`, the screen's own size and `current` (the window's), ascending. A screen
@@ -281,6 +300,8 @@ static func scaling_mode_of(name: String) -> int:
 			return Viewport.SCALING_3D_MODE_FSR
 		"fsr2":
 			return Viewport.SCALING_3D_MODE_FSR2
+		"metalfx":
+			return Viewport.SCALING_3D_MODE_METALFX_SPATIAL
 	return Viewport.SCALING_3D_MODE_BILINEAR
 
 

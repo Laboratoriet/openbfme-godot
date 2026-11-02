@@ -91,7 +91,9 @@ func _settings_checks() -> void:
 	_check(list.has(Vector2i(1920, 1080)) and list.has(Vector2i(1500, 1000)) and list.has(Vector2i(1280, 720)) and not list.has(Vector2i(2560, 1440))
 		and list.front() == Vector2i(800, 600) and list.back() == Vector2i(1920, 1080), "the Resolution list of a 1920 x 1080 monitor: %s" % str(list))
 	_check(DisplaySettings.resolutions(Vector2i.ZERO, Vector2i(64, 64)).size() == DisplaySettings.COMMON_RESOLUTIONS.size() + 1, "no monitor known: every common size")
-	_check(DisplaySettings.scalers_for("forward_plus") == ["bilinear", "fsr", "fsr2"] and DisplaySettings.scalers_for("mobile") == ["bilinear", "fsr"]
+	# lane IOS-7: MetalFX where the rendering device has it (none headless); Godot 4.7.2's Mobile renderer has no FSR (renderer_viewport.cpp)
+	var mfx: Array = ["metalfx"] if DisplaySettings.metalfx_available() else []
+	_check(DisplaySettings.scalers_for("forward_plus") == ["bilinear", "fsr", "fsr2"] + mfx and DisplaySettings.scalers_for("mobile") == ["bilinear"] + mfx
 		and DisplaySettings.scalers_for("gl_compatibility") == ["bilinear"], "the scalers of Forward+, Mobile and Compatibility")
 	_check(DisplaySettings.window_mode_of("borderless") == Window.MODE_FULLSCREEN and DisplaySettings.window_mode_of("fullscreen") == Window.MODE_EXCLUSIVE_FULLSCREEN
 		and DisplaySettings.window_mode_of("windowed") == Window.MODE_WINDOWED, "borderless is Godot's fullscreen, fullscreen its exclusive fullscreen")

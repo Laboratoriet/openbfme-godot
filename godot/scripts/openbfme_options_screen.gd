@@ -91,7 +91,7 @@ const OWN_RETAIL_KEYS := ["AlternateMouseSetup"]
 const SUBTITLE := "OPENBFME SETTINGS"
 const WINDOW_MODE_LABELS := {"windowed": "Windowed", "borderless": "Borderless window", "fullscreen": "Fullscreen"}
 const VSYNC_ITEMS := [["on", "On"], ["off", "Off"], ["adaptive", "Adaptive"]]
-const SCALER_LABELS := {"bilinear": "Bilinear", "fsr": "AMD FSR 1", "fsr2": "AMD FSR 2"}
+const SCALER_LABELS := {"bilinear": "Bilinear", "fsr": "AMD FSR 1", "fsr2": "AMD FSR 2", "metalfx": "Apple MetalFX"}
 const RENDERER_LABELS := {"forward_plus": "Forward+", "mobile": "Mobile", "gl_compatibility": "Compatibility"}
 const SCALE_STEP := 5
 
