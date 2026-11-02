@@ -18,6 +18,7 @@ run/max_fps=0
 [autoload]
 
 Release="*res://scripts/release/release.gd"
+TouchControls="*res://scripts/touch/touch_controls.gd"
 
 [debug]
 
@@ -28,6 +29,8 @@ file_logging/enable_file_logging.pc=false
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+; lane IOS-3: phones and tablets turn the game with the device between the two landscape orientations (desktops ignore it)
+window/handheld/orientation=4
 
 [rendering]
 

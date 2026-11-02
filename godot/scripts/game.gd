@@ -2942,7 +2942,9 @@ func _alternate_mouse_setup() -> bool:
 		return false
 	var v = _shell.get_option("AlternateMouseSetup") if _shell != null and _shell.has_method("get_option") else null
 	if v == null:
-		return true
+		# lane IOS-2: on touch, a player who never chose takes the retail option's other setup, the left click (a tap) orders: an order by a
+		# hold (the touch right click) would cost half a second each. The option in Options.ini still decides once it is set.
+		return not TouchControls.is_active()
 	return str(v) != "yes"
 
 
