@@ -136,6 +136,9 @@ public:
 	GameWindow *winGetCapture() { return m_mouseCaptor; }
 	GameWindow *winGetFocus() { return m_keyboardFocus; }
 	int winSetFocus(GameWindow *window);
+	// lane IOS-5 (OpenBFME, not ZH): counts the winSetFocus calls that ran (a click on the entry that has the focus counts again); the device's
+	// on-screen keyboard follows it
+	std::uint32_t winFocusSerial() const { return m_focusSerial; }
 	int winSetModal(GameWindow *window);
 	int winUnsetModal(GameWindow *window);
 	GameWindow *winGetGrabWindow() { return m_grabWindow; }
@@ -223,6 +226,7 @@ private:
 	GameWindow *m_windowTail = nullptr;
 	GameWindow *m_mouseCaptor = nullptr;
 	GameWindow *m_keyboardFocus = nullptr;
+	std::uint32_t m_focusSerial = 0; // lane IOS-5: winFocusSerial
 	GameWindow *m_grabWindow = nullptr;
 	GameWindow *m_currMouseRgn = nullptr;
 	GameWindow *m_loneWindow = nullptr;

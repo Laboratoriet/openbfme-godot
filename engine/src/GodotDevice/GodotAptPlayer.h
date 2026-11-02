@@ -137,6 +137,10 @@ public:
 	bool menu_escape(bool pressed);
 	void menu_pointer_moved();
 	Dictionary menu_nav_state();
+	// lane IOS-5 (OpenBFME, not retail): the text entry with the gadgets' keyboard focus, for the device's on-screen keyboard (scripts/touch/
+	// virtual_keyboard.gd): { focused, text, max_length, numeric, secret, rect (window), serial }. The signal text_entry_focus(focused, text,
+	// max_length) comes from _process when the entry or GameWindowManager::winFocusSerial changed (a click on the focused entry is a new focus)
+	Dictionary text_entry_state();
 	String hit_test_stage(const Vector2 &stage);
 	Dictionary gadget_pick(const Vector2 &stage);
 	void _ready() override;
@@ -513,6 +517,8 @@ private:
 	Vector2 windowSize() const;
 	bool menuKey(const InputEventKey *key); // lane OPTS-6: the menus' keys (_input, menu_input)
 	void syncNav() const;                   // lane OPTS-6: the navigator follows the menu that has the input
+	GameWindow *focusedTextEntry() const;   // lane IOS-5: text_entry_state's entry (null: none)
+	void emitTextEntryFocus();              // lane IOS-5: text_entry_focus on a change
 };
 
 } // namespace godot

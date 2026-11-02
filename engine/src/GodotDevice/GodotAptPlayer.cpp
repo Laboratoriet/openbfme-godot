@@ -801,6 +801,9 @@ struct AptMenuPlayer::Impl
 	WindowManager *external = nullptr;
 	AptNativeHook *nativeHook = nullptr;
 	bool inputForwarded = false;
+	// lane IOS-5: the focused text entry text_entry_focus last reported (compared, never dereferenced) and the focus serial then
+	const GameWindow *keyboardEntry = nullptr;
+	std::uint32_t keyboardSerial = 0;
 	std::shared_ptr<GodotMouse> godotMouse;
 	bool openbfmeAvailable = false; // lane OPTS-3: set_openbfme_available
 	std::unique_ptr<AptTextureStore> textures;
@@ -1436,6 +1439,8 @@ void AptMenuPlayer::_bind_methods()
 	ADD_SIGNAL(MethodInfo("shell_service", PropertyInfo(Variant::STRING, "kind"), PropertyInfo(Variant::STRING, "a"), PropertyInfo(Variant::STRING, "b")));
 	ADD_SIGNAL(MethodInfo("shell_request", PropertyInfo(Variant::STRING, "action"), PropertyInfo(Variant::STRING, "argument")));
 	ADD_SIGNAL(MethodInfo("shell_screen", PropertyInfo(Variant::STRING, "filename")));
+	ClassDB::bind_method(D_METHOD("text_entry_state"), &AptMenuPlayer::text_entry_state); // lane IOS-5
+	ADD_SIGNAL(MethodInfo("text_entry_focus", PropertyInfo(Variant::BOOL, "focused"), PropertyInfo(Variant::STRING, "text"), PropertyInfo(Variant::INT, "max_length")));
 	ClassDB::bind_method(D_METHOD("take_events"), &AptMenuPlayer::take_events);
 	ClassDB::bind_method(D_METHOD("get_stats"), &AptMenuPlayer::get_stats);
 	ClassDB::bind_method(D_METHOD("reset_timing"), &AptMenuPlayer::reset_timing);
@@ -1510,6 +1515,7 @@ void AptMenuPlayer::_process(double delta)
 	m->view3d.advance(); // lane UI-2
 	advanceMovies(delta * 1000.0); // lane CAMP-2
 	takeCreateAHeroPicture(); // lane CAHPIC-1
+	emitTextEntryFocus();     // lane IOS-5
 }
 
 void AptMenuPlayer::takeCreateAHeroPicture()
@@ -6371,6 +6377,70 @@ Dictionary AptMenuPlayer::menu_nav_state()
 	return r;
 }
 
+GameWindow *AptMenuPlayer::focusedTextEntry() const
+{
+	// lane IOS-5: the window GameWindowManager::winProcessChar gives the typed characters (the keyboard focus) when it is a text entry, or the edit box
+	// of an editable combo box (the online login's nickname, AptOnlineShell). A hidden one takes none from the player (windowHiding clears the focus)
+	if (!m_booted || !m->shell || !m->shell->layer)
+	{
+		return nullptr;
+	}
+	GameWindow *w = m->shell->layer->gadgets().winGetFocus();
+	if (w && BitTest(w->winGetStyle(), GWS_COMBO_BOX))
+	{
+		const ComboBoxData *c = static_cast<const ComboBoxData *>(w->winGetUserData());
+		w = c && c->isEditable ? c->editBox : nullptr;
+	}
+	if (!w || !BitTest(w->winGetStyle(), GWS_ENTRY_FIELD) || BitTest(w->winGetStatus(), WIN_STATUS_DESTROYED) || w->winIsHidden() || !w->winGetUserData())
+	{
+		return nullptr;
+	}
+	return w;
+}
+
+Dictionary AptMenuPlayer::text_entry_state()
+{
+	Dictionary r;
+	GameWindow *w = focusedTextEntry();
+	r["focused"] = w != nullptr;
+	r["serial"] = m->shell && m->shell->layer ? (int64_t)m->shell->layer->gadgets().winFocusSerial() : (int64_t)0;
+	if (!w)
+	{
+		return r;
+	}
+	const EntryData *e = static_cast<const EntryData *>(w->winGetUserData());
+	r["text"] = toGodot(u16ToUtf8(e->text));
+	r["max_length"] = (int64_t)e->maxTextLen;
+	r["numeric"] = e->numericalOnly;
+	r["secret"] = e->secretText;
+	int x = 0, y = 0, width = 0, height = 0;
+	w->winGetScreenPosition(&x, &y); // the gadgets' screen is the stage
+	w->winGetSize(&width, &height);
+	const Vector2 a = stage_to_window(Vector2((float)x, (float)y));
+	const Vector2 b = stage_to_window(Vector2((float)(x + width), (float)(y + height)));
+	r["rect"] = Rect2(a, b - a);
+	return r;
+}
+
+void AptMenuPlayer::emitTextEntryFocus()
+{
+	GameWindow *w = focusedTextEntry();
+	const std::uint32_t serial = m->shell && m->shell->layer ? m->shell->layer->gadgets().winFocusSerial() : 0;
+	if (w == m->keyboardEntry && (!w || serial == m->keyboardSerial))
+	{
+		return;
+	}
+	m->keyboardEntry = w;
+	m->keyboardSerial = serial;
+	if (!w)
+	{
+		emit_signal("text_entry_focus", false, String(), (int64_t)0);
+		return;
+	}
+	const EntryData *e = static_cast<const EntryData *>(w->winGetUserData());
+	emit_signal("text_entry_focus", true, toGodot(u16ToUtf8(e->text)), (int64_t)e->maxTextLen);
+}
+
 bool AptMenuPlayer::menuKey(const InputEventKey *key)
 {
 	// lane CHAT-1: the chat window's input procedure (RW 0x8ECB8F) sees the key before the entry: Esc, Ctrl+Enter (the rest goes on to the entry below)
@@ -6567,8 +6637,11 @@ bool AptMenuPlayer::menuKey(const InputEventKey *key)
 				{
 					m->shell->wm->postTextInput(u'\r');
 				}
-				else if (key->get_unicode() >= 32 && key->get_unicode() != 127)
+				else if (key->get_unicode() >= 32 && key->get_unicode() != 127 && key->get_unicode() <= 0xFFFF)
 				{
+					// lane IOS-5: a character beyond U+FFFF (the iOS keyboard's emoji) is not posted: cut to 16 bits it was a wrong character, and as a
+					// UTF-16 pair the entry's Backspace (GadgetTextEntryInput, one unit) would leave half of it. INFERENCE: RotWK's IME path was not read
+					// (S-3502); the on-screen keyboard is given the entry's text again (scripts/touch/virtual_keyboard.gd), so the refusal shows
 					m->shell->wm->postTextInput((char16_t)key->get_unicode());
 				}
 			}

@@ -595,6 +595,7 @@ int GameWindowManager::winSetFocus(GameWindow *window)
 	{
 		return 0;
 	}
+	++m_focusSerial; // lane IOS-5 (not ZH)
 	if (m_keyboardFocus && m_keyboardFocus != window)
 	{
 		bool wf = false;

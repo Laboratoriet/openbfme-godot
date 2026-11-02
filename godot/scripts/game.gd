@@ -1470,6 +1470,7 @@ func _boot() -> void:
 	_menu_pad = load("res://scripts/menu_pad.gd").new(_shell) # lane OPTS-6: the game controller in the menus
 	_menu_pad.start_lobby = _controller_start_lobby
 	add_child(_menu_pad)
+	add_child(load("res://scripts/touch/virtual_keyboard.gd").new(_shell)) # lane IOS-5: the on-screen keyboard for the text entries (mobile only)
 	_save_flow = load("res://scripts/save_flow.gd").new(self) # lane SAVE-2
 	# lane FB7-1: the Options screen's inputs the device knows (AptSimpleScreens.h): the AudioSettings default volumes and the display modes (Godot lists
 	# no adapter modes: the screen's size and the window's; S-1913); the addresses come from the native LAN transport
