@@ -276,7 +276,9 @@ float TacticalCamera::verticalFov() const
 	const double aspect = (double)s.x / (double)s.y;
 	// lane UI-6: the Widescreen view's Wider keeps the view plane height a 4:3 screen has (half height = tan(hfov / 2) * 3 / 4) beyond 4:3
 	const double kFourThree = 4.0 / 3.0;
-	const double divisor = (m_widescreenWider && aspect > kFourThree) ? kFourThree : aspect;
+	// lane IOS-3 (OpenBFME presentation, not retail): a portrait viewport keeps that 4:3 height too. With retail's fixed 50-degree horizontal
+	// view a phone held upright would see far past the horizon (about 67 degrees vertically); it sees what a 4:3 screen sees, narrowed
+	const double divisor = ((m_widescreenWider && aspect > kFourThree) || aspect < 1.0) ? kFourThree : aspect;
 	return (float)(2.0 * std::atan(std::tan((double)m_fov * 0.5) / divisor));
 }
 

@@ -1671,6 +1671,18 @@ func _sdk_show_banner(text: String) -> void:
 	_sdk_banner_tween.tween_property(_sdk_banner, "modulate:a", 0.0, 0.8)
 
 
+## lane IOS-3 (OpenBFME presentation, not retail): the front-end menus are drawn uniformly scaled and centred (the shell's Fit mapping) while
+## the window is taller than wide, a phone or tablet held upright; retail's independent x / y scale (S-130) would squeeze a 4:3 menu into a
+## narrow column. A game keeps the Stretch mapping: the HUD shares this player and has its own portrait correction (AptPalantir).
+func _portrait_menus_tick() -> void:
+	if _shell == null:
+		return
+	var size := get_viewport().get_visible_rect().size
+	var fit := size.y > size.x and _state != State.PLAYING and _state != State.STRATEGIC
+	if _shell.fit != fit:
+		_shell.fit = fit
+
+
 func _process(delta: float) -> void:
 	_frames += 1
 	if _platform_ready:
@@ -1678,6 +1690,7 @@ func _process(delta: float) -> void:
 	if not _capture_dir.is_empty():
 		_capture_tick() # lane ONLINE-4
 	Release.set_in_game(_state == State.PLAYING) # lane RELEASE-1: the version corner in the menus only
+	_portrait_menus_tick() # lane IOS-3
 	_campaign_check_tick() # lane CAMP-1
 	if _wotr_preview != null and (_state == State.MENU or _wotr_preview.view.visible) and _frames % 3 == 0:
 		_wotr_preview.tick() # lane WOTR-2: shown while the strategic setup's LivingWorld gadget is on screen

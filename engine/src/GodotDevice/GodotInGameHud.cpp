@@ -1117,7 +1117,9 @@ void HudDevice::applyCamera(const Vector2 &window, double alpha)
 	// retail: horizontal field of view 50 degrees (View + 0x6C), near 10, far 1800 (RW 0x48B7B1); the view plane's height follows the viewport aspect.
 	// lane UI-6: the Widescreen view's Wider widens the horizontal angle beyond 4:3 (TacticalCamera::setWidescreenView; Original is retail's 50 degrees)
 	camera->set_keep_aspect_mode(Camera3D::KEEP_WIDTH);
-	const float hfov = cam->widescreenView() ? cam->viewHorizontalFov() : cam->horizontalFov();
+	// lane IOS-3: a portrait window draws the narrowed view TacticalCamera::verticalFov gives it (picking uses the same view)
+	const bool portrait = window.y > window.x;
+	const float hfov = (cam->widescreenView() || portrait) ? cam->viewHorizontalFov() : cam->horizontalFov();
 	camera->set_fov((real_t)(hfov * 180.0f / 3.14159265f));
 	camera->set_near((real_t)cam->nearPlane());
 	camera->set_far((real_t)cam->farPlane());

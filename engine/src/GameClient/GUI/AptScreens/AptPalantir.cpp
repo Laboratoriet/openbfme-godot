@@ -898,6 +898,11 @@ void AptPalantir::setViewportSize(int width, int height)
 		return;
 	}
 	const float scale = std::min(1.0f, ((float)height / stageHeight) / ((float)width / stageWidth));
+	// lane IOS-3 (OpenBFME presentation, not retail): a portrait viewport (a phone or tablet held upright) is the widescreen case turned on its
+	// side: the stage's Y scale outgrows its X scale and the Palantir would stretch tall. The HUD then takes the width-derived scale in both
+	// axes, kept at the bottom edge (the Palantir's, the construction bar's lower end). Landscape viewports, 4:3 and narrower included, keep
+	// a vertical factor of 1 (unchanged; hud2 palantir: widescreen*).
+	const float vscale = width < height ? std::min(1.0f, ((float)width / stageWidth) / ((float)height / stageHeight)) : 1.0f;
 	for (AptCharacterInst *child : root->children())
 	{
 		const std::string &name = child->instName();
@@ -906,6 +911,7 @@ void AptPalantir::setViewportSize(int width, int height)
 			continue;
 		}
 		float anchor = 0.0f;
+		float anchorY = stageHeight;
 		if (name == "SideCommandBar")
 		{
 			anchor = stageWidth;
@@ -913,9 +919,12 @@ void AptPalantir::setViewportSize(int width, int height)
 		else if (name == "planningModeUI")
 		{
 			anchor = stageWidth * 0.5f;
+			anchorY = 0.0f;
 		}
 		child->viewportTransform.a = scale;
 		child->viewportTransform.tx = anchor * (1.0f - scale);
+		child->viewportTransform.d = vscale;
+		child->viewportTransform.ty = anchorY * (1.0f - vscale);
 	}
 }
 
