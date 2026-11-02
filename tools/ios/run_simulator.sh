@@ -34,6 +34,8 @@ elif ! lipo -info "$SIM_SLICE" | grep -q arm64; then
     exit 1
 fi
 
+"$ROOT/tools/ios/patch_export.sh" "$OUT/export" "$SCHEME"
+
 xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug -sdk iphonesimulator -arch arm64 \
     -derivedDataPath "$OUT/derived" CODE_SIGNING_ALLOWED=NO build
 APP=$(find "$OUT/derived/Build/Products" -maxdepth 2 -name "*.app" | head -1)
@@ -53,4 +55,12 @@ if [ -n "${ROTWK_INSTALL:-}" ] && [ -n "${BFME2_INSTALL:-}" ]; then
     echo "IOS game folders written to $DATA/Documents/install-paths.cfg"
 fi
 
-xcrun simctl launch --console-pty "$DEVICE" "$BUNDLE_ID" "$@"
+# Godot's own output does not reach the console on iOS; the game's session log is in the app's Documents/logs (the path is printed).
+# Game arguments go after Godot's "--", as on the desktop (OS.get_cmdline_user_args).
+if [ $# -gt 0 ]; then
+    # simctl passes "--" on unchanged: it is Godot's, the game's arguments follow it
+    xcrun simctl launch --terminate-running-process "$DEVICE" "$BUNDLE_ID" -- "$@"
+else
+    xcrun simctl launch --terminate-running-process "$DEVICE" "$BUNDLE_ID"
+fi
+echo "IOS session logs: $(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)/Documents/logs"
