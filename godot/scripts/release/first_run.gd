@@ -10,6 +10,11 @@
 ## Test hooks (the fresh-user test, godot/tests/first_run_test.gd), also headless: test_pick {accept: true} takes the first discovered folders
 ## that pass the check; {rotwk, bfme2} picks those folders. Every step prints a FIRST RUN line; a rejected pick ends the run with ok false.
 ## --first-run-shot=FILE (windowed): save the screen as it first appears to FILE and quit (the media, the layout check).
+##
+## Lane IOS-4, iPhone / iPad: an app reads only its own folders and Godot's folder dialog cannot pick one elsewhere, so there is no Browse.
+## The screen says how to copy the two game folders into the app's Documents folder (the Files app's "On My iPhone > OpenBFME") as RotWK
+## and BFME2, shows the check of what is there, and looks again when the player comes back to the app (or taps Look again). They are not
+## remembered as paths: Release finds them on every start (InstallLocator.h "iOS"). No Quit button: an iOS app is not quit by itself.
 extends CanvasLayer
 
 signal finished(result: Dictionary)
@@ -26,6 +31,11 @@ var _start: Button
 var _dialog: FileDialog
 var _dialog_target: LineEdit
 var _checked_ok := false
+# lane IOS-4
+var _ios := OS.has_feature("ios")
+var _frame: Control            # iOS: the screen laid out in points and scaled to the display's pixels
+var _margin: MarginContainer   # iOS: kept clear of the notch / home indicator (the display's safe area)
+var _mounting := false         # the full check is running: coming back to the app must not look again over it
 
 
 func run(fs: RefCounted, setup: RefCounted, problem: String, test_pick: Dictionary) -> Dictionary:
@@ -87,6 +97,10 @@ func _mount_and_remember(rotwk: String, bfme2: String) -> Dictionary:
 		for e in mount.errors:
 			print("FIRST RUN mount error: ", e)
 		return mount
+	if _ios:
+		# lane IOS-4: found again on every start instead (iOS may move the app's container, which would break a remembered path)
+		print("FIRST RUN not remembered: on iOS the folders in the app's Documents folder are found on every start")
+		return mount
 	var saved: Dictionary = _setup.remember(rotwk, bfme2)
 	print("FIRST RUN remembered: %s %s" % [str(saved.ok), saved.error])
 	if not saved.ok:
@@ -97,28 +111,50 @@ func _mount_and_remember(rotwk: String, bfme2: String) -> Dictionary:
 # ---- the screen ----------------------------------------------------------------------------------------------------------------------------
 
 func _build_ui(problem: String) -> void:
+	var root: Node = self
+	if _ios:
+		_frame = Control.new()
+		add_child(_frame)
+		root = _frame
 	var back := ColorRect.new()
 	back.color = Color(0.06, 0.06, 0.07)
 	back.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(back)
+	root.add_child(back)
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 48)
-	add_child(margin)
+	root.add_child(margin)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
-	margin.add_child(box)
+	if _ios:
+		# lane IOS-4: the steps are longer than a phone held upright is tall
+		_margin = margin
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		margin.add_child(scroll)
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.add_child(box)
+		_fit_frame()
+		get_viewport().size_changed.connect(_fit_frame)
+	else:
+		margin.add_child(box)
 
 	var title := Label.new()
 	title.text = "OpenBFME - choose your game folders"
+	if _ios:
+		title.text = "OpenBFME - copy your game folders"
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.add_theme_font_size_override("font_size", 28)
 	box.add_child(title)
 	var intro := Label.new()
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	intro.text = ("OpenBFME plays on your own copy of the game: The Rise of the Witch-king patched to 2.01 and The Battle for Middle-earth II "
-		+ "patched to 1.06, in any language. They stay where they are; OpenBFME only reads them and never changes them.\n"
-		+ "Choose the two folders that hold the games' .big files. Folders found on this computer are offered below.")
+	if _ios:
+		intro.text = _ios_steps()
+	else:
+		intro.text = ("OpenBFME plays on your own copy of the game: The Rise of the Witch-king patched to 2.01 and The Battle for Middle-earth II "
+			+ "patched to 1.06, in any language. They stay where they are; OpenBFME only reads them and never changes them.\n"
+			+ "Choose the two folders that hold the games' .big files. Folders found on this computer are offered below.")
 	box.add_child(intro)
 	if not problem.is_empty():
 		var warn := Label.new()
@@ -127,12 +163,27 @@ func _build_ui(problem: String) -> void:
 		warn.text = problem
 		box.add_child(warn)
 
-	var rows := [["The Rise of the Witch-king 2.01", "rotwk"], ["The Battle for Middle-earth II 1.06", "bfme2"]]
+	var rows := [["The Rise of the Witch-king 2.01", "rotwk", "RotWK"], ["The Battle for Middle-earth II 1.06", "bfme2", "BFME2"]]
 	for row in rows:
 		var label := Label.new()
 		label.text = row[0]
 		label.add_theme_font_size_override("font_size", 18)
 		box.add_child(label)
+		if _ios:
+			# lane IOS-4: each game has one place; the edit (hidden: the container path means nothing to the player) holds the folder found
+			var place := Label.new()
+			place.text = "%s > OpenBFME > %s" % [_ios_place(), row[2]]
+			place.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
+			box.add_child(place)
+			var held := LineEdit.new()
+			held.visible = false
+			held.text = _first_found(row[1])
+			box.add_child(held)
+			if row[1] == "rotwk":
+				_rotwk_edit = held
+			else:
+				_bfme2_edit = held
+			continue
 		var found := OptionButton.new()
 		found.fit_to_longest_item = false # a long path must not push the screen wider than the window
 		found.clip_text = true
@@ -182,13 +233,19 @@ func _build_ui(problem: String) -> void:
 
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_END
-	var quit := Button.new()
-	quit.text = "Quit"
-	quit.pressed.connect(func(): finished.emit({"ok": false, "quit": true, "errors": ["the player quit on the first-run screen"]}))
+	if _ios:
+		var again := Button.new()
+		again.text = "Look again"
+		again.pressed.connect(_look_again)
+		buttons.add_child(again)
+	else:
+		var quit := Button.new()
+		quit.text = "Quit"
+		quit.pressed.connect(func(): finished.emit({"ok": false, "quit": true, "errors": ["the player quit on the first-run screen"]}))
+		buttons.add_child(quit)
 	_start = Button.new()
 	_start.text = "Use these folders"
 	_start.pressed.connect(_on_start)
-	buttons.add_child(quit)
 	buttons.add_child(_start)
 	box.add_child(buttons)
 	var version := Label.new()
@@ -196,6 +253,9 @@ func _build_ui(problem: String) -> void:
 	version.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
 	box.add_child(version)
 
+	if _ios:
+		_recheck()
+		return
 	_dialog = FileDialog.new()
 	_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
 	_dialog.access = FileDialog.ACCESS_FILESYSTEM
@@ -226,9 +286,13 @@ func _recheck() -> void:
 	_checked_ok = r.ok
 	_start.disabled = not r.ok
 	var t := ""
-	for game in [["rotwk", "The Rise of the Witch-king"], ["bfme2", "The Battle for Middle-earth II"]]:
+	for game in [["rotwk", "The Rise of the Witch-king", "RotWK"], ["bfme2", "The Battle for Middle-earth II", "BFME2"]]:
 		var g: Dictionary = r[game[0]]
-		if g.ok:
+		var held: LineEdit = _rotwk_edit if game[0] == "rotwk" else _bfme2_edit
+		if _ios and held.text.is_empty():
+			# lane IOS-4: not copied yet (or under another name): the check's "no folder chosen" would ask for a choice there is no way to make
+			t += "[color=#f98]%s: no folder named %s in %s > OpenBFME yet[/color]\n" % [game[1], game[2], _ios_place()]
+		elif g.ok:
 			# issue #49: the language the folder holds (the game plays in it; the launcher's Game files screen downloads another)
 			# PR #77: the language and file names come from the disk: "[" is escaped so a name cannot add BBCode to this RichTextLabel
 			var lang := String(g.get("language", "")).replace("[", "[lb]")
@@ -249,10 +313,12 @@ func _on_start() -> void:
 	if not _checked_ok:
 		return
 	_start.disabled = true
+	_mounting = true
 	_status.text = "Checking every game file (the first time this can take a minute)..."
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var mount := _mount_and_remember(_rotwk_edit.text, _bfme2_edit.text)
+	_mounting = false
 	if mount.ok:
 		finished.emit(mount)
 		return
@@ -261,3 +327,69 @@ func _on_start() -> void:
 		t += "[color=#f98]%s[/color]\n" % e
 	_status.text = t
 	_start.disabled = false
+
+
+# ---- lane IOS-4: iPhone / iPad -------------------------------------------------------------------------------------------------------------
+
+func _notification(what: int) -> void:
+	# back from the Files app or Finder (iOS sends this when the app becomes active again): look again by itself
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN and _ios and _status != null:
+		_look_again()
+
+
+func _look_again() -> void:
+	if _mounting:
+		return
+	_found = _setup.discover()
+	print("FIRST RUN looking again: %d folders found" % _found.size())
+	for c in _found:
+		print(Release.info.redact("FIRST RUN found %s: %s (%s) %s" % [c.game, c.path, c.source, "ok" if c.ok else "rejected: " + "; ".join(c.errors)]))
+	_rotwk_edit.text = _first_found("rotwk")
+	_bfme2_edit.text = _first_found("bfme2")
+	_recheck()
+
+
+# the folder discover() found for `game`, usable or not (on iOS there is one place per game: its check says what is wrong); "" = none
+func _first_found(game: String) -> String:
+	for c in _found:
+		if c.game == game:
+			return c.path
+	return ""
+
+
+# the Files app's name for the device's own storage (OS.get_model_name() is the hardware id, e.g. "iPhone17,1" or "iPad16,3")
+func _ios_device() -> String:
+	return "iPad" if OS.get_model_name().begins_with("iPad") else "iPhone"
+
+
+func _ios_place() -> String:
+	return "On My " + _ios_device()
+
+
+func _ios_steps() -> String:
+	var device := _ios_device()
+	return ("OpenBFME plays on your own copy of the game: The Rise of the Witch-king patched to 2.01 and The Battle for Middle-earth II "
+		+ "patched to 1.06, in any language. OpenBFME only reads the files and never changes them. An %s app can only open its own "
+		+ "folder, so copy the two game folders into it:\n"
+		+ "1. Take each game's whole folder: the one that holds its .big files, with every folder inside it (apt, lang and the rest). "
+		+ "Together they need about 9 GB free.\n"
+		+ "2. From a Mac: connect this %s, select it in Finder, open Files and drag both folders onto OpenBFME. Or in the Files app: "
+		+ "copy them from iCloud Drive or a USB drive into %s > OpenBFME.\n"
+		+ "3. Name the folders exactly RotWK and BFME2.\n"
+		+ "4. Come back here: OpenBFME looks again by itself (or tap Look again). When both are found, tap Use these folders.") % [
+		device, device, _ios_place()]
+
+
+# The window is the display's own pixels (IOS-3: native size), so this screen is laid out in points (pixels / the display's scale) and
+# scaled up, its margins widened by the safe area's insets (the notch / Dynamic Island, the home indicator). Again on rotation.
+func _fit_frame() -> void:
+	var s := maxf(1.0, DisplayServer.screen_get_scale())
+	var view := get_viewport().get_visible_rect().size
+	_frame.scale = Vector2(s, s)
+	_frame.size = view / s
+	var safe := Rect2(DisplayServer.get_display_safe_area())
+	var insets := {"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0}
+	if safe.has_area():
+		insets = {"left": safe.position.x, "top": safe.position.y, "right": view.x - safe.end.x, "bottom": view.y - safe.end.y}
+	for side in insets:
+		_margin.add_theme_constant_override("margin_" + side, int(24.0 + maxf(0.0, insets[side]) / s))

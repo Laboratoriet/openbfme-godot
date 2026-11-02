@@ -601,6 +601,17 @@ bool readDownloaded(const std::string &markerPath, Downloaded &out, std::string 
 	return true;
 }
 
+const char *const kAppDocumentsRotwk = "RotWK";
+const char *const kAppDocumentsBfme2 = "BFME2";
+
+std::string appDocumentsFolder(const std::string &documents, const std::string &game)
+{
+	if (documents.empty() || (game != kRotwk && game != kBfme2))
+		return std::string();
+	const fs::path folder = childCaseInsensitive(PathIO::native(stripTrailingSeparators(documents)), game == kRotwk ? kAppDocumentsRotwk : kAppDocumentsBfme2);
+	return isDir(folder) ? folder.u8string() : std::string();
+}
+
 std::vector<Candidate> discover(const DiscoveryEnvironment &e)
 {
 	Collector c;
@@ -610,6 +621,19 @@ std::vector<Candidate> discover(const DiscoveryEnvironment &e)
 	{
 		c.add(kRotwk, PathIO::native(downloaded.rotwk), "downloaded by the OpenBFME launcher (" + downloaded.source + ")");
 		c.add(kBfme2, PathIO::native(downloaded.bfme2), "downloaded by the OpenBFME launcher (" + downloaded.source + ")");
+	}
+	// lane IOS-4: an iOS app reads only its own folders, so the folders the player copied into its Documents folder are the only places
+	// to look (no registry, no Wine prefix: the app's HOME is its own container)
+	if (!e.appDocuments.empty())
+	{
+		for (const char *game : { kRotwk, kBfme2 })
+		{
+			const std::string folder = appDocumentsFolder(e.appDocuments, game);
+			if (!folder.empty())
+				c.add(game, PathIO::native(folder), std::string("copied into the app's Documents folder (Files: On My iPhone > OpenBFME > ") +
+					(game == std::string(kRotwk) ? kAppDocumentsRotwk : kAppDocumentsBfme2) + ")");
+		}
+		return c.out;
 	}
 	if (e.windows)
 	{
@@ -831,7 +855,7 @@ std::vector<InstallCheck> checkPair(const std::string &rotwkRoot, const std::str
 	return out;
 }
 
-Configured configured(const std::string &configPath)
+Configured configured(const std::string &configPath, const std::string &appDocuments)
 {
 	Configured c;
 	c.source = "none";
@@ -845,6 +869,21 @@ Configured configured(const std::string &configPath)
 	bool b = ResolveInstallPath("BFME2_INSTALL", configPath, c.bfme2, &error);
 	if (c.source == "none" && r && b)
 		c.source = "config";
+	// lane IOS-4: nothing set or remembered (iOS): the two folders the player copied into the app's Documents folder, when both are there.
+	// The fixed place is the player's choice, as the config file is on the desktop, and the mount checks them like any other pick. They
+	// are found again on every start, not remembered as a path: iOS may move the app's data container (a new path after an update or a
+	// restore), which would make a remembered path a "folders do not work any more" error.
+	if (c.source == "none" && c.rotwk.empty() && c.bfme2.empty() && !appDocuments.empty())
+	{
+		const std::string rotwk = appDocumentsFolder(appDocuments, kRotwk);
+		const std::string bfme2 = appDocumentsFolder(appDocuments, kBfme2);
+		if (!rotwk.empty() && !bfme2.empty())
+		{
+			c.source = "documents";
+			c.rotwk = rotwk;
+			c.bfme2 = bfme2;
+		}
+	}
 	return c;
 }
 

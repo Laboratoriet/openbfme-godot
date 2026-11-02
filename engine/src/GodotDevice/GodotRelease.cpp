@@ -59,6 +59,15 @@ std::string downloadedMarker()
 	return toNative(ProjectSettings::get_singleton()->globalize_path(String("user://") + InstallLocator::kDownloadedMarkerName));
 }
 
+// lane IOS-4: on iOS the app's Documents folder (user://), where the player copies the game folders (InstallLocator.h "iOS"); "" on every
+// other platform, which keeps the desktop discovery and configuration as they were. The same test as first_run.gd's (OS feature "ios").
+std::string appDocuments()
+{
+	if (!OS::get_singleton()->has_feature("ios"))
+		return std::string();
+	return toNative(ProjectSettings::get_singleton()->globalize_path("user://"));
+}
+
 PackedStringArray toArray(const std::vector<std::string> &v)
 {
 	PackedStringArray out;
@@ -394,7 +403,7 @@ String InstallSetup::config_path() const
 
 Dictionary InstallSetup::configured() const
 {
-	InstallLocator::Configured c = InstallLocator::configured(configFile());
+	InstallLocator::Configured c = InstallLocator::configured(configFile(), appDocuments());
 	Dictionary d;
 	d["source"] = toGodot(c.source);
 	d["rotwk"] = toGodot(c.rotwk);
@@ -424,6 +433,7 @@ Array InstallSetup::discover() const
 	InstallLocator::DiscoveryEnvironment environment = InstallLocator::DiscoveryEnvironment::host();
 	// lane AIO-1: the launcher's record of the folders it downloaded (a file that cannot be read: downloaded_problem, shown on the screen)
 	environment.downloadedMarker = downloadedMarker();
+	environment.appDocuments = appDocuments(); // lane IOS-4: iOS only
 	for (const InstallLocator::Candidate &c : InstallLocator::discover(environment))
 	{
 		Dictionary d;

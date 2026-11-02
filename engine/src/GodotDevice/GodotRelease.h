@@ -100,7 +100,7 @@ class InstallSetup : public RefCounted
 
 public:
 	String config_path() const;
-	// {source: "env" | "config" | "none", rotwk, bfme2}
+	// {source: "env" | "config" | "documents" (lane IOS-4: iOS, the folders copied into the app's Documents) | "none", rotwk, bfme2}
 	Dictionary configured() const;
 	// [{game: "rotwk" | "bfme2", path, source, ok, errors}] every folder found on this machine, each already checked
 	Array discover() const;
