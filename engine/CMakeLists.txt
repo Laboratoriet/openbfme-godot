@@ -690,6 +690,20 @@ if(APPLE AND "arm64" IN_LIST CMAKE_OSX_ARCHITECTURES AND "x86_64" IN_LIST CMAKE_
         COMMAND lipo "$<TARGET_FILE:openbfme>" -thin arm64 -output "${OPENBFME_GODOT_BIN}/openbfme.macos.template_debug.arm64.dylib"
         VERBATIM)
 endif()
+# IOS-1: on iOS the extension is a dynamic framework (one per SDK: device, simulator); tools/ios/build_ios.sh joins the two into
+# godot/bin/openbfme.ios.xcframework, which godot/openbfme.gdextension names. Dynamic, not static: a static archive would be linked into
+# the app beside libgodot, where the extension's own libraries (Lua, Luau, ...) could collide with the engine's symbols.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(OPENBFME_IOS_SDK "iphoneos" CACHE STRING "iOS SDK this build is for: iphoneos or iphonesimulator (output folder name)")
+    set_target_properties(openbfme PROPERTIES
+        FRAMEWORK TRUE
+        OUTPUT_NAME "openbfme"
+        MACOSX_FRAMEWORK_IDENTIFIER "org.openbfme.engine"
+        MACOSX_FRAMEWORK_SHORT_VERSION_STRING "1.0"
+        MACOSX_FRAMEWORK_BUNDLE_VERSION "1"
+        LIBRARY_OUTPUT_DIRECTORY "$<1:${OPENBFME_GODOT_BIN}/ios/${OPENBFME_IOS_SDK}>"
+        INSTALL_NAME_DIR "@rpath")
+endif()
 endif()
 
 # ---- unit tests --------------------------------------------------------------------------
