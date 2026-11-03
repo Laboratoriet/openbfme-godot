@@ -117,6 +117,12 @@ public:
 	std::vector<std::string> installOverlayFolders() const;
 	// lane SDK-0: the packs (empty without any) and the W3D source of the RENDER side: the mounted files with the packs in front. Never for
 	// the simulation's asset manager (LiveGame's m_simAssetSource reads the archive file system directly).
+	// lane IOS-13: the RotWK install this file system mounted ("" before a mount): the movies' folder, whatever found it (the environment,
+	// install-paths.cfg, the launcher's marker or, on iOS, the app's own Documents folder)
+	const std::string &rotwkRoot() const { return m_rotwkRoot; }
+	// lane IOS-13: the device folder retail's "application data" stands for (the parent of the user data folder its gi.dat names: Options.ini,
+	// Save, Maps): Godot's data folder on a desktop; on iOS the app's own writable folder (Godot's data folder is inside the read-only app bundle)
+	static std::string applicationDataFolder();
 	const AssetPacks &assetPacks() const { return m_packs; }
 	AssetPacks &assetPacksMutable() { return m_packs; } // lane SDK-1b: GameWorld::set_asset_packs_used
 	std::unique_ptr<W3DFileSource> renderW3DSource();
@@ -133,6 +139,7 @@ private:
 	bool m_mounted = false;
 	bool m_shellSource = false;
 	std::string m_installRoot;
+	std::string m_rotwkRoot; // lane IOS-13
 	bool m_bfme1 = false;
 	std::string m_bfme1Root;
 	String m_lastError;
