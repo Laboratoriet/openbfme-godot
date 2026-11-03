@@ -433,6 +433,8 @@ void GameWorld::_bind_methods()
 	ClassDB::bind_method(D_METHOD("set_effects_lod", "lod"), &GameWorld::set_effects_lod); // lane GLOW-1
 	ClassDB::bind_method(D_METHOD("get_glow_host"), &GameWorld::get_glow_host);
 	ClassDB::bind_static_method("GameWorld", D_METHOD("set_texture_reduction", "reduction"), &GameWorld::set_texture_reduction); // lane OPTS-2
+	ClassDB::bind_static_method("GameWorld", D_METHOD("w3d_shader_variants"), &GameWorld::w3d_shader_variants); // lane IOS-11
+	ClassDB::bind_static_method("GameWorld", D_METHOD("warm_w3d_shaders", "variants"), &GameWorld::warm_w3d_shaders); // lane IOS-11
 	ClassDB::bind_static_method("GameWorld", D_METHOD("get_texture_reduction"), &GameWorld::get_texture_reduction);
 	ClassDB::bind_method(D_METHOD("order_attack", "ids", "target"), &GameWorld::order_attack);
 }
@@ -6679,6 +6681,28 @@ void GameWorld::set_texture_reduction(int64_t reduction)
 int64_t GameWorld::get_texture_reduction()
 {
 	return W3DMaterialFactory::Get_Texture_Reduction();
+}
+
+// lane IOS-11
+Dictionary GameWorld::w3d_shader_variants()
+{
+	Dictionary out;
+	for (const auto &[id, code] : W3DMaterialFactory::Recorded_Shader_Variants())
+	{
+		out[toGodot(id)] = toGodot(code);
+	}
+	return out;
+}
+
+int64_t GameWorld::warm_w3d_shaders(const Dictionary &variants)
+{
+	std::map<std::string, std::string> list;
+	const Array keys = variants.keys();
+	for (int64_t i = 0; i < keys.size(); ++i)
+	{
+		list[toNative(String(keys[i]))] = toNative(String(variants[keys[i]]));
+	}
+	return W3DMaterialFactory::Warm_Shaders(list);
 }
 
 Node3D *GameWorld::get_fx_player() const

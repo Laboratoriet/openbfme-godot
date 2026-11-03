@@ -562,6 +562,9 @@ public:
 	// lane OPTS-2: the texture reduction of the static detail level for the W3D textures loaded from now on (W3DMaterialFactory::Set_Texture_Reduction)
 	static void set_texture_reduction(int64_t reduction);
 	static int64_t get_texture_reduction();
+	// lane IOS-11: the W3D shader variants this process generated (id -> code), and warming a list of them ahead of play (W3DMaterialFactory)
+	static Dictionary w3d_shader_variants();
+	static int64_t warm_w3d_shaders(const Dictionary &variants);
 	// a select message and an attack-object message (MSG_DO_ATTACK_OBJECT) for the objects `ids` on `target`, through the lockstep command path. { ok, error, player, objects }
 	Dictionary order_attack(const Array &ids, int64_t target);
 

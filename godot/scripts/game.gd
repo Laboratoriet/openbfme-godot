@@ -1535,6 +1535,7 @@ func _boot() -> void:
 		_fail("the shell refused MainMenu.apt: " + str(_shell.get_shell_report().errors))
 		return
 	_audio.play_shell_music(false) # no shell map yet (View3D is a stop): the low-LOD shell music, as menu_viewer
+	add_child(load("res://scripts/shader_warmup.gd").new()) # lane IOS-11: the W3D shaders compile in the menus, not at a unit's first sight
 	_state = State.MENU
 	set_process(true)
 	_campaign_flow = load("res://scripts/campaign_flow.gd").new() # lane CAMP-1

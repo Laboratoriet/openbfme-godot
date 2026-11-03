@@ -127,6 +127,18 @@ public:
 	static void Set_Shader_Material_Replacement(bool on);
 	static bool Get_Shader_Material_Replacement();
 
+	// lane IOS-11 (OpenBFME, not retail): first-sight shader compiles. A W3D surface's shader is generated from its key when the first model that
+	// needs it is built, and compiling it (Godot -> SPIR-V -> Metal) stalls that frame: 0.1 .. 0.8 s on an M2 Max the first time a unit type
+	// appears, longer on a phone. Every variant a factory generates is recorded process-wide (id -> code); Warm_Shaders creates the shaders of a
+	// recorded list ahead of play (the menus), so their compiles run then, and Get_Shader hands out the warmed shader of the same id.
+	static const std::map<std::string, std::string> &Recorded_Shader_Variants();
+	// creates the shaders of `variants` (id -> code) not yet warm; returns how many it created
+	static int Warm_Shaders(const std::map<std::string, std::string> &variants);
+	static size_t Warm_Shader_Count();
+	// the warm shaders let go while the rendering server still exists (the extension's terminator): a static map's own destructor would run at
+	// process exit, after it, and crash freeing their RIDs
+	static void Release_Warm_Shaders();
+
 private:
 	Ref<Texture2D> Load_Texture(const std::string &name, std::vector<std::string> &errors, bool &found, bool quietWhenMissing = false, std::vector<std::string> *notes = nullptr);
 	static Ref<Texture2D> Placeholder_Texture(bool flatNormal);

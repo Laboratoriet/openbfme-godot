@@ -302,6 +302,14 @@ void W3D_Apply_Viewer_Lighting()
 	setSet("inf", v);
 }
 
+namespace
+{
+// lane IOS-11: the shader variants generated in this process (id -> code) and the shaders warmed ahead of play (id -> shader)
+std::map<std::string, std::string> g_recordedShaderVariants;
+std::map<std::string, Ref<Shader>> g_warmShaders;
+std::map<std::string, std::string> g_warmCodes; // the code each warm shader was made from
+}
+
 Ref<Shader> W3DMaterialFactory::Get_Shader(const W3DShaderKey &key)
 {
 	const W3DSamplerPolicy samplers = samplerPolicy();
@@ -311,12 +319,56 @@ Ref<Shader> W3DMaterialFactory::Get_Shader(const W3DShaderKey &key)
 	{
 		return it->second;
 	}
+	const std::string code = Generate_W3D_Shader_Code(key, samplers);
+	g_recordedShaderVariants[id] = code; // lane IOS-11
+	auto warm = g_warmShaders.find(id);
+	if (warm != g_warmShaders.end() && g_warmCodes[id] == code)
+	{
+		Shaders[id] = warm->second; // compiled ahead of play (Warm_Shaders); the same code, so the same shader
+		return warm->second;
+	}
 	W3D_Ensure_Light_Globals(); // the shader names the light globals: they must exist before it compiles
 	Ref<Shader> shader;
 	shader.instantiate();
-	shader->set_code(toGodot(Generate_W3D_Shader_Code(key, samplers)));
+	shader->set_code(toGodot(code));
 	Shaders[id] = shader;
 	return shader;
+}
+
+const std::map<std::string, std::string> &W3DMaterialFactory::Recorded_Shader_Variants()
+{
+	return g_recordedShaderVariants;
+}
+
+int W3DMaterialFactory::Warm_Shaders(const std::map<std::string, std::string> &variants)
+{
+	int created = 0;
+	for (const auto &[id, code] : variants)
+	{
+		if (g_warmShaders.count(id) != 0 || code.empty())
+		{
+			continue;
+		}
+		W3D_Ensure_Light_Globals();
+		Ref<Shader> shader;
+		shader.instantiate();
+		shader->set_code(toGodot(code));
+		g_warmShaders[id] = shader;
+		g_warmCodes[id] = code;
+		++created;
+	}
+	return created;
+}
+
+size_t W3DMaterialFactory::Warm_Shader_Count()
+{
+	return g_warmShaders.size();
+}
+
+void W3DMaterialFactory::Release_Warm_Shaders()
+{
+	g_warmShaders.clear();
+	g_warmCodes.clear();
 }
 
 Ref<Texture2D> W3DMaterialFactory::Placeholder_Texture(bool flatNormal)

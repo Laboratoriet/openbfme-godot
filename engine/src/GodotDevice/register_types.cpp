@@ -18,6 +18,7 @@
 #include "Common/WindowsCrashDump.h"
 #include "GodotDevice/GodotRetailFileSystem.h"
 #include "GodotDevice/GodotW3DInstancer.h"
+#include "GodotDevice/GodotW3DMaterial.h"
 #include "GodotDevice/GodotVideoStream.h"
 #include "GodotDevice/GodotW3DModelBuilder.h"
 #include "GodotDevice/GodotLivingWorld.h" // WOTR-1
@@ -67,6 +68,7 @@ static void uninitialize_openbfme(ModuleInitializationLevel p_level)
 		WindowsCrashDump::uninstall();
 		ConsoleFilter::uninstall(); // RELEASE-1: the original stdout / stderr back before the extension's code goes
 		GammaComposite::shutdown();
+		W3DMaterialFactory::Release_Warm_Shaders(); // lane IOS-11
 	}
 }
 
