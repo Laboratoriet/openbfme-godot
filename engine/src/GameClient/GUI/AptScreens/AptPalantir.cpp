@@ -880,7 +880,7 @@ void AptPalantir::syncPlayerStats()
 	}
 }
 
-void AptPalantir::setViewportSize(int width, int height)
+void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout)
 {
 	if (m_bfme1)
 	{
@@ -903,28 +903,108 @@ void AptPalantir::setViewportSize(int width, int height)
 	// axes, kept at the bottom edge (the Palantir's, the construction bar's lower end). Landscape viewports, 4:3 and narrower included, keep
 	// a vertical factor of 1 (unchanged; hud2 palantir: widescreen*).
 	const float vscale = width < height ? std::min(1.0f, ((float)width / stageWidth) / ((float)height / stageHeight)) : 1.0f;
+	// lane IOS-18 (OpenBFME presentation, not retail): the HUD size option (OpenBFMEHudScale) multiplies each anchored group's factors about its
+	// anchor, and the anchors move inside the window's safe area (insets in window pixels, the stage stretched to the window: stage units here).
+	// A group grows only as far as the safe area holds it (its content's farthest reach from the anchor, m_groupReach); never below 1, so the
+	// retail layout (scale 1, no insets: a desktop) is exactly the one before the option (every shift 0, every factor times 1).
+	const float unitX = (float)width / stageWidth, unitY = (float)height / stageHeight;
+	const float safeLeft = layout.safeInsets[0] / unitX, safeTop = layout.safeInsets[1] / unitY;
+	const float safeRight = stageWidth - layout.safeInsets[2] / unitX, safeBottom = stageHeight - layout.safeInsets[3] / unitY;
+	auto groupOf = [](const std::string &name) {
+		return name == "SideCommandBar" ? HudGroup::BottomRight : (name == "planningModeUI" ? HudGroup::TopCentre : HudGroup::BottomLeft);
+	};
+	const bool retailLayout = layout.scale == 1.0f && layout.safeInsets[0] == 0.0f && layout.safeInsets[1] == 0.0f && layout.safeInsets[2] == 0.0f &&
+		layout.safeInsets[3] == 0.0f;
+	if (!retailLayout)
+	{
+		for (AptCharacterInst *child : root->children())
+		{
+			const std::string &name = child->instName();
+			float x0, y0, x1, y1;
+			if (name == "helpBox" || name == "ButtonFlashStage" || !child->contentBounds(x0, y0, x1, y1))
+			{
+				continue;
+			}
+			const int g = (int)groupOf(name);
+			float *reach = m_groupReach[g];
+			const float xs[4] = { x0, x1, x0, x1 }, ys[4] = { y0, y0, y1, y1 };
+			for (int i = 0; i < 4; ++i)
+			{
+				float rx, ry;
+				child->matrix.apply(xs[i], ys[i], rx, ry);
+				if (!m_groupReachSeen[g])
+				{
+					reach[0] = reach[2] = rx;
+					reach[1] = reach[3] = ry;
+					m_groupReachSeen[g] = true;
+				}
+				reach[0] = std::min(reach[0], rx);
+				reach[1] = std::min(reach[1], ry);
+				reach[2] = std::max(reach[2], rx);
+				reach[3] = std::max(reach[3], ry);
+			}
+		}
+	}
+	struct Anchor
+	{
+		float x, y;   // in the stage
+		float sx, sy; // where it goes: inside the safe area
+	};
+	// the side bar slides out past the stage's right edge to hide (about 50 stage units, less than a phone's side inset): hidden, it keeps the
+	// stage's edge as its anchor so it stays off screen; shown (and sliding in), the safe area's. INFERENCE (not measured on a phone): its hide
+	// then starts with a step right by the inset
+	const Anchor anchors[(int)HudGroup::Count] = {
+		{ 0.0f, stageHeight, safeLeft, safeBottom },
+		{ stageWidth, stageHeight, m_sideShown ? safeRight : stageWidth, safeBottom },
+		{ stageWidth * 0.5f, 0.0f, (safeLeft + safeRight) * 0.5f, safeTop },
+	};
+	for (int g = 0; g < (int)HudGroup::Count; ++g)
+	{
+		float k = layout.scale;
+		if (k > 1.0f && m_groupReachSeen[g])
+		{
+			// the farthest content on each side of the anchor and the room the safe area leaves there. Only the sides the group grows towards: the
+			// anchor's own edges have no room past them, and what overhangs there (the hero buttons' rim below the stage) overhangs at 100 % too
+			const Anchor &an = anchors[g];
+			const float *reach = m_groupReach[g];
+			const float left = an.x - reach[0], right = reach[2] - an.x, up = an.y - reach[1], down = reach[3] - an.y;
+			auto fit = [&](float extent, float factor, float room) {
+				if (room > 0.0f && extent > 0.0f && factor * extent * k > room)
+				{
+					k = std::max(1.0f, room / (factor * extent));
+				}
+			};
+			fit(left, scale, an.sx - safeLeft);
+			fit(right, scale, safeRight - an.sx);
+			fit(up, vscale, an.sy - safeTop);
+			fit(down, vscale, safeBottom - an.sy);
+		}
+		m_groupScale[g] = k;
+	}
 	for (AptCharacterInst *child : root->children())
 	{
 		const std::string &name = child->instName();
-		if (name == "helpBox" || name == "ButtonFlashStage")
+		if (name == "helpBox")
+		{
+			// lane IOS-18: the help box keeps the stage's stretch (as before) but moves right by what the Palantir's grown right side (with the left
+			// inset) took past where it ended at 100 % in a 4:3 window, so the box does not cover the arc's buttons; 0 in the retail layout
+			const int g = (int)HudGroup::BottomLeft;
+			const float palantirRight = m_groupReachSeen[g] ? m_groupReach[g][2] : 0.0f;
+			child->viewportTransform.tx = retailLayout ? 0.0f : std::max(0.0f, safeLeft + palantirRight * scale * m_groupScale[g] - palantirRight);
+			continue;
+		}
+		if (name == "ButtonFlashStage")
 		{
 			continue;
 		}
-		float anchor = 0.0f;
-		float anchorY = stageHeight;
-		if (name == "SideCommandBar")
-		{
-			anchor = stageWidth;
-		}
-		else if (name == "planningModeUI")
-		{
-			anchor = stageWidth * 0.5f;
-			anchorY = 0.0f;
-		}
-		child->viewportTransform.a = scale;
-		child->viewportTransform.tx = anchor * (1.0f - scale);
-		child->viewportTransform.d = vscale;
-		child->viewportTransform.ty = anchorY * (1.0f - vscale);
+		const int g = (int)groupOf(name);
+		const Anchor &an = anchors[g];
+		const float a = scale * m_groupScale[g];
+		const float d = vscale * m_groupScale[g];
+		child->viewportTransform.a = a;
+		child->viewportTransform.tx = an.x * (1.0f - a) + (an.sx - an.x);
+		child->viewportTransform.d = d;
+		child->viewportTransform.ty = an.y * (1.0f - d) + (an.sy - an.y);
 	}
 }
 
@@ -1422,6 +1502,8 @@ bool AptPalantir::moveRadarPing(int id, float stageX, float stageY)
 		if (AptCharacterInst *pings = root->childByName("RadarPings"))
 		{
 			stageX = (stageX - pings->viewportTransform.tx) / pings->viewportTransform.a;
+			// lane IOS-18: the vertical factor too (a portrait window's, the HUD size option's); 1 and 0 in a landscape retail layout
+			stageY = (stageY - pings->viewportTransform.ty) / pings->viewportTransform.d;
 		}
 	}
 	char x[64], y[64];

@@ -93,6 +93,10 @@ public:
 
 	// the window size in pixels the stage (1024 x 768) is stretched to
 	void setWindowSize(int width, int height);
+	// lane IOS-18 (OpenBFME, not retail): the HUD size option and the safe area the Palantir keeps to (AptPalantir::HudLayout), applied now and on
+	// every later layout
+	void setHudLayout(const AptPalantir::HudLayout &layout);
+	const AptPalantir::HudLayout &hudLayout() const { return m_hudLayout; }
 	void updateRadarEvents(); ///< lane RADAR-1
 	int windowWidth() const { return m_windowW; } ///< lane RADAR-1: TheDisplay's width (the view box band, RW 0x503CDA)
 	int windowHeight() const { return m_windowH; } ///< lane OWNERFIX-2: the placement text's clamp (updateStringPos)
@@ -367,6 +371,7 @@ private:
 	std::vector<std::string> m_cursorStops;
 	void send(const std::vector<GameMessage> &msgs);
 	int m_windowW = 1024, m_windowH = 768;
+	AptPalantir::HudLayout m_hudLayout; // lane IOS-18
 	bool m_booted = false;
 	int m_keyState = 0;
 	bool m_broadcastClean = false;

@@ -34,7 +34,23 @@ class AptPalantir : public AptScreen
 public:
 	bool isMenu() const override { return false; } // lane OPTS-6: the HUD, its keys are the game's
 	AptPalantir(WindowManager &windows, Shell &shell);
-	void setViewportSize(int width, int height);
+	// lane IOS-18 (OpenBFME presentation, not retail): the HUD size option and the window's safe area. The default is retail's layout (and a
+	// desktop's: no insets), which setViewportSize lays out exactly as before the option existed.
+	struct HudLayout
+	{
+		float scale = 1.0f;        ///< OpenBFMEHudScale / 100: 1 .. 2 (1 = retail)
+		float safeInsets[4] = {};  ///< window pixels the HUD keeps clear of: left, top, right, bottom (the notch, the home indicator)
+	};
+	void setViewportSize(int width, int height, const HudLayout &layout);
+	// lane IOS-18: the size factor the last layout gave each anchored group (the option's, or less where the group would leave the safe area)
+	enum class HudGroup
+	{
+		BottomLeft,  ///< the Palantir: its frame, radar, command arc, resource bar, hero buttons
+		BottomRight, ///< SideCommandBar
+		TopCentre,   ///< planningModeUI
+		Count
+	};
+	float hudGroupScale(HudGroup g) const { return m_groupScale[(int)g]; }
 
 	// the commands the Palantir registers, in the binary's order (without the screen prefix of the command UI names)
 	static const std::vector<std::string> &retailCommandNames();
@@ -293,6 +309,12 @@ private:
 	int m_sideCount = 0;                 ///< + 0xD8: the frames shown (SetButtonState "_show")
 	int m_sideKey[16] = {};              ///< slot + 8: the control bar window each shown frame belongs to (-1 none)
 	bool m_bfme1 = false;
+	// lane IOS-18: per anchored group, the farthest its content has reached from its anchor in the root's unscaled space (right / up for the bottom
+	// left, left / up for the bottom right, both sides / down for the top centre: x0 y0 x1 y1), kept as the largest seen so the fit does not follow a
+	// side bar's button count frame by frame; and the factor each group got
+	float m_groupReach[(int)HudGroup::Count][4] = {};
+	bool m_groupReachSeen[(int)HudGroup::Count] = {};
+	float m_groupScale[(int)HudGroup::Count] = { 1.0f, 1.0f, 1.0f };
 	bool m_sideBarGate = false;
 	std::vector<std::string> m_sideBarCalls;
 	std::function<void(const std::string &, bool)> m_helpBoxHandler;

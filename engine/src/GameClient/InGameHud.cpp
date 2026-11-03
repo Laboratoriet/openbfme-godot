@@ -381,11 +381,20 @@ void InGameHud::setWindowSize(int width, int height)
 	m_windowH = std::max(1, height);
 	if (m_palantirRef)
 	{
-		m_palantirRef->setViewportSize(m_windowW, m_windowH);
+		m_palantirRef->setViewportSize(m_windowW, m_windowH, m_hudLayout);
 	}
 	if (m_store && !isBfme1Data(m_config.fs))
 	{
 		m_store->setViewportSize(m_windowW, m_windowH);
+	}
+}
+
+void InGameHud::setHudLayout(const AptPalantir::HudLayout &layout)
+{
+	m_hudLayout = layout;
+	if (m_palantirRef)
+	{
+		m_palantirRef->setViewportSize(m_windowW, m_windowH, m_hudLayout);
 	}
 }
 
@@ -607,7 +616,7 @@ void InGameHud::update(double seconds)
 		m_wm->update((int)(seconds * 1000.0));
 	}
 	part(m_updateParts.windows);
-	m_palantirRef->setViewportSize(m_windowW, m_windowH);
+	m_palantirRef->setViewportSize(m_windowW, m_windowH, m_hudLayout);
 	// lane HUD-2: the local side and the control bar's context the Palantir's update reads (AptPalantir::syncLocal, PalantirCommandUI.h). INFERENCE: the context
 	// drawable is the selection's only object; a multiple selection hands NULL, as ZH's ControlBar does for its multi-select context (the RotWK context rules,
 	// RW 0x944390 .. 0x9450B3, were not read)

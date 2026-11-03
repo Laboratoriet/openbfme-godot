@@ -198,6 +198,8 @@ struct HudDevice : public AptNativeHook
 	int edgeScrollMode = 0;   // lane OPTS-2: 0 retail (full screen only, or edge_scroll), 1 always, 2 never
 	int touchEdgeScroll = -1; // lane IOS-17: the touch layer's choice (set_edge_scroll): -1 none, 0 off, 1 on; replaces the retail rule when set
 	float uiScale = 1.0f;     // lane OPTS-2: the decorations' scale (health bars, veterancy marks, texts) about each object's ops
+	AptPalantir::HudLayout hudLayout; ///< lane IOS-18: the HUD size option (set_view_options hud_scale) and the safe area's insets (fitSafeArea)
+	Vector2 safeAreaWindow;           ///< lane IOS-18: the viewport size the insets were read for
 	float fogShift = 0.0f; ///< lane PLAY-1: the last w3d_fog_shift sent
 	// lane SPELL-2 (review r2): the game text of a standalone HUD (data/lotr.str); an attached HUD uses its shell's. Before the HUD: it outlives it
 	std::unique_ptr<GameTextSource> ownedText;
@@ -2093,6 +2095,7 @@ Dictionary InGameHudNode::attach(const Ref<RetailFileSystem> &fs, GameWorld *wor
 	d->hud = std::make_unique<InGameHud>(cfg);
 	d->hud->input().attachCamera(*d->cam);
 	d->hud->setWindowSize((int)window.x, (int)window.y);
+	fitSafeArea(window); // lane IOS-18
 	d->hud->input().commandTranslator().setUseAlternateMouse((bool)options.get("alternate_mouse", false));
 	// lane BUILD-5 r2: the ghost's step runs after the displayed camera (InGameHudNode::_process), drawn by the HUD's own renderer
 	d->hud->input().setPlacementDeferred(true);
@@ -3130,6 +3133,10 @@ void InGameHudNode::_process(double delta)
 	Viewport *vp = get_viewport();
 	const Vector2 window = vp ? vp->get_visible_rect().get_size() : Vector2(1024, 768);
 	d->hud->setWindowSize((int)window.x, (int)window.y);
+	if (window != d->safeAreaWindow)
+	{
+		fitSafeArea(window); // lane IOS-18: a turn of the phone, a resized window
+	}
 	syncModal(); // lane OPTS-6: before the queued input is replayed and before the camera's frame
 	if (!d->holdInput && !d->pendingInput.empty() && d->world && d->world->hud_game() && d->world->hud_game()->logicHeld())
 	{
@@ -3988,6 +3995,24 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 		const double k = o["ui_scale"];
 		d->uiScale = k >= 0.5 && k <= 4.0 ? (float)k : 1.0f;
 	}
+	if (o.has("hud_scale"))
+	{
+		// lane IOS-18: OpenBFMEHudScale / 100, the Palantir's and the side bar's size (AptPalantir::setViewportSize); a value outside 1 .. 2 is refused
+		// (reported, the size kept), never replaced by a default
+		const double k = o["hud_scale"];
+		if (k >= 1.0 && k <= 2.0)
+		{
+			d->hudLayout.scale = (float)k;
+			if (d->hud)
+			{
+				d->hud->setHudLayout(d->hudLayout);
+			}
+		}
+		else
+		{
+			r["hud_scale_error"] = "hud_scale " + String::num(k) + " is outside 1 .. 2";
+		}
+	}
 	if (o.has("free_camera") && d->cam)
 	{
 		d->cam->setFreeCamera((bool)o["free_camera"]);
@@ -4004,7 +4029,38 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 	r["edge_scroll_mode"] = d->edgeScrollMode;
 	r["scroll_factor"] = d->cam ? d->cam->gameData().horizontalScrollSpeedFactor : 0.0f;
 	r["ui_scale"] = d->uiScale;
+	r["hud_scale"] = d->hudLayout.scale;
 	return r;
+}
+
+// lane IOS-18 (OpenBFME, not retail): the insets of the display's safe area (DisplayServer::get_display_safe_area: the screen less the status bar, the
+// camera housing, the rounded corners and the home indicator; as release.gd's version corner, lane IOS-8) in the viewport's pixels, for the Palantir. A
+// phone or tablet only: a desktop's "safe area" is the screen's usable part (less the menu bar and the dock) in screen coordinates, not the window's, and
+// a desktop window has no insets
+void InGameHudNode::fitSafeArea(const Vector2 &window)
+{
+	d->safeAreaWindow = window;
+	float insets[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	if (OS::get_singleton()->has_feature("mobile"))
+	{
+		DisplayServer *ds = DisplayServer::get_singleton();
+		const Rect2i safe = ds->get_display_safe_area();
+		const Vector2i size = ds->window_get_size();
+		if (safe.size.x > 0 && safe.size.y > 0 && size.x > 0 && size.y > 0)
+		{
+			const float kx = (float)window.x / (float)size.x, ky = (float)window.y / (float)size.y; // window pixels -> the viewport's
+			insets[0] = std::max(0.0f, (float)safe.position.x * kx);
+			insets[1] = std::max(0.0f, (float)safe.position.y * ky);
+			insets[2] = std::max(0.0f, (float)(size.x - safe.get_end().x) * kx);
+			insets[3] = std::max(0.0f, (float)(size.y - safe.get_end().y) * ky);
+		}
+		UtilityFunctions::print("HUD safe area ", safe, " in a ", size, " window: insets ", insets[0], " ", insets[1], " ", insets[2], " ", insets[3]);
+	}
+	std::copy(insets, insets + 4, d->hudLayout.safeInsets);
+	if (d->hud)
+	{
+		d->hud->setHudLayout(d->hudLayout);
+	}
 }
 
 void InGameHudNode::set_free_camera(bool on)

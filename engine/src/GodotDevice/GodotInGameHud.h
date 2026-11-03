@@ -125,7 +125,7 @@ public:
 	// lane OPTS-2: the OpenBFME screen's camera / interface settings, live: { scroll_factor_option (Options.ini ScrollFactor text or null), edge_scroll_mode
 	// ("retail" | "always" | "off"), invert_drag_scroll, rotate_speed_scale, alternate_mouse, all_health_bars, health_bar_mode ("retail" | "damaged" |
 	// "always"), ui_scale, free_camera, zoom_out_factor (lane ZOOM-1: the Max zoom-out, 1 = retail), widescreen_wider (lane UI-6: the Widescreen view, false =
-	// retail's Vert-, true = Hor+ beyond 4:3) }; every key optional
+	// retail's Vert-, true = Hor+ beyond 4:3), hud_scale (lane IOS-18: the Palantir's and the side bar's size, 1 .. 2, 1 = retail) }; every key optional
 	Dictionary set_view_options(const Dictionary &options);
 	// scripted camera moves for the viewers (the same View::lookAt / setHeightAboveGround the radar click and the wheel call)
 	void camera_look_at(const Vector2 &sage_xy);
@@ -203,6 +203,7 @@ protected:
 private:
 	void syncModifiers(const InputEventWithModifiers *event);
 	void keyEvent(int dik, bool down, char32_t character);
+	void fitSafeArea(const Vector2 &window); ///< lane IOS-18: the display's safe area as the Palantir's insets (phones and tablets)
 	void syncModal(); ///< lane OPTS-6: a menu became (or stopped being) the input's top: the world's held input is cancelled ///< lane INPUT-1: inject_key with the layout's character ///< lane INPUT-1: Ctrl / Shift / Alt as the event reports them
 	void handleInput(const Ref<InputEvent> &event); ///< SMOOTH-1: _input's work (replayed for input that waited for the logic worker)
 	std::unique_ptr<HudDevice> d;

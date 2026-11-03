@@ -344,6 +344,220 @@ TEST_CASE("hud2 palantir: widescreen panels preserve proportions and edge anchor
 	}
 }
 
+// lane IOS-18 (OpenBFME, not retail): the HUD size option and the safe area. Each anchored group grows about its anchor, which sits at the safe area's
+// corner; the hit test, the help box's place and the radar's square follow the same transform, so a press lands on what is drawn
+TEST_CASE("hud2 palantir: the HUD size scales each group about its safe-area anchor and the hit test follows, landscape and portrait")
+{
+	if (!haveWorld("hud2 hud size"))
+	{
+		return;
+	}
+	PalantirRig hud(shared());
+	hud.frames(30);
+	Object *builder = hud.rig.make("MenPorter", 2800, 1400);
+	REQUIRE(builder != nullptr);
+	hud.hud->input().ui().selectObject(builder->getID());
+	hud.frames(40);
+	REQUIRE(hud.hud->palantir()->sideBarShown());
+	AptPalantir *p = hud.hud->palantir();
+	AptSpriteInst *frame = hud.clip("PalantirFrame");
+	AptSpriteInst *side = hud.clip("SideCommandBar");
+	REQUIRE(frame != nullptr);
+	REQUIRE(side != nullptr);
+	AptButtonInst *options = firstButton(hud.hud->apt().resolvePath(hud.hud->apt().level(p->level()), "PalantirButtons.Buttons.Options"));
+	AptButtonInst *sideButton = firstButton(side);
+	REQUIRE(options != nullptr);
+	REQUIRE(sideButton != nullptr);
+	struct Case
+	{
+		int width, height;
+		float scale;
+		float insets[4];
+	};
+	// the Duo's inner screen at half size (landscape, portrait), 4:3, and the landscape one with notch-like insets on both sides and a home indicator
+	const Case cases[] = {
+		{ 1335, 939, 1.0f, { 0, 0, 0, 0 } },
+		{ 1335, 939, 1.25f, { 0, 0, 0, 0 } },
+		{ 1335, 939, 1.5f, { 0, 0, 0, 0 } },
+		{ 939, 1335, 1.0f, { 0, 0, 0, 0 } },
+		{ 939, 1335, 1.25f, { 0, 0, 0, 0 } },
+		{ 939, 1335, 1.5f, { 0, 0, 0, 0 } },
+		{ 1024, 768, 1.0f, { 0, 0, 0, 0 } },
+		{ 1024, 768, 1.25f, { 0, 0, 0, 0 } },
+		{ 1335, 939, 1.25f, { 40, 0, 40, 20 } },
+		{ 939, 1335, 1.25f, { 0, 40, 0, 20 } },
+	};
+	// a button's box in window pixels (its content through the global matrix: the viewport transform included)
+	auto windowBox = [](AptButtonInst *b, const AptStageMapping &m, float out[4]) {
+		float x0, y0, x1, y1;
+		REQUIRE(b->contentBounds(x0, y0, x1, y1));
+		out[0] = out[1] = 1e9f;
+		out[2] = out[3] = -1e9f;
+		const float xs[4] = { x0, x1, x0, x1 }, ys[4] = { y0, y0, y1, y1 };
+		for (int i = 0; i < 4; ++i)
+		{
+			float sx, sy, wx, wy;
+			b->globalMatrix().apply(xs[i], ys[i], sx, sy);
+			m.stageToWindow(sx, sy, wx, wy);
+			out[0] = std::min(out[0], wx);
+			out[1] = std::min(out[1], wy);
+			out[2] = std::max(out[2], wx);
+			out[3] = std::max(out[3], wy);
+		}
+	};
+	float base[2][4] = {}; // the Options button's and the side button's window box at 100 % in the current window (each size's first case)
+	for (const Case &c : cases)
+	{
+		INFO(c.width, "x", c.height, " at ", c.scale, " insets ", c.insets[0], " ", c.insets[1], " ", c.insets[2], " ", c.insets[3]);
+		AptPalantir::HudLayout layout;
+		layout.scale = c.scale;
+		std::copy(c.insets, c.insets + 4, layout.safeInsets);
+		hud.hud->setWindowSize(c.width, c.height);
+		hud.hud->setHudLayout(layout);
+		hud.frames(2);
+		AptStageMapping m;
+		m.windowW = (float)c.width;
+		m.windowH = (float)c.height;
+		const float correction = std::min(1.0f, m.scaleY() / m.scaleX());
+		const float vcorrection = c.width < c.height ? std::min(1.0f, m.scaleX() / m.scaleY()) : 1.0f;
+		// the Palantir takes the option's factor in full at every size here; the side bar as much as the safe area's height holds, never below 100 %
+		const float left = p->hudGroupScale(AptPalantir::HudGroup::BottomLeft);
+		const float right = p->hudGroupScale(AptPalantir::HudGroup::BottomRight);
+		CHECK(left == c.scale);
+		// tolerance: the side bar's factor is the fit to the safe area, between 100 % and the option's (its exact value depends on the bar's content)
+		CHECK(right >= 1.0f);
+		CHECK(right <= c.scale); // tolerance: the side bar's factor is the fit to the safe area, between 100 % and the option's
+		// tolerance: float products of the window mapping (the same factors multiplied in another order)
+		CHECK(frame->viewportTransform.a == doctest::Approx(correction * left));
+		CHECK(frame->viewportTransform.d == doctest::Approx(vcorrection * left)); // tolerance: float products of the window mapping
+		CHECK(side->viewportTransform.a == doctest::Approx(correction * right));
+		// the anchors: the stage's bottom-left corner at the safe area's bottom-left, the bottom-right at its bottom-right
+		float sx, sy, wx, wy;
+		frame->viewportTransform.apply(0, 768, sx, sy);
+		m.stageToWindow(sx, sy, wx, wy);
+		// tolerance: the anchor goes through two float mappings (stage <-> window); 1e-4 relative
+		CHECK(wx == doctest::Approx(c.insets[0]).epsilon(1e-4));
+		CHECK(wy == doctest::Approx((float)c.height - c.insets[3]).epsilon(1e-4)); // tolerance: the anchor goes through two float mappings
+		side->viewportTransform.apply(1024, 768, sx, sy);
+		m.stageToWindow(sx, sy, wx, wy);
+		CHECK(wx == doctest::Approx((float)c.width - c.insets[2]).epsilon(1e-4)); // tolerance: the anchor goes through two float mappings
+		CHECK(wy == doctest::Approx((float)c.height - c.insets[3]).epsilon(1e-4));
+		// the side bar stays inside the safe area (its content's reach through its transform)
+		float box[4];
+		windowBox(sideButton, m, box);
+		float x0, y0, x1, y1;
+		REQUIRE(side->contentBounds(x0, y0, x1, y1));
+		side->globalMatrix().apply(x0, y0, sx, sy);
+		m.stageToWindow(sx, sy, wx, wy);
+		// tolerance: the side bar's top-left corner may touch the safe edge; 0.01 px of float rounding
+		CHECK(wy >= c.insets[1] - 0.01f);
+		CHECK(wx >= c.insets[0] - 0.01f); // tolerance: the side bar's top-left corner may touch the safe edge
+		// the buttons grow by the factor (against the same window at 100 %)
+		for (int b = 0; b < 2; ++b)
+		{
+			AptButtonInst *button = b == 0 ? options : sideButton;
+			const float k = b == 0 ? left : right;
+			windowBox(button, m, box);
+			if (c.scale == 1.0f)
+			{
+				std::copy(box, box + 4, base[b]);
+			}
+			else if (c.insets[0] == 0.0f && c.insets[1] == 0.0f && c.insets[2] == 0.0f && c.insets[3] == 0.0f && base[b][2] > base[b][0])
+			{
+				// tolerance: the box goes through the stage <-> window float mappings; 1e-3 relative
+				CHECK((box[2] - box[0]) == doctest::Approx((base[b][2] - base[b][0]) * k).epsilon(1e-3));
+				CHECK((box[3] - box[1]) == doctest::Approx((base[b][3] - base[b][1]) * k).epsilon(1e-3)); // tolerance: the box goes through the stage <-> window float mappings
+			}
+			// tolerance: a button may touch the safe edge; 0.01 px of float rounding
+			CHECK(box[0] >= c.insets[0] - 0.01f);
+			CHECK(box[2] <= (float)c.width - c.insets[2] + 0.01f); // tolerance: a button may touch the safe edge
+			CHECK(box[1] >= c.insets[1] - 0.01f);
+			CHECK(box[3] <= (float)c.height - c.insets[3] + 0.01f); // tolerance: a button may touch the safe edge
+			// a press anywhere well inside the drawn box hits that button, the HUD takes it, and the HUD's own window-to-stage mapping agrees
+			int hits = 0, probes = 0;
+			for (int row = 1; row < 8; ++row)
+			{
+				for (int column = 1; column < 8; ++column)
+				{
+					const float wxp = box[0] + (box[2] - box[0]) * (float)column / 8.0f, wyp = box[1] + (box[3] - box[1]) * (float)row / 8.0f;
+					float stx, sty;
+					m.windowToStage(wxp, wyp, stx, sty);
+					++probes;
+					if (hud.hud->apt().input().hitTestButtons(stx, sty) == button && hud.hud->isOverGui((int)wxp, (int)wyp))
+					{
+						++hits;
+					}
+				}
+			}
+			// the box is the content's (a round button's corners are outside its Hit shape): most of it, never none
+			// tolerance: a probe grid over the content box: a round button's corners are outside its Hit shape, so most probes, not all, hit it
+			CHECK(hits * 2 >= probes);
+		}
+		// the help box keeps clear of the grown Palantir (as at 100 % in a 4:3 window: its left edge at the Palantir's right reach or beyond)
+		AptCharacterInst *help = hud.hud->apt().resolvePath(hud.hud->apt().level(p->level()), "helpBox");
+		REQUIRE(help != nullptr);
+		// tolerance: the help box only ever moves right of where it was (0 at 100 % in 4:3)
+		CHECK(help->viewportTransform.tx >= 0.0f);
+		// the radar's square, where the device draws the map and a press moves the camera: the radar clip's box through the same transform
+		float sq[4];
+		if (hud.hud->radarSquare(sq))
+		{
+			// tolerance: the radar square is in whole pixels (InGameHud::radarSquare rounds through int); 1 px
+			CHECK(sq[0] >= c.insets[0] - 1.0f);
+			CHECK(sq[3] <= (float)c.height - c.insets[3] + 1.0f); // tolerance: the radar square is in whole pixels
+			const float cx = (sq[0] + sq[2]) * 0.5f, cy = (sq[1] + sq[3]) * 0.5f;
+			CHECK(hud.hud->isOverGui((int)cx, (int)cy));
+		}
+	}
+	// back to the retail layout: exactly the factors before the option (hud2 palantir: widescreen* keeps the values)
+	hud.hud->setWindowSize(1280, 720);
+	hud.hud->setHudLayout(AptPalantir::HudLayout());
+	CHECK(frame->viewportTransform.a == 0.75f);
+	CHECK(frame->viewportTransform.tx == 0.0f);
+	CHECK(frame->viewportTransform.d == 1.0f);
+	CHECK(frame->viewportTransform.ty == 0.0f);
+	CHECK(side->viewportTransform.tx == 1024.0f * (1.0f - 0.75f));
+	CHECK(p->hudGroupScale(AptPalantir::HudGroup::BottomLeft) == 1.0f);
+	CHECK(p->hudGroupScale(AptPalantir::HudGroup::BottomRight) == 1.0f);
+}
+
+TEST_CASE("hud2 palantir: a radar ping keeps its supplied stage position under the HUD size and a portrait window")
+{
+	if (!haveWorld("hud2 hud size radar pings"))
+	{
+		return;
+	}
+	PalantirRig hud(shared());
+	hud.frames(30);
+	AptSpriteInst *pings = hud.clip("RadarPings.PingStage");
+	AptSpriteInst *radarPings = hud.clip("RadarPings");
+	REQUIRE(pings != nullptr);
+	REQUIRE(radarPings != nullptr);
+	REQUIRE(hud.hud->palantir()->createRadarPing(77, "PingAttack"));
+	hud.frames(1);
+	AptCharacterInst *ping = pings->children().back();
+	for (float scale : { 1.0f, 1.25f, 1.5f })
+	{
+		for (auto size : { std::pair<int, int>{ 1335, 939 }, std::pair<int, int>{ 939, 1335 } })
+		{
+			INFO(size.first, "x", size.second, " at ", scale);
+			AptPalantir::HudLayout layout;
+			layout.scale = scale;
+			hud.hud->setWindowSize(size.first, size.second);
+			hud.hud->setHudLayout(layout);
+			// a stage point inside the radar as drawn (its 128-unit centre through the RadarPings transform)
+			float stageX, stageY;
+			radarPings->viewportTransform.apply(128, 640, stageX, stageY);
+			REQUIRE(hud.hud->palantir()->moveRadarPing(77, stageX, stageY));
+			float actualX, actualY;
+			ping->globalMatrix().apply(0, 0, actualX, actualY);
+			// tolerance: the ping's stage position goes through the transform and back (float division)
+			CHECK(actualX == doctest::Approx(stageX));
+			CHECK(actualY == doctest::Approx(stageY)); // tolerance: the ping's stage position goes through the transform and back
+		}
+	}
+}
+
 TEST_CASE("hud2 palantir: widescreen radar pings retain their supplied stage position")
 {
 	if (!haveWorld("hud2 widescreen radar pings"))
@@ -645,3 +859,4 @@ TEST_CASE("hud2 custom hero buttons: model-state icons distinguish Shield Maiden
 	maiden->setModelConditionState(ModelCondition::indexOf("MOUNTED"), true);
 	CHECK(InGameHeroSelect::buttonImage(*maiden) == "HICAHShieldMaiden");
 }
+
