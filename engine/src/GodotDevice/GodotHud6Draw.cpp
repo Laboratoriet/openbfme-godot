@@ -392,6 +392,8 @@ Dictionary Hud6Draw::state() const
 	help["text"] = h.help() ? toGodot(u16ToUtf8(h.help()->longText())) : String();
 	help["simple"] = h.help() ? h.help()->isSimple() : false;
 	help["bar"] = h.provider().bar;
+	help["touch"] = m_hud.touchHelp(); // lane IOS-21
+	help["held"] = m_hud.helpHeld();
 	Array calls;
 	for (const std::string &c : h.calls())
 	{

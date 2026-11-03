@@ -128,6 +128,32 @@ public:
 	// radar shows nothing: radarClick's own gates). No click, no camera move: a read
 	bool radarPoint(int x, int y, bool &hasPoint, float &wx, float &wy);
 
+	// ---- lane IOS-21 (OpenBFME, not retail; touch only: scripts/touch/touch_controls.gd): the help box without a hover ----
+	// A finger has no hover: a still finger on a HUD button that is held shows that button's help at once (no TOOLTIPDELAY) for as long as it is held,
+	// and lifting does nothing. With touch help on the help box shows only while held (holdHelp), the provider being the one under the pointer as on a
+	// desktop (the touch layer moves the pointer to the finger); the hover alone shows nothing, so the pointer a tap leaves on a button opens no help.
+	// Off (the default, desktops and a mouse on an iPad) it is the retail hover. The hit test is the clicks' (the Apt movie's global matrix with the
+	// HUD size, the radial ring's rects)
+	void setTouchHelp(bool on) { m_touchHelp = on; }
+	bool touchHelp() const { return m_touchHelp; }
+	void holdHelp(bool on) { m_helpHeld = on; }
+	bool helpHeld() const { return m_helpHeld; }
+	// what a finger at window pixel (x, y) is on: a button of the Palantir's movie (the arc, the side bar, the spell book, the hero bar, the portrait, its
+	// keys), a radial bubble, or neither (the world, the radar, a menu over the game: kind None); `autocast` when it is a command button whose right press
+	// toggles its autocast (ControlBar::rightPressKind == AutoAbility; RW 0x940435's autoable SPECIAL_POWER / FIRE_WEAPON case)
+	struct TouchButton
+	{
+		enum Kind
+		{
+			None,
+			Movie,
+			Radial
+		} kind = None;
+		std::string target; ///< the Apt button's path ("" for a bubble)
+		bool autocast = false;
+	};
+	TouchButton touchButtonAt(int x, int y);
+
 	WindowManager &windows() { return *m_wm; }
 	Apt &apt() { return m_wm->apt(); }
 	AptPalantir *palantir() { return m_palantirRef; }
@@ -376,5 +402,6 @@ private:
 	int m_keyState = 0;
 	bool m_broadcastClean = false;
 	bool m_rightPosted = false;                    // lane AUTOCAST-1: a right press went into the Apt (its release follows it)
+	bool m_touchHelp = false, m_helpHeld = false;  // lane IOS-21
 	bool commandContentAt(int x, int y);           // lane AUTOCAST-1: a Palantir command button content is under the window point
 };

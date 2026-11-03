@@ -170,6 +170,11 @@ public:
 	// (a menu over the game answers with its own controls; the radar, a radial bubble, a unit or building under the finger and a tap that aims a
 	// placement, a power or a command keep the tap where it is)
 	Dictionary nearest_button(const Vector2 &pixel, double radius_px);
+	// lane IOS-21 (OpenBFME, not retail; touch only): the help box without a hover (InGameHud::setTouchHelp / holdHelp), and what a finger at window
+	// `pixel` is on: { kind: "movie" (a Palantir / side bar / spell book / hero bar button) | "radial" (a bubble) | "" , target, autocast }
+	void set_touch_help(bool on);
+	void hold_help(bool on);
+	Dictionary touch_button_at(const Vector2 &pixel);
 	// lane SPELL-2: a MappedImage of the HUD's collection as its texture and the source rectangle in texture pixels { found, texture, region } (the spell
 	// book screens draw the command buttons' ButtonImage with it)
 	Dictionary get_mapped_image(const String &name);

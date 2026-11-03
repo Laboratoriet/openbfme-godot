@@ -292,3 +292,90 @@ TEST_CASE("autocast hud retail: a real right click on the Morgul Blade button to
 	CHECK(h.count("MSG_DO_AUTO_ABILITY") == 2);
 	CHECK(aa->autoButton().empty());
 }
+
+// lane IOS-21 (OpenBFME, not retail; touch only): the touch layer's double tap toggles autocast only where a right press would (InGameHud::touchButtonAt,
+// ControlBar::rightPressKind), and with touch help the help box shows only while a finger is held on the button (InGameHud::setTouchHelp / holdHelp)
+TEST_CASE("ios21 retail: touchButtonAt names the Morgul Blade an autocast button and no other arc button; touch help shows only while held, at once")
+{
+	if (!haveWorld("ios21 touch help"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	AutocastRig h(s);
+	h.hud->setWindowSize(1024, 768);
+	h.rig.view.setScreen(1024, 768);
+	const Coord3D c = h.rig.freeSpot(2800, 1400, 200.0f);
+	Object *wk = h.rig.make("AngmarWitchking", c.x, c.y);
+	wk->giveUpgrade("Upgrade_WitchkingMorgulBlade");
+	h.frames(10);
+	h.select(wk);
+	REQUIRE(h.hud->input().ui().selected() == std::vector<ObjectID>{ wk->getID() });
+	const ControlBarButton *blade = h.arcButton("Command_WitchkingMorgulBlade");
+	REQUIRE(blade);
+	const int slot = blade->slot;
+	CHECK(h.hud->controlBar().rightPressKind(slot, true) == ControlBar::RightPress::AutoAbility);
+	int bx = 0, by = 0;
+	REQUIRE(h.contentPoint(slot, bx, by));
+	const InGameHud::TouchButton on = h.hud->touchButtonAt(bx, by);
+	CHECK(on.kind == InGameHud::TouchButton::Movie);
+	CHECK(on.autocast);
+	// every other arc button: a movie button, never an autocast one (the Witch-king's other buttons have neither AutoAbility nor CANCELABLE)
+	int others = 0;
+	for (const ControlBarButton &b : h.hud->controlBar().palantirButtons())
+	{
+		int x = 0, y = 0;
+		if (b.slot == slot || !b.button || !h.contentPoint(b.slot, x, y))
+		{
+			continue;
+		}
+		++others;
+		const InGameHud::TouchButton t = h.hud->touchButtonAt(x, y);
+		CHECK(t.kind == InGameHud::TouchButton::Movie);
+		CHECK_MESSAGE(t.autocast == (h.hud->controlBar().rightPressKind(b.slot, true) == ControlBar::RightPress::AutoAbility), b.button->m_name);
+		CHECK_FALSE_MESSAGE(t.autocast, b.button->m_name);
+	}
+	CHECK(others >= 1); // tolerance: the count is the Witch-king's arc layout's (not this lane's); the property is "at least one other button was asked"
+	// the ground above the Palantir: no button
+	const ICoord2D ground = h.rig.screenOf({ c.x + 120.0f, c.y + 40.0f, 0.0f });
+	REQUIRE(ground.y < 380); // tolerance: the point only has to be above the Palantir (the arc's grid starts at y 380, contentPoint)
+	CHECK(h.hud->touchButtonAt(ground.x, ground.y).kind == InGameHud::TouchButton::None);
+	// a menu over the game is the input's top: no HUD button for a finger
+	h.hud->setModal(true);
+	CHECK(h.hud->touchButtonAt(bx, by).kind == InGameHud::TouchButton::None);
+	h.hud->setModal(false);
+
+	// touch help: the pointer resting on the button (where a tap leaves it) opens nothing
+	std::vector<HelpDrawOp> ops;
+	h.hud->helpBoxRender(400.0f, 500.0f, 360.0f, 40.0f, ops); // the device's render samples the content width (state 1)
+	h.hud->setTouchHelp(true);
+	h.hud->mouseMove(bx, by);
+	h.frames(20);
+	CHECK_FALSE(h.hud->helpBox().isShown());
+	const unsigned shown0 = h.hud->helpBox().helpsShown();
+	// held: the help shows in the next updates (no TOOLTIPDELAY), the button's
+	h.hud->holdHelp(true);
+	h.frames(3);
+	CHECK(h.hud->helpBox().isShown());
+	CHECK(h.hud->helpBox().helpsShown() == shown0 + 1);
+	REQUIRE(h.hud->helpBox().help() != nullptr);
+	CHECK_FALSE(h.hud->helpBox().help()->name().empty());
+	CHECK(h.hud->helpBox().provider().button == blade->button);
+	// still held: still shown, not shown again
+	h.frames(20);
+	CHECK(h.hud->helpBox().isShown());
+	CHECK(h.hud->helpBox().helpsShown() == shown0 + 1);
+	// lifted: it hides (the help box's own count down), the pointer still on the button; nothing was pressed
+	h.hud->holdHelp(false);
+	h.frames(10);
+	CHECK_FALSE(h.hud->helpBox().isShown());
+	CHECK(h.count("MSG_DO_SPECIAL_POWER") == 0);
+	CHECK(h.count("MSG_DO_AUTO_ABILITY") == 0);
+	// touch help off (a desktop, a mouse on an iPad): the retail hover shows it again
+	h.hud->setTouchHelp(false);
+	h.hud->mouseMove(5, 5);
+	h.frames(10);
+	h.hud->mouseMove(bx, by);
+	h.frames(10);
+	CHECK(h.hud->helpBox().isShown());
+}

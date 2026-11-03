@@ -1232,6 +1232,9 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("pick_box_pixels", "id"), &InGameHudNode::pick_box_pixels);
 	ClassDB::bind_method(D_METHOD("find_button_window", "path"), &InGameHudNode::find_button_window);
 	ClassDB::bind_method(D_METHOD("nearest_button", "pixel", "radius_px"), &InGameHudNode::nearest_button); // lane IOS-10
+	ClassDB::bind_method(D_METHOD("set_touch_help", "on"), &InGameHudNode::set_touch_help);           // lane IOS-21
+	ClassDB::bind_method(D_METHOD("hold_help", "on"), &InGameHudNode::hold_help);                     // lane IOS-21
+	ClassDB::bind_method(D_METHOD("touch_button_at", "pixel"), &InGameHudNode::touch_button_at);      // lane IOS-21
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
 	ClassDB::bind_method(D_METHOD("world_to_radar_pixel", "world_xy"), &InGameHudNode::world_to_radar_pixel);
 	ClassDB::bind_method(D_METHOD("create_radar_event", "world_xy", "type", "jump_to"), &InGameHudNode::create_radar_event, DEFVAL(false));
@@ -4523,6 +4526,42 @@ Dictionary InGameHudNode::nearest_button(const Vector2 &pixel, double radius_px)
 		}
 	}
 	return d->player->nearestButton(pixel, radius_px, true);
+}
+
+// lane IOS-21 (InGameHud.h): flags the next HUD update reads; no logic wait needed for them
+void InGameHudNode::set_touch_help(bool on)
+{
+	if (d->hud)
+	{
+		d->hud->setTouchHelp(on);
+	}
+}
+
+void InGameHudNode::hold_help(bool on)
+{
+	if (d->hud)
+	{
+		d->hud->holdHelp(on);
+	}
+}
+
+Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
+{
+	waitLogic(d.get());
+	Dictionary r;
+	r["kind"] = String();
+	r["target"] = String();
+	r["autocast"] = false;
+	if (!d->ready || !d->hud)
+	{
+		return r;
+	}
+	const auto worldContext = d->hud->enterContext(); // the control bar's stores (rightPressKind reads the logic)
+	const InGameHud::TouchButton b = d->hud->touchButtonAt((int)pixel.x, (int)pixel.y);
+	r["kind"] = b.kind == InGameHud::TouchButton::Movie ? String("movie") : b.kind == InGameHud::TouchButton::Radial ? String("radial") : String();
+	r["target"] = toGodot(b.target);
+	r["autocast"] = b.autocast;
+	return r;
 }
 
 // lane CHEAT-1 ------------------------------------------------------------------------------------------------------------------------------------------

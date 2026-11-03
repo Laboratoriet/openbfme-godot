@@ -474,6 +474,11 @@ void InGameHud::updateHud6(ObjectID context, const std::string &faction, double 
 	{
 		have = hoveredHelpButton(p, hovered, unit, context); // lane HOVER-1
 	}
+	// lane IOS-21 (OpenBFME, not retail): with touch help the hover alone shows nothing; a held finger shows the help under it at once (InGameHud.h)
+	if (m_touchHelp && !m_helpHeld)
+	{
+		have = false;
+	}
 	const std::vector<ObjectID> &selected = m_input->ui().selected();
 	if (have)
 	{
@@ -483,7 +488,7 @@ void InGameHud::updateHud6(ObjectID context, const std::string &faction, double 
 		const GameTextSource *text = m_config.gameText;
 		// the provider's delay (vslot 2): a command button's is its window's TOOLTIPDELAY (+ 0x1C8), 0 without a window (RW 0x8075E4, lane ROTWK-C), so the spell
 		// book's and the hero bar's command buttons (bar 3) show at once; a UnitHelpSource's (bar 4) is its + 0x08 (RW 0x9F9F16, its value not read: S-2703)
-		const int delay = p.bar == 3 ? 0 : m_tooltipDelayMs;
+		const int delay = p.bar == 3 || m_touchHelp ? 0 : m_tooltipDelayMs; // lane IOS-21: a held finger's help shows at once
 		m_helpBox.showHelp(p, m_hud6ClockMs, delay, [&]() -> std::shared_ptr<CommandButtonHelp> {
 			if (p.bar == 4)
 			{
@@ -562,6 +567,41 @@ bool InGameHud::aptButtonAt(int x, int y)
 	float sx, sy;
 	m.windowToStage((float)x, (float)y, sx, sy);
 	return m_wm->apt().input().hitTestButtons(sx, sy) != nullptr;
+}
+
+// lane IOS-21 (InGameHud.h): the Apt button first, as a press takes it before a bubble under it (lane INTEG-6); nothing while a menu is the input's top
+// or the HUD is hidden
+InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
+{
+	TouchButton out;
+	if (!m_booted || m_modal || m_broadcastClean)
+	{
+		return out;
+	}
+	float sq[4];
+	if (radarSquare(sq) && (float)x >= sq[0] && (float)x <= sq[2] && (float)y >= sq[1] && (float)y <= sq[3])
+	{
+		return out; // the radar is no button: a held finger there keeps the right click (radarClick's order)
+	}
+	AptStageMapping m;
+	m.windowW = (float)m_windowW;
+	m.windowH = (float)m_windowH;
+	float sx, sy;
+	m.windowToStage((float)x, (float)y, sx, sy);
+	if (AptButtonInst *b = m_wm->apt().input().hitTestButtons(sx, sy))
+	{
+		out.kind = TouchButton::Movie;
+		out.target = b->targetPath();
+		bool arc = false;
+		int slot = -1;
+		out.autocast = m_palantirRef && m_palantirRef->contentSlotAt(out.target, arc, slot) && m_bar->rightPressKind(slot, arc) == ControlBar::RightPress::AutoAbility;
+		return out;
+	}
+	if (hud6OverGui(x, y))
+	{
+		out.kind = TouchButton::Radial; // the ring's right press only cancels (ControlBarRadialMenu::mouseButton): never an autocast
+	}
+	return out;
 }
 
 void InGameHud::hud6MouseMove(int x, int y)
