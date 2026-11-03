@@ -65,6 +65,7 @@ const HELP := {
 	"OpenBFMEMaxZoomOut": "How many times higher than the original game the camera can rise (a game starts at the original height).",
 	"OpenBFMEFreeCamera": "Lets the camera rise up to the size of the map; Ctrl+Z turns it on and off in a game.",
 	"OpenBFMEInvertDragScroll": "Dragging with the right button moves the view the other way.",
+	"OpenBFMEIntroMovies": "The logos and the intro movie when the game starts. Esc or a click skips them either way.",
 	"OpenBFMEConfineMouse": "In a game, in a window or a borderless window (exclusive full screen keeps it there anyway).",
 	"OpenBFMEHealthBars": "Original: on the units you select or point at. Always: every unit's and building's bar, yours and the other players'.",
 	"AlternateMouseSetup": "The original game's option (Options.ini AlternateMouseSetup; its own screen has no box for it): the left button gives orders.",
@@ -586,6 +587,7 @@ func _camera_rows() -> Array:
 		_extra_choice("OpenBFMEMaxZoomOut", "Max zoom-out", MAX_ZOOM_ITEMS, HELP.OpenBFMEMaxZoomOut),
 		_extra_choice("OpenBFMEFreeCamera", "Free camera", ZOOM_ITEMS, HELP.OpenBFMEFreeCamera),
 		_extra_check("OpenBFMEInvertDragScroll", "Invert drag scrolling", HELP.OpenBFMEInvertDragScroll),
+		_extra_check("OpenBFMEIntroMovies", "Intro movies", HELP.OpenBFMEIntroMovies), # lane IOS-16
 		_extra_check("OpenBFMEConfineMouse", "Keep the mouse in the window", HELP.OpenBFMEConfineMouse),
 	])
 

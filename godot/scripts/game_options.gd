@@ -46,6 +46,7 @@ const EXTRAS := {
 	"OpenBFMEWidescreen": {"default": "original", "choices": ["original", "wider"]},
 	"OpenBFMEConfineMouse": {"default": "no", "choices": ["yes", "no"]},
 	"OpenBFMEInvertDragScroll": {"default": "no", "choices": ["yes", "no"]},
+	"OpenBFMEIntroMovies": {"default": "yes", "choices": ["yes", "no"]}, # lane IOS-16: the start-up movies (logos, intro); retail plays them
 	"OpenBFMERotateSpeed": {"default": "100", "choices": ["50", "75", "100", "150", "200"]},
 	"OpenBFMEHealthBars": {"default": "retail", "choices": ["retail", "damaged", "always"]},
 	"OpenBFMEGameClock": {"default": "no", "choices": ["yes", "no"]},
@@ -75,7 +76,7 @@ const RETAIL_KEYS := {
 ## which on the iPhone Duo's ~3 pixels per point is a 1 pt bar and a 5 pt clock; 150 % makes them 1.5 pt and 8 pt. (200 % would be 2 pt and 11 pt
 ## but doubles the placement text, which already follows the screen's height: 15 pt at 100 % on the Duo's inner screen.) NOT a touch-target
 ## change: the scale does not reach the Palantir, its buttons or the side bar (they follow the stage mapping, AptPalantir::setViewportSize)
-const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150"}
+const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150", "OpenBFMEIntroMovies": "no"} # lane IOS-16: a phone starts at the menu
 const AA_LABELS := {"off": "Off", "fxaa": "FXAA", "msaa2": "MSAA 2x", "msaa4": "MSAA 4x", "taa": "TAA"}
 
 var shell: Node                  # the AptMenuPlayer (Options.ini)

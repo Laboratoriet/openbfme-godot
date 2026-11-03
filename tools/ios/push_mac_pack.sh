@@ -1,6 +1,6 @@
 #!/bin/sh
 # IOS-14: replace the game data (scripts, scenes) of the iPhone build running on this Mac without re-signing it: a debug build loads
-# <its Documents>/OpenBFME-dev.pck at start (release.gd). Exports the iOS preset's pack, puts it there, restarts the app. Delete the file to
+# <its Documents>/OpenBFME-dev.pck at start (dev_pack.gd). Exports the iOS preset's pack, puts it there, restarts the app. Delete the file to
 # go back to the app's own pack.
 # Engine (C++) changes are not in the pack: they need run_mac.sh again.
 set -eu

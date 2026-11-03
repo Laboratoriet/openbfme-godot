@@ -17,6 +17,7 @@ run/max_fps=0
 
 [autoload]
 
+DevPack="*res://scripts/dev_pack.gd"
 Release="*res://scripts/release/release.gd"
 TouchControls="*res://scripts/touch/touch_controls.gd"
 

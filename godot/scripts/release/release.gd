@@ -69,15 +69,7 @@ var _update_timer: Timer
 var _update_watched := 0.0
 
 
-## lane IOS-14 (development): a debug build on iOS takes its scripts and scenes from user://OpenBFME-dev.pck when there is one
-## (tools/ios/push_mac_pack.sh), so they can be tried without re-signing the app. Release is the first autoload: everything loaded after
-## this (the other autoloads, the game) comes from the pack; this script itself stays the app's. Never in a release export.
-const DEV_PACK := "user://OpenBFME-dev.pck"
-
-
 func _init() -> void:
-	if OS.has_feature("ios") and OS.is_debug_build() and FileAccess.file_exists(DEV_PACK):
-		print("RELEASE development pack %s: %s" % [DEV_PACK, "loaded" if ProjectSettings.load_resource_pack(DEV_PACK, true) else "NOT loaded"])
 	if not ClassDB.class_exists("SessionLogger") or not ClassDB.class_exists("ReleaseInfo"):
 		printerr("RELEASE the openbfme extension is not loaded: no session log, no version")
 		return

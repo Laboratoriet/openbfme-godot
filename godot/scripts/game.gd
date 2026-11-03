@@ -2529,6 +2529,15 @@ func control_bar_drawn() -> bool:
 ## RW 0x64838D NewLineLogo and TolkienLogo (0, 8) then Overall_Game_Intro (1, 0x30) and writes the preference HasSeenLogoMovies = yes; both only when
 ## GlobalData + 0xAF2 (GameData PlayIntro) is set. Each can be skipped (scripts/movie_player.gd). NOT PORTED (stop S-2341): the two arguments of the
 ## display's movie slot (ZH playLogoMovie: the minimum movie and copyright times; RotWK's meaning not read) and the preference write
+## lane IOS-16: Options.ini OpenBFMEIntroMovies (yes / no), else the device's default: no on a phone or tablet (game_options.gd MOBILE_DEFAULTS),
+## yes elsewhere (retail plays them)
+func _intro_movies_option() -> String:
+	var v = _shell.get_option("OpenBFMEIntroMovies") if _shell != null and _shell.has_method("get_option") else null
+	if v != null and (str(v) == "yes" or str(v) == "no"):
+		return str(v)
+	return "no" if OS.has_feature("mobile") else "yes"
+
+
 func _play_intro_movies() -> void:
 	var play := _intro == "on"
 	if _intro == "auto":
@@ -2538,11 +2547,14 @@ func _play_intro_movies() -> void:
 				play = false # an automated start (retail: a .map file to start with)
 	if _intro == "off" or not _campaign_movies:
 		play = false
+	# lane IOS-16: OpenBFMEIntroMovies (Options > OpenBFME; off by default on a phone or tablet) skips them too; --intro still plays them
+	if _intro == "auto" and _intro_movies_option() == "no":
+		play = false
 	var gate: Dictionary = _world.get_play_intro()
 	if not gate.get("ok", false):
 		printerr("GAME intro: GameData PlayIntro: ", gate.get("error", "?"))
-	print("GAME intro movies: %s (GameData PlayIntro %s%s)" % ["play" if play and gate.get("play_intro", true) else "not played", str(gate.get("play_intro", true)),
-		"" if gate.get("from_ini", false) else ", the default"])
+	print("GAME intro movies: %s (GameData PlayIntro %s%s; OpenBFMEIntroMovies %s)" % ["play" if play and gate.get("play_intro", true) else "not played", str(gate.get("play_intro", true)),
+		"" if gate.get("from_ini", false) else ", the default", _intro_movies_option()])
 	if not play or not gate.get("play_intro", true):
 		return
 	var player: Node = load("res://scripts/movie_player.gd").new()
