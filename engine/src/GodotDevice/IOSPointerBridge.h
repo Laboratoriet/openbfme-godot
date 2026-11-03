@@ -64,7 +64,7 @@ bool start(void *uiView);
 void poll(std::vector<Event> &out);
 // True (once) when a pointer touch began at (x, y) window pixels within the last second: Godot's screen touch there is the mouse's click.
 bool claimTouch(float x, float y);
-// A pointer exists: a GCMouse is connected, or the pointer hovered or clicked as one.
+// A pointer is in use: it hovered, moved, clicked or scrolled (a GCMouse merely listed does not count: IOS-17).
 bool mouseConnected();
 bool keyboardConnected();
 int buttonsDown();

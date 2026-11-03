@@ -444,6 +444,7 @@ static int ButtonOf(UITouch *touch, UIEvent *event)
 	const CGPoint t = [recognizer translationInView:view];
 	[recognizer setTranslation:CGPointZero inView:view]; // each event: the scroll since the last
 	State &s = S();
+	s.pointerSeen = true; // scroll events come from a wheel or a trackpad only (allowedTouchTypes is empty)
 	Event e;
 	e.type = EventType::Scroll;
 	e.dx = (float)t.x;
@@ -553,6 +554,10 @@ static void AttachMouse(GCMouse *mouse)
 	};
 	input.mouseMovedHandler = ^(GCMouseInput *mouseInput, float deltaX, float deltaY) {
 		(void)mouseInput;
+		if (deltaX != 0.0f || deltaY != 0.0f)
+		{
+			S().pointerSeen = true; // a mouse that moves is a real one (IOS-17: mouseConnected)
+		}
 		GcMoved(deltaX, deltaY);
 	};
 }
@@ -701,9 +706,11 @@ bool IOSPointerBridge::claimTouch(float x, float y)
 	return found;
 }
 
+// IOS-17: a mouse only once one has hovered, moved, clicked or scrolled. GCMouse lists a mouse on a phone with none attached (the iPhone
+// Duo, nothing paired: "mice": 1 from the start), and that alone switched touch play to the desktop's right-click orders
 bool IOSPointerBridge::mouseConnected()
 {
-	return [GCMouse mice].count > 0 || S().pointerSeen;
+	return S().pointerSeen;
 }
 
 bool IOSPointerBridge::keyboardConnected()
