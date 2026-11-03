@@ -14,6 +14,8 @@ config/name="OpenBFME"
 run/main_scene="res://scenes/game.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 run/max_fps=0
+boot_splash/show_image.mobile=false
+boot_splash/bg_color.mobile=Color(0, 0, 0, 1)
 
 [autoload]
 
