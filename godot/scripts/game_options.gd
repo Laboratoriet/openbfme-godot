@@ -379,7 +379,7 @@ func view_options(values: Dictionary) -> Dictionary:
 		all_bars = true # RW 0x601CD3: DecalLOD Off shows them all
 	return {
 		"scroll_factor_option": values.ScrollFactor if not values.ScrollFactor.is_empty() else null,
-		"edge_scroll_mode": values.OpenBFMEEdgeScroll,
+		"edge_scroll_mode": _edge_scroll_mode(values.OpenBFMEEdgeScroll),
 		"invert_drag_scroll": values.OpenBFMEInvertDragScroll == "yes",
 		"rotate_speed_scale": values.OpenBFMERotateSpeed.to_int() / 100.0,
 		"alternate_mouse": values.AlternateMouseSetup != "yes",
@@ -393,6 +393,12 @@ func view_options(values: Dictionary) -> Dictionary:
 
 
 ## lane UI-6: the Widescreen view in effect: game.gd's --widescreen=original|wider for a run, else Options.ini OpenBFMEWidescreen
+## lane IOS-17: on touch the touch layer maps "retail" (scripts/touch/touch_controls.gd edge_scroll_mode)
+func _edge_scroll_mode(option: String) -> String:
+	var touch := get_node_or_null("/root/TouchControls") if is_inside_tree() else null
+	return touch.edge_scroll_mode(option) if touch != null else option
+
+
 func _widescreen_wider(values: Dictionary) -> bool:
 	if game != null and game.get("_widescreen_flag") != null and not str(game.get("_widescreen_flag")).is_empty():
 		return str(game.get("_widescreen_flag")) == "wider"

@@ -129,9 +129,24 @@ func is_active() -> bool:
 	return active
 
 
-## lane IOS-15: a mouse or trackpad is attached (the iOS bridge reports one; a Mac running the iPhone build always has one)
+## lane IOS-15: a mouse or trackpad is in use (a Mac running the iPhone build has one). IOS-17: only once its pointer showed itself (hovered,
+## clicked): the iPhone Duo lists a GameController mouse with nothing paired, which switched touch play to the desktop's right-click orders
 func mouse_connected() -> bool:
-	return _pointer != null and bool(_pointer.is_mouse_connected())
+	return _pointer != null and bool(_pointer.status().get("pointer_seen", false))
+
+
+## lane IOS-17: the edge scrolling a game gets from the player's option (game_options.gd view_options, and here when a mouse comes or goes). The
+## option's "retail" scrolls in a full-screen window, which Godot's iOS window always is: on touch it is off until a mouse is in use, as a finger
+## near an edge (the Palantir's buttons sit at the bottom edge) is not a wish to scroll. "always" / "off" stay the player's
+func edge_scroll_mode(option: String) -> String:
+	_edge_option = option
+	if not active or option != "retail":
+		return option
+	return "retail" if _mouse else "off"
+
+
+var _edge_option := "retail"  # lane IOS-17: the player's OpenBFMEEdgeScroll as game_options.gd last applied it
+var _mouse_check_ms := 0      # lane IOS-17: the bridge's status is read four times a second, not every frame
 
 
 var _logged_inputs := 0  # lane IOS-14: the first input events of a mobile run are logged (what the device delivers: keys, touches, mouse)
@@ -321,6 +336,11 @@ func _distance() -> float:
 	return p[0].pos.distance_to(p[1].pos) if p.size() >= 2 else 0.0
 
 
+func _apply_edge_scroll() -> void:
+	_hud.set_edge_scroll(_mouse)
+	_hud.set_view_options({"edge_scroll_mode": edge_scroll_mode(_edge_option)})
+
+
 ## the game's HUD node while a game is on screen (null in the menus); edge scrolling goes off for touch the first time it is found
 func _game_hud() -> Node:
 	if is_instance_valid(_hud) and _hud.is_inside_tree():
@@ -330,8 +350,8 @@ func _game_hud() -> Node:
 	if _hud != null:
 		# a finger near the edge is not a wish to scroll; a mouse's pointer is (lane IOS-14: on while a mouse is there, _pump_bridge follows it).
 		# On iOS the HUD's retail rule also scrolls in a full-screen window (InGameHudNode::_process), which Godot's iOS window always is
-		_hud.set_edge_scroll(_mouse)
-		print("TOUCH game HUD found: edge scrolling %s" % ("on (a mouse)" if _mouse else "off"))
+		_apply_edge_scroll()
+		print("TOUCH game HUD found: edge scrolling %s (option %s)" % [edge_scroll_mode(_edge_option), _edge_option])
 	return _hud
 
 
@@ -461,12 +481,15 @@ func _pointer_touch(e: InputEventScreenTouch) -> bool:
 
 
 func _pump_bridge() -> void:
-	var mouse: bool = _pointer.is_mouse_connected()
-	if mouse != _mouse:
-		_mouse = mouse
-		print("TOUCH IOS-14 mouse %s: %s" % ["there" if mouse else "gone", _pointer.status()])
-		if is_instance_valid(_hud) and _hud.is_inside_tree():
-			_hud.set_edge_scroll(_mouse)
+	var now := Time.get_ticks_msec()
+	if now - _mouse_check_ms >= 250:
+		_mouse_check_ms = now
+		var mouse := mouse_connected()
+		if mouse != _mouse:
+			_mouse = mouse
+			print("TOUCH IOS-14 mouse %s: %s" % ["in use" if mouse else "gone", _pointer.status()])
+			if is_instance_valid(_hud) and _hud.is_inside_tree():
+				_apply_edge_scroll()
 	for item in _pointer.poll():
 		var e: Dictionary = item
 		match str(e.type):
