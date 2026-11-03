@@ -64,6 +64,9 @@ const EXTRAS := {
 	"OpenBFMEMasterVolume": {"default": "100", "range": [0, 100]},
 	"OpenBFMEMuteUnfocused": {"default": "no", "choices": ["yes", "no"]},
 	"OpenBFMEAudioDevice": {"default": "Default", "device": true},
+	# lane IOS-20 (the owner's decision 2026-11-03): iOS only (IOS_AUDIO_CLASS): "no" follows the ring / silent switch (the Ambient audio session), "yes"
+	# plays through it (Playback); both mix with other apps' audio. A desktop never shows or applies it
+	"OpenBFMEIOSSilentSound": {"default": "no", "choices": ["yes", "no"]},
 }
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
@@ -82,6 +85,8 @@ const RETAIL_KEYS := {
 ## lane IOS-18 (the owner's decision 2026-11-03: a HUD size setting, about 1.25x on a phone): OpenBFMEHudScale 125 is that touch-target change, the
 ## Palantir and the side bar grown about their corners inside the safe area (the side bar, nearly the screen's height in landscape, by about 10 %)
 const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150", "OpenBFMEIntroMovies": "no", "OpenBFMEHudScale": "125"} # lane IOS-16: a phone starts at the menu
+## lane IOS-20: the extension's class that sets the iOS audio session (engine/src/GodotDevice/IOSAudioSessionBridge.mm); it exists in iOS builds only
+const IOS_AUDIO_CLASS := "IOSAudioSession"
 const AA_LABELS := {"off": "Off", "fxaa": "FXAA", "msaa2": "MSAA 2x", "msaa4": "MSAA 4x", "taa": "TAA"}
 
 var shell: Node                  # the AptMenuPlayer (Options.ini)
@@ -97,6 +102,7 @@ var _focus_muted := false
 var _in_game := false
 var _detail := {}
 var _last_clock := -1
+var _ios_silent_applied := "" # lane IOS-20: the OpenBFMEIOSSilentSound value the audio session was last set for ("" not yet)
 
 
 func _ready() -> void:
@@ -286,6 +292,9 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 		problems.append("OpenBFMEAudioDevice: '%s' is not an output device now (%s); the system's default plays" % [device, ", ".join(AudioServer.get_output_device_list())])
 		AudioServer.output_device = "Default"
 	done.append("audio device " + AudioServer.output_device)
+	if ios_audio_available():
+		_apply_ios_audio(values.OpenBFMEIOSSilentSound)
+		done.append("sound in silent mode " + values.OpenBFMEIOSSilentSound)
 	apply_brightness()
 	apply_detail()
 	if _hud != null:
@@ -303,6 +312,28 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 		if counter != null:
 			counter.add_theme_font_size_override("font_size", roundi(16 * values.OpenBFMEUIScale.to_int() / 100.0))
 	return done
+
+
+## lane IOS-20: true where "Play sound in silent mode" exists (an iOS build: the extension registers IOS_AUDIO_CLASS there only)
+static func ios_audio_available() -> bool:
+	return ClassDB.class_exists(IOS_AUDIO_CLASS)
+
+
+## lane IOS-20: sets the iOS audio session for OpenBFMEIOSSilentSound `value` ("yes": Playback, "no": Ambient; both mix with other apps' audio) when it
+## differs from the one set last, and logs the session as the system reports it afterwards (one line, to read in the device's log). Godot set Ambient
+## at launch (project.godot audio/general/ios); a refusal is reported in the options' problems and tried again at the next apply.
+func _apply_ios_audio(value: String) -> void:
+	if value == _ios_silent_applied:
+		return
+	var r: Dictionary = ClassDB.class_call_static(IOS_AUDIO_CLASS, "set_play_in_silent_mode", value == "yes")
+	var session := "category %s, %s, %s" % [r.get("category", "?"), "mix with others" if r.get("mix_with_others", false) else "options " + str(r.get("options", "?")),
+		"silent switch respected" if r.get("silent_switch_mutes", false) else "plays in silent mode"]
+	if not r.get("ok", false):
+		problems.append("OpenBFMEIOSSilentSound: the audio session refused %s: %s (now %s)" % ["Playback" if value == "yes" else "Ambient", r.get("error", "?"), session])
+		print("AUDIO iOS session: setting it for silent mode %s failed: %s; %s" % [value, r.get("error", "?"), session])
+		return
+	_ios_silent_applied = value
+	print("AUDIO iOS session: " + session)
 
 
 ## "original": the renderer's look as it was (linear tone mapping, no glow); "enhanced": AgX tone mapping and glow on what is brighter than white (the

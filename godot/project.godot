@@ -17,6 +17,12 @@ run/max_fps=0
 boot_splash/show_image.mobile=false
 boot_splash/bg_color.mobile=Color(0, 0, 0, 1)
 
+[audio]
+
+; lane IOS-20 (iOS only; desktops ignore it): the audio session Godot sets at launch mixes with other apps' audio, so the player's music keeps playing.
+; The category stays Godot's default, Ambient (the silent switch mutes the game); "Play sound in silent mode" switches it live (scripts/game_options.gd)
+general/ios/mix_with_others=true
+
 [autoload]
 
 DevPack="*res://scripts/dev_pack.gd"

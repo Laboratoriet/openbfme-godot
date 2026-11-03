@@ -76,6 +76,7 @@ const HELP := {
 	"OpenBFMEMasterVolume": "Scales every sound of the game.",
 	"OpenBFMEMuteUnfocused": "No sound while another window has the focus.",
 	"OpenBFMEAudioDevice": "The speakers or headphones the game plays through.",
+	"OpenBFMEIOSSilentSound": "Play the game's sound even when the phone is in silent mode. Music from other apps keeps playing either way.", # lane IOS-20
 	"note:Display": "Renderer: %s (%s). Point at a setting for what it does.",
 	"note:Graphics": "Left: the original game's detail settings (a level, or Custom). Right: OpenBFME's own.",
 	"note:Audio": "Moving a volume plays a sample of it. The master volume scales them all.",
@@ -637,8 +638,16 @@ func _audio_rows() -> Array:
 		_retail_row("Retail.EAX3"),
 		_retail_row("Retail.HighAudioQuality"),
 		_extra_check("OpenBFMEMuteUnfocused", "Mute in the background", HELP.OpenBFMEMuteUnfocused),
+		_ios_silent_row(), # lane IOS-20: iOS builds only
 		r,
 	])
+
+
+## lane IOS-20: "Play sound in silent mode" (OpenBFMEIOSSilentSound), on iOS only (game_options.gd ios_audio_available); null elsewhere (_present drops it)
+func _ios_silent_row():
+	if not game_options.ios_audio_available():
+		return null
+	return _extra_check("OpenBFMEIOSSilentSound", "Play sound in silent mode", HELP.OpenBFMEIOSSilentSound)
 
 
 func _online_rows() -> Array:

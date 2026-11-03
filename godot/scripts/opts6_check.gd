@@ -40,6 +40,8 @@ const REQUIRED_ROWS := {
 	"Performance": ["OpenBFMEUberPerformance"],
 	"Controls": [],
 }
+## lane IOS-20: rows a tab shows on iOS only (the extension's IOSAudioSession class exists there only; game_options.gd ios_audio_available)
+const REQUIRED_ROWS_IOS := {"Audio": ["OpenBFMEIOSSilentSound"]}
 const REQUIRED_BAR := ["accept", "cancel", "reset"]
 const REQUIRED_MAIN := ["MultiPlayNav", "MyHeroes", "OptionsNav", "QuitMainMenu", "SoloPlayNav", "corner"] # the corner button (a 194 x 105 box) has no name
 const REQUIRED_SUB := {
@@ -632,7 +634,8 @@ func settings_hits() -> void:
 	for tab in screen.TABS:
 		await click_tab_named(tab)
 		var rows: Dictionary = page().get("rows", {})
-		check_inventory("the %s tab" % tab, required(REQUIRED_ROWS.get(tab, [])), shown(rows.keys()))
+		var tab_rows: Array = REQUIRED_ROWS.get(tab, []) + (REQUIRED_ROWS_IOS.get(tab, []) if ClassDB.class_exists("IOSAudioSession") else [])
+		check_inventory("the %s tab" % tab, required(tab_rows), shown(rows.keys()))
 		if OS.get_environment("OPTS6_ONLY") == "inventory":
 			continue
 		if OS.get_environment("OPTS6_INVENTORY") == "1":

@@ -121,6 +121,7 @@ disables its Graphics list there; the online rows are enabled only when the onli
 | Music, Sound FX, Voice, Ambient, Movie | Audio | retail | `MusicVolume`, `SFXVolume`, `VoiceVolume`, `AmbientVolume`, `MovieVolume` |
 | EAX3, High Audio Quality | Audio | retail (greyed: S-1913, S-2481) | `UseEAX3`, `AudioLOD` (kept) |
 | Mute in the background, Output device | Audio | OpenBFME | `OpenBFMEMuteUnfocused`, `OpenBFMEAudioDevice` |
+| Play sound in silent mode (iOS only) | Audio | OpenBFME (IOS-20) | `OpenBFMEIOSSilentSound` |
 | Scroll Speed | Camera | retail | `ScrollFactor` |
 | Edge scrolling, Rotation speed, Max zoom-out, Free camera, Invert drag scrolling, Keep the mouse in the window | Camera | OpenBFME | `OpenBFME*` |
 | Show All Health Bars | Interface | retail | `AllHealthBars` |
@@ -235,6 +236,7 @@ another profile). Tabs:
 | Audio | Master volume 0 .. 100 (live while it moves, with the sound effects sample: OPTS-4) | `OpenBFMEMasterVolume` | 100 |
 | | Mute in the background | `OpenBFMEMuteUnfocused` | no |
 | | Output device (Godot's list: Windows, Linux, macOS) | `OpenBFMEAudioDevice` | Default |
+| | Play sound in silent mode (iOS only, IOS-20): no = the audio session's Ambient category, which the ring / silent switch mutes; yes = Playback, which it does not. Both mix with other apps' audio (project.godot `audio/general/ios/mix_with_others`); set live through the extension's `IOSAudioSession`, logged as `AUDIO iOS session: ...` | `OpenBFMEIOSSilentSound` | no |
 | Controls | the CommandMap's hot keys, read only | | |
 
 ### Max zoom-out and Always health bars (lane ZOOM-1)
