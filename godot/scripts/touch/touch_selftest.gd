@@ -86,6 +86,8 @@ func _run() -> void:
 	# 4. lane IOS-10, the tap assist: a tap 6 points beside the Palantir's key (its Options button), outside the key, presses it: the quit menu opens
 	var assist_failures: PackedStringArray = await _assisted_tap_check(hud)
 	failures.append_array(assist_failures)
+	# 5. lane IOS-18: a builder selected, for the side command bar's picture at the HUD size in effect
+	await _builder_picture(hud)
 	if failures.is_empty():
 		print("TOUCH SELFTEST PASS")
 	else:
@@ -118,6 +120,25 @@ func _assisted_tap_check(hud: Node) -> PackedStringArray:
 		game._close_quit_menu()
 		await _wait(1.0)
 	return out
+
+
+## lane IOS-18: the local player's first builder (a Porter / Worker template: retail names, a test's facts) selected, then a picture of the side
+## command bar it opens (no verdict: the HUD size's own checks are the hud2 palantir unit tests)
+func _builder_picture(hud: Node) -> void:
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	if world == null:
+		print("TOUCH SELFTEST builder picture: no game world")
+		return
+	for o in world.get_player_objects(str(game.get("_local_name"))):
+		var t := str(o.template)
+		if t.contains("Porter") or t.contains("Worker"):
+			hud.select_object(int(o.id))
+			await _wait(1.5)
+			print("TOUCH SELFTEST builder picture: %s %d selected" % [t, int(o.id)])
+			await _shot("6-builder-selected")
+			return
+	print("TOUCH SELFTEST builder picture: no builder of the local player")
 
 
 ## a window point `points` beside the HUD button at `path`, just outside its hit area, that the tap assist sends to it (Vector2.INF: none). It walks
