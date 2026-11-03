@@ -2959,7 +2959,8 @@ func _alternate_mouse_setup() -> bool:
 	if v == null:
 		# lane IOS-2: on touch, a player who never chose takes the retail option's other setup, the left click (a tap) orders: an order by a
 		# hold (the touch right click) would cost half a second each. The option in Options.ini still decides once it is set.
-		return not TouchControls.is_active()
+		# lane IOS-15: with a mouse attached at the game's start the retail default stays (left selects, right orders), as on a desktop
+		return not TouchControls.is_active() or TouchControls.mouse_connected()
 	return str(v) != "yes"
 
 

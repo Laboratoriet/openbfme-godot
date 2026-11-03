@@ -22,6 +22,9 @@
 #include "GodotDevice/GodotVideoStream.h"
 #include "GodotDevice/GodotW3DModelBuilder.h"
 #include "GodotDevice/GodotLivingWorld.h" // WOTR-1
+#if defined(OPENBFME_IOS_POINTER)
+#include "GodotDevice/GodotIOSPointer.h" // IOS-14: iOS builds only (engine/CMakeLists.txt)
+#endif
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -59,6 +62,9 @@ static void initialize_openbfme(ModuleInitializationLevel p_level)
 	GDREGISTER_CLASS(InstallSetup);
 	GDREGISTER_CLASS(VP6MovieStream); // CAMP-2
 	GDREGISTER_CLASS(LivingWorldGame); // WOTR-1
+#if defined(OPENBFME_IOS_POINTER)
+	GDREGISTER_CLASS(IOSPointer); // IOS-14: the mouse, trackpad and hardware keyboard of the iOS build
+#endif
 }
 
 static void uninitialize_openbfme(ModuleInitializationLevel p_level)

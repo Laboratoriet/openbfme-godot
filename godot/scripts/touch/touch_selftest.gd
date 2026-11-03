@@ -30,6 +30,7 @@ func _run() -> void:
 	var failures := PackedStringArray()
 	await _shot("0-start")
 
+	var angle0: float = hud.get_camera().angle
 	# 1. two-finger pan: both fingers move 300 px left; the camera must move
 	var before: Vector2 = hud.get_camera().position
 	await _two_finger(mid + Vector2(-80, 0), mid + Vector2(80, 0), Vector2(-300, 0), 0.0)
@@ -52,6 +53,19 @@ func _run() -> void:
 	if not (h1 < h0 and h2 > h1):
 		failures.append("pinch did not zoom in and out (heights %.1f %.1f %.1f)" % [h0, h1, h2])
 	await _shot("3-after-pinch-out")
+	# lane IOS-15: the pan and the pinches must not have turned the camera
+	var angle1: float = hud.get_camera().angle
+	if absf(angle_difference(angle0, angle1)) > 0.001:
+		failures.append("a pan or pinch turned the camera (%.3f -> %.3f rad)" % [angle0, angle1])
+	# 2b. lane IOS-15, twist: the fingers turn 45 degrees about their middle; the camera must turn about as much
+	await _twist(mid, 140.0, deg_to_rad(45.0))
+	await _wait(0.4)
+	var angle2: float = hud.get_camera().angle
+	var turned := absf(angle_difference(angle1, angle2))
+	print("TOUCH SELFTEST twist: camera angle %.3f -> %.3f rad (turned %.1f degrees for a 45 degree twist)" % [angle1, angle2, rad_to_deg(turned)])
+	if turned < deg_to_rad(20.0):
+		failures.append("the twist did not turn the camera (%.1f degrees)" % rad_to_deg(turned))
+	await _shot("3b-after-twist")
 
 	# 3. one-finger box drag, a tap, a double tap and a hold: they must reach the game as the mouse actions (counted by the controls)
 	await _one_finger_drag(mid + Vector2(-200, -120), mid + Vector2(200, 120))
@@ -157,6 +171,29 @@ func _two_finger(a: Vector2, b: Vector2, shift: Vector2, spread: float) -> void:
 		var f := i / 12.0
 		var na := a + shift * f - dir * spread * 0.5 * f
 		var nb := b + shift * f + dir * spread * 0.5 * f
+		_drag(0, na, na - pa)
+		_drag(1, nb, nb - pb)
+		pa = na
+		pb = nb
+		await get_tree().process_frame
+	_touch(0, pa, false)
+	_touch(1, pb, false)
+	await get_tree().process_frame
+
+
+## lane IOS-15: two fingers `radius` px from `centre`, turned by `turn` radians in 12 frames
+func _twist(centre: Vector2, radius: float, turn: float) -> void:
+	var a := centre + Vector2(-radius, 0)
+	var b := centre + Vector2(radius, 0)
+	_touch(0, a, true)
+	_touch(1, b, true)
+	await get_tree().process_frame
+	var pa := a
+	var pb := b
+	for i in range(1, 13):
+		var r := Vector2(radius, 0).rotated(turn * i / 12.0)
+		var na := centre - r
+		var nb := centre + r
 		_drag(0, na, na - pa)
 		_drag(1, nb, nb - pb)
 		pa = na

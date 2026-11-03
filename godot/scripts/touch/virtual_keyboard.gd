@@ -20,6 +20,11 @@ extends Node
 ## Prototype choice for the owner's review (REPORT.md).
 ##
 ## Active on a mobile build whose display server has a virtual keyboard; desktops never show one and this node does nothing there.
+##
+## Lane IOS-14: with a hardware keyboard (DisplayServer.has_hardware_keyboard: GCKeyboard, an iPad's keyboard or the Mac's under the iPhone
+## build) the on-screen keyboard is never shown: the hardware keys reach the entry as Godot's key presses (UIPress, with the layout's character).
+## While Godot's keyboard view is the first responder Godot drops every hardware key (godot_view_controller.mm pressesBegan: is_keyboard_active),
+## so the view must never stay one: it is resigned when the focus goes, when a hardware keyboard connects, and when this node leaves the tree.
 
 const TAP_FOCUS_MS := 400        # a focus this soon after a press inside the entry is the player's
 
@@ -88,6 +93,10 @@ func _on_window_input(event: InputEvent) -> void:
 func _process(_delta: float) -> void:
 	if not _shown:
 		return
+	if DisplayServer.has_hardware_keyboard():
+		print("IOS-14 a hardware keyboard: the on-screen keyboard goes")
+		_hide()
+		return
 	if _return_pressed:
 		_return_pressed = false
 		_hide()
@@ -97,7 +106,14 @@ func _process(_delta: float) -> void:
 		_show(state) # the entry and the keyboard differ: the entry's text is the keyboard's again
 
 
+func _exit_tree() -> void:
+	_hide()  # lane IOS-14: the shell going (into a game) must not leave the keyboard view the first responder: it would take every hardware key
+
+
 func _show(state: Dictionary) -> void:
+	if DisplayServer.has_hardware_keyboard():
+		_hide()  # lane IOS-14: the hardware keyboard types into the entry
+		return
 	var text := str(state.get("text", ""))
 	var type := DisplayServer.KEYBOARD_TYPE_DEFAULT
 	if state.get("secret", false):

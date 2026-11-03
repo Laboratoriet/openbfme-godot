@@ -31,6 +31,9 @@ if [ $# -gt 0 ]; then
         plutil -insert godot_cmdline -string "$a" -append "$PLIST"
     done
 fi
+# Development (IOS-14): a debug build loads <its Documents>/OpenBFME-dev.pck when present (release.gd), so tools/ios/push_mac_pack.sh can
+# replace the scripts without re-signing (each re-signed build needs the owner's approval in Privacy & Security). Engine (C++) changes need
+# this script again. (Godot's --main-pack is compiled out of export templates.)
 
 xcodebuild -project "$OUT/export/$SCHEME.xcodeproj" -scheme "$SCHEME" -configuration Debug \
     -destination 'platform=macOS,arch=arm64,variant=Designed for iPad' -derivedDataPath "$OUT/derived" -allowProvisioningUpdates \

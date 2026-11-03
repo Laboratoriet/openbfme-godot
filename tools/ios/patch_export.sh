@@ -36,6 +36,12 @@ if ! /usr/libexec/PlistBuddy -c "Print :LSApplicationQueriesSchemes" "$PLIST" | 
 fi
 echo "IOS $PLIST: shareddocuments queryable (Open in Files)"
 
+# IOS-14: a mouse or trackpad click reaches the app as a touch of type indirect pointer (UIEvent.buttonMask tells its button) instead of
+# UIKit's compatibility mode, where it looks like a finger. The mouse bridge (engine/src/GodotDevice/IOSPointerBridge.mm) tells the pointer's
+# touches from the fingers' by that type; without the key it falls back to the touch's place (where the pointer hovered).
+plutil -replace UIApplicationSupportsIndirectInputEvents -bool YES "$PLIST"
+echo "IOS $PLIST: indirect input events (a click is a pointer touch, not a finger's)"
+
 # IOS-7: the increased memory limit (com.apple.developer.kernel.increased-memory-limit): a game on 8.6 GB of retail data, with about 1 GB of
 # video memory in a skirmish (measured: -- --gpu-probe), keeps clear of iOS's default per-app limit; Xcode's automatic signing adds the
 # capability to the App ID.
