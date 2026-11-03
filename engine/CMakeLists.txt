@@ -716,6 +716,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set_source_files_properties(src/GodotDevice/IOSAudioSessionBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_AUDIO_SESSION=1)
     target_link_libraries(openbfme PRIVATE "-framework AVFoundation")
+    # IOS-22: MetalFX, for Godot's Metal driver. Its MetalFX check (MTLFX::SpatialScalerDescriptor::supportsDevice, metal-cpp: an Objective-C class
+    # looked up at run time) reads false when no image in the process links MetalFX.framework, and Godot 4.7.2's iOS export never links it (its
+    # system frameworks come in by auto-linking, and metal-cpp has none for MetalFX): the Duo logged "MetalFX spatial upscaling is not supported"
+    # and drew the 3D view bilinear. The app loads this framework at launch, before the rendering device starts, so linking it here is enough.
+    # Device only: the simulator's SDK has no MetalFX (and the simulator build draws with OpenGL ES, tools/ios/run_simulator.sh).
+    if(OPENBFME_IOS_SDK STREQUAL "iphoneos")
+        target_link_libraries(openbfme PRIVATE "-framework MetalFX")
+    endif()
 endif()
 endif()
 
