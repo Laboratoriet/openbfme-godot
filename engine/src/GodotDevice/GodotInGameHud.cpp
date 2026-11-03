@@ -196,7 +196,6 @@ struct HudDevice : public AptNativeHook
 	double placeMs = 0.0, ghostMs = 0.0; ///< lane FOGFX-1: the placement update and the ghost sync of the last frame
 	bool edgeScroll = false;
 	int edgeScrollMode = 0;   // lane OPTS-2: 0 retail (full screen only, or edge_scroll), 1 always, 2 never
-	int touchEdgeScroll = -1; // lane IOS-17: the touch layer's choice (set_edge_scroll): -1 none, 0 off, 1 on; replaces the retail rule when set
 	float uiScale = 1.0f;     // lane OPTS-2: the decorations' scale (health bars, veterancy marks, texts) about each object's ops
 	float fogShift = 0.0f; ///< lane PLAY-1: the last w3d_fog_shift sent
 	// lane SPELL-2 (review r2): the game text of a standalone HUD (data/lotr.str); an attached HUD uses its shell's. Before the HUD: it outlives it
@@ -3200,10 +3199,7 @@ void InGameHudNode::_process(double delta)
 	{
 		DisplayServer *ds = DisplayServer::get_singleton();
 		const DisplayServer::WindowMode wm = ds ? ds->window_get_mode() : DisplayServer::WINDOW_MODE_WINDOWED;
-		// lane IOS-17: on touch the touch layer decides (a mouse there or not): Godot's iOS window is always full screen, so the retail rule scrolled
-		// whenever a tap left the pointer near an edge (the Palantir's buttons sit at the bottom edge)
-		const bool retail = d->touchEdgeScroll >= 0 ? d->touchEdgeScroll == 1
-				: (d->edgeScroll || wm == DisplayServer::WINDOW_MODE_FULLSCREEN || wm == DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN);
+		const bool retail = d->edgeScroll || wm == DisplayServer::WINDOW_MODE_FULLSCREEN || wm == DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN;
 		la->setEdgeScrollEnabled(d->edgeScrollMode == 1 ? true : (d->edgeScrollMode == 2 ? false : retail)); // lane OPTS-2: the option
 	}
 	// lane FX-4: the effects' ViewShake calls shake the camera (W3DView::shake RW 0x486D86); the next client frame's update moves the view (RW 0x48C0E8)
@@ -3929,10 +3925,9 @@ void InGameHudNode::camera_set_clip_depth_multiplier(double m)
 	}
 }
 
-// lane IOS-17: the touch layer's choice (touch_controls.gd: on while a mouse is in use); it replaces the retail rule, the option's "always" / "off" still win
 void InGameHudNode::set_edge_scroll(bool on)
 {
-	d->touchEdgeScroll = on ? 1 : 0;
+	d->edgeScroll = on;
 }
 
 Dictionary InGameHudNode::set_view_options(const Dictionary &o)
