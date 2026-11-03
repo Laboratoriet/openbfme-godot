@@ -36,6 +36,9 @@ const EXTRAS := {
 	"OpenBFMELook": {"default": "original", "choices": ["original", "enhanced"]},
 	"OpenBFMESoftParticles": {"default": "yes", "choices": ["yes", "no"]},
 	"OpenBFMEUIScale": {"default": "100", "choices": ["100", "125", "150", "200"]},
+	# lane IOS-18: the HUD size, the Palantir's and the side command bar's (InGameHudNode set_view_options hud_scale, AptPalantir::setViewportSize); 100 is
+	# retail's layout
+	"OpenBFMEHudScale": {"default": "100", "choices": ["100", "105", "110", "115", "120", "125", "130", "135", "140", "145", "150"]},
 	"OpenBFMEFreeCamera": {"default": "no", "choices": ["yes", "no"]},
 	# lane ZOOM-1: the Max zoom-out, times retail's highest camera (TacticalCamera::setZoomOutFactor). The owner's default is 2.5 (2026-10-10: "by default
 	# have the option to zoom out like 2.5x as far"), the one extra whose default is not retail's behaviour; "1" is the original game
@@ -75,8 +78,10 @@ const RETAIL_KEYS := {
 ## veterancy marks, the clock and the frame counter are drawn in screen pixels (a health bar's fill is 3 pixel rows, DrawableIconUI.h; the clock 16 px),
 ## which on the iPhone Duo's ~3 pixels per point is a 1 pt bar and a 5 pt clock; 150 % makes them 1.5 pt and 8 pt. (200 % would be 2 pt and 11 pt
 ## but doubles the placement text, which already follows the screen's height: 15 pt at 100 % on the Duo's inner screen.) NOT a touch-target
-## change: the scale does not reach the Palantir, its buttons or the side bar (they follow the stage mapping, AptPalantir::setViewportSize)
-const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150", "OpenBFMEIntroMovies": "no"} # lane IOS-16: a phone starts at the menu
+## change: the scale does not reach the Palantir, its buttons or the side bar (they follow the stage mapping, AptPalantir::setViewportSize).
+## lane IOS-18 (the owner's decision 2026-11-03: a HUD size setting, about 1.25x on a phone): OpenBFMEHudScale 125 is that touch-target change, the
+## Palantir and the side bar grown about their corners inside the safe area (the side bar, nearly the screen's height in landscape, by about 10 %)
+const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150", "OpenBFMEIntroMovies": "no", "OpenBFMEHudScale": "125"} # lane IOS-16: a phone starts at the menu
 const AA_LABELS := {"off": "Off", "fxaa": "FXAA", "msaa2": "MSAA 2x", "msaa4": "MSAA 4x", "taa": "TAA"}
 
 var shell: Node                  # the AptMenuPlayer (Options.ini)
@@ -284,7 +289,9 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 	apply_brightness()
 	apply_detail()
 	if _hud != null:
-		_hud.set_view_options(view_options(values))
+		var view: Dictionary = _hud.set_view_options(view_options(values))
+		if view.has("hud_scale_error"):
+			problems.append("OpenBFMEHudScale: " + str(view.hud_scale_error)) # lane IOS-18: the engine refused the size
 	_apply_confine(values)
 	_clock_layer.visible = _in_game and values.OpenBFMEGameClock == "yes"
 	var wheel = game.get("_ping_wheel") if game != null else null
@@ -386,6 +393,7 @@ func view_options(values: Dictionary) -> Dictionary:
 		"all_health_bars": all_bars,
 		"health_bar_mode": values.OpenBFMEHealthBars,
 		"ui_scale": values.OpenBFMEUIScale.to_int() / 100.0,
+		"hud_scale": values.OpenBFMEHudScale.to_int() / 100.0, # lane IOS-18
 		"free_camera": values.OpenBFMEFreeCamera == "yes" or (game != null and game.get("_free_camera_flag") == true),
 		"zoom_out_factor": _zoom_out_factor(values),
 		"widescreen_wider": _widescreen_wider(values),

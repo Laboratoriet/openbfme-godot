@@ -58,6 +58,7 @@ const HELP := {
 	"OpenBFMELook": "Enhanced: AgX tone mapping and a glow on the brightest effects. Original: the game's own picture.",
 	"OpenBFMESoftParticles": "Smoke, fire and dust fade where they meet the ground instead of a hard cut. Off: the original look.",
 	"OpenBFMEUIScale": "Enlarges the health bars, the frame counter and the game clock for large screens; the menus already scale with the window.",
+	"OpenBFMEHudScale": "The size of the bottom panel and its buttons. Larger is easier to tap.", # lane IOS-18
 	"OpenBFMEMainMenuStyle": "Uses the selected game's original menus, music and background. After Accept, changes when you return to the main menu. Gameplay is unchanged.",
 	"OpenBFMEUberPerformance": "Not compatible with the original game: uses every CPU core; games and replays then only work with players who have it on too. From the next game.",
 	"OpenBFMEEdgeScroll": "Scrolling with the mouse at the screen's edge. The original game does it in full screen only.",
@@ -100,6 +101,8 @@ const AA_ITEMS := [["off", "Off"], ["fxaa", "FXAA"], ["msaa2", "MSAA 2x"], ["msa
 const ANISO_ITEMS := [["off", "Off"], ["2x", "2x"], ["4x", "4x"], ["8x", "8x"], ["16x", "16x"]]
 const LOOK_ITEMS := [["original", "Original"], ["enhanced", "Enhanced"]]
 const UI_SCALE_ITEMS := [["100", "100%"], ["125", "125%"], ["150", "150%"], ["200", "200%"]]
+## lane IOS-18: the HUD size is a slider in steps of HUD_STEP percent (as the render scale's): eleven sizes are more than a drop-down list shows at once
+const HUD_STEP := 5
 const EDGE_ITEMS := [["retail", "Full screen only (original)"], ["always", "Always"], ["off", "Off"]]
 const ROTATE_ITEMS := [["50", "50%"], ["75", "75%"], ["100", "100% (original)"], ["150", "150%"], ["200", "200%"]]
 const ZOOM_ITEMS := [["no", "Off"], ["yes", "On: up to the map's size"]]
@@ -600,11 +603,20 @@ func _interface_rows() -> Array:
 		_extra_check("AlternateMouseSetup", "Alternate mouse setup", HELP.AlternateMouseSetup),
 		_extra_check("OpenBFMEGameClock", "Show the game clock", HELP.OpenBFMEGameClock),
 		_extra_choice("OpenBFMEUIScale", "Interface scale", UI_SCALE_ITEMS, HELP.OpenBFMEUIScale),
+		_hud_size_row(), # lane IOS-18
 		_extra_check("OpenBFMEPingWheel", "Ping wheel", HELP.OpenBFMEPingWheel),
 		_extra_choice("OpenBFMEPingKey", "Ping key", PING_KEY_ITEMS, HELP.OpenBFMEPingKey),
 		# lane CRASHACT-1: here, not on Online (that tab's rows already fill the page above its footer)
 		_extra_check("OpenBFMECrashReports", "Send crash reports automatically", HELP.OpenBFMECrashReports),
 	])
+
+
+## lane IOS-18: OpenBFMEHudScale (game_options.gd EXTRAS: "100" .. "150") on a slider of HUD_STEP-percent steps
+func _hud_size_row() -> Dictionary:
+	var spec: Array = game_options.spec("OpenBFMEHudScale").choices
+	var pct := str(_extras.get("OpenBFMEHudScale", game_options.default_of("OpenBFMEHudScale"))).to_int()
+	return _slider("OpenBFMEHudScale", "HUD size", str(spec[0]).to_int() / HUD_STEP, str(spec[-1]).to_int() / HUD_STEP, pct / HUD_STEP, "%d%%" % pct,
+		HELP.OpenBFMEHudScale)
 
 
 func _audio_rows() -> Array:
@@ -753,6 +765,8 @@ func _on_value(key: String, value: int) -> void:
 		"OpenBFMEMasterVolume":
 			set_extra(key, str(value))
 			_master_preview(value)
+		"OpenBFMEHudScale":
+			set_extra(key, str(value * HUD_STEP)) # lane IOS-18: applied live (game_options.gd view_options hud_scale)
 		_:
 			var r = _rows.get(key)
 			if r == null:

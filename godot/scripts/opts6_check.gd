@@ -32,9 +32,9 @@ const REQUIRED_ROWS := {
 		"Retail.AdvancedOption8", "Retail.Detail"],
 	"Audio": ["OpenBFMEAudioDevice", "OpenBFMEMasterVolume", "OpenBFMEMuteUnfocused", "Retail.AmbientVolume", "Retail.EAX3", "Retail.HighAudioQuality",
 		"Retail.MovieVolume", "Retail.MusicVolume", "Retail.SoundFxVolume", "Retail.VoiceVolume"],
-	"Camera": ["OpenBFMEConfineMouse", "OpenBFMEEdgeScroll", "OpenBFMEFreeCamera", "OpenBFMEInvertDragScroll", "OpenBFMEMaxZoomOut", "OpenBFMERotateSpeed",
-		"Retail.ScrollSpeed"],
-	"Interface": ["AlternateMouseSetup", "OpenBFMECrashReports", "OpenBFMEGameClock", "OpenBFMEHealthBars", "OpenBFMEMainMenuStyle", "OpenBFMEPingKey", "OpenBFMEPingWheel", "OpenBFMEUIScale", "Retail.HealthBars"],
+	"Camera": ["OpenBFMEConfineMouse", "OpenBFMEEdgeScroll", "OpenBFMEFreeCamera", "OpenBFMEIntroMovies", "OpenBFMEInvertDragScroll", "OpenBFMEMaxZoomOut",
+		"OpenBFMERotateSpeed", "Retail.ScrollSpeed"], # lane IOS-16 put the intro movies' row on this tab
+	"Interface": ["AlternateMouseSetup", "OpenBFMECrashReports", "OpenBFMEGameClock", "OpenBFMEHealthBars", "OpenBFMEHudScale", "OpenBFMEMainMenuStyle", "OpenBFMEPingKey", "OpenBFMEPingWheel", "OpenBFMEUIScale", "Retail.HealthBars"],
 	"Online": ["OpenBFMEShareResults", "OpenBFMEShowPing", "Retail.OnlineIp", "Retail.OnlinePortNum", "Retail.RefreshNat", "Retail.SendDelay",
 		"Social.challenges", "Social.hidden", "Social.invites", "Social.presence", "Social.requests"], # ONLINEMENU-1: who may ask, invite, challenge, see you
 	"Performance": ["OpenBFMEUberPerformance"],

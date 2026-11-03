@@ -124,7 +124,7 @@ disables its Graphics list there; the online rows are enabled only when the onli
 | Scroll Speed | Camera | retail | `ScrollFactor` |
 | Edge scrolling, Rotation speed, Max zoom-out, Free camera, Invert drag scrolling, Keep the mouse in the window | Camera | OpenBFME | `OpenBFME*` |
 | Show All Health Bars | Interface | retail | `AllHealthBars` |
-| Health bars, Show the game clock, Interface scale | Interface | OpenBFME | `OpenBFMEHealthBars`, `OpenBFMEGameClock`, `OpenBFMEUIScale` |
+| Health bars, Show the game clock, Interface scale, HUD size | Interface | OpenBFME | `OpenBFMEHealthBars`, `OpenBFMEGameClock`, `OpenBFMEUIScale`, `OpenBFMEHudScale` |
 | Alternate mouse setup | Interface | retail key, OpenBFME row (RotWK 2.01's screen has no box for it) | `AlternateMouseSetup` |
 | Online IP, Port Number, Send Delay | Online | retail (enabled from the online screens) | `GameSpyIPAddress`, `FirewallPortOverride`, `SendDelay` |
 | Refresh NAT | Online | retail (refused by name: S-1913) | |
@@ -216,6 +216,7 @@ another profile). Tabs:
 | | Anisotropic filtering (models): Off .. 16x | `OpenBFMEAnisotropic` | 4x (what the renderer used) |
 | | Look: original / enhanced (AgX tone mapping, glow on overbright effects) | `OpenBFMELook` | original |
 | | Interface scale: 100 .. 200% (health bars, frame counter, clock) | `OpenBFMEUIScale` | 100 |
+| | HUD size (IOS-18): 100 .. 150% in 5% steps, the Palantir and the side command bar grown about their corners inside the display's safe area; each group only as far as the safe area holds it (in a landscape window the side bar, nearly the stage's height, reaches about 110%); hit tests, the tap assist, tooltips and the radar follow the same transform | `OpenBFMEHudScale` | 100 (125 on a phone or tablet) |
 | | Soft particle edges (UI-2 / FX-3) | `OpenBFMESoftParticles` | yes |
 | | Uber performance mode (UBER-1, `docs/UBER.md`): the next game and LAN lobby run the Uber simulation profile, which uses every CPU core and is not compatible with the original game (its help line says so); Uber players play and replay only with Uber players | `OpenBFMEUberPerformance` | no |
 | Camera | Scroll speed | `ScrollFactor` (retail) | 50 |
