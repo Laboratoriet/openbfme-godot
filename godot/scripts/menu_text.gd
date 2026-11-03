@@ -15,6 +15,7 @@ const COLOR := Color(0xBF / 255.0, 0xED / 255.0, 1.0, 0.9)
 const SHADOW := Color(0, 0, 0, 0.9)
 const CORNER_PX := 11.0 # a corner line, in stage pixels
 const MARGIN_PX := 5.0 # a corner line's distance from the window's edge, in stage pixels
+const MOBILE_MIN_PT := 11.0 # lane IOS-8: the smallest corner text on a phone or tablet, in points
 
 
 ## the menus' scale at a window of `size`: stage pixels to window pixels
@@ -27,6 +28,9 @@ static func scale_of(size: Vector2) -> float:
 static func apply(control: Control, shell: Object, size: Vector2, stage_px: float, errors: Array, color: Color = COLOR) -> float:
 	var k := scale_of(size)
 	var px := maxi(8, roundi(stage_px * k))
+	if OS.has_feature("mobile"):
+		# lane IOS-8: a phone's ~3 pixels per point made an 11 stage-pixel corner line 5 pt tall; at least MOBILE_MIN_PT (Apple's smallest text)
+		px = maxi(px, roundi(MOBILE_MIN_PT * DisplayServer.screen_get_scale()))
 	var font: Font = null
 	if shell != null:
 		var face: Dictionary = shell.shell_font(FACE, px)
