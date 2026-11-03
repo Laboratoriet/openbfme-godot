@@ -116,6 +116,7 @@ public:
 	// the radar picture's square in window pixels (the largest square inside the movie's RenderRadar clip, centred); false before the movie shows it
 	bool radarSquare(float out[4]);
 	void setBroadcastClean(bool clean) { m_broadcastClean = clean; }
+	bool broadcastClean() const { return m_broadcastClean; } // lane IOS-10: the tap assist leaves the hidden HUD's buttons alone
 	// a click at a window pixel inside the radar square: the left button moves the view there, the right button orders the selection to that ground point (MSG_DO_MOVETO) when it is
 	// controllable. True when the click was the radar's.
 	bool radarClick(HudInput::Button button, int x, int y, int timeMs);

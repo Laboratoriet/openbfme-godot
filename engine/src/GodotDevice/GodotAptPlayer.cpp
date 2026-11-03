@@ -1422,6 +1422,8 @@ void AptMenuPlayer::_bind_methods()
 	ClassDB::bind_method(D_METHOD("menu_nav_state"), &AptMenuPlayer::menu_nav_state);
 	ClassDB::bind_method(D_METHOD("hit_test_stage", "stage"), &AptMenuPlayer::hit_test_stage);
 	ClassDB::bind_method(D_METHOD("gadget_pick", "stage"), &AptMenuPlayer::gadget_pick);
+	ClassDB::bind_method(D_METHOD("nearest_button", "window_position", "radius_px"), &AptMenuPlayer::nearest_button); // lane IOS-10
+	ClassDB::bind_method(D_METHOD("scroll_list_at", "window_position"), &AptMenuPlayer::scroll_list_at);              // lane IOS-10
 	ClassDB::bind_method(D_METHOD("list_gadgets"), &AptMenuPlayer::list_gadgets);   // lane MENUWORK-1
 	ClassDB::bind_method(D_METHOD("take_commands"), &AptMenuPlayer::take_commands); // lane MENUWORK-1
 	ClassDB::bind_method(D_METHOD("apt_text", "name"), &AptMenuPlayer::apt_text);   // lane MENUWORK-1
@@ -5856,6 +5858,331 @@ String AptMenuPlayer::hit_test_stage(const Vector2 &stage)
 {
 	AptButtonInst *b = m_booted ? m->A()->input().hitTestButtons(stage.x, stage.y) : nullptr;
 	return b ? toGodot(b->targetPath()) : String();
+}
+
+// lane IOS-10 (OpenBFME, not retail; touch only) -----------------------------------------------------------------------------------------------------------
+namespace
+{
+// shown up its chain and not faded under one half: what a player can see (MenuNavigator's rule for its targets, list_buttons' "seen")
+bool seenByPlayer(const AptCharacterInst *c)
+{
+	for (; c; c = c->parent())
+	{
+		if (!c->visible || c->color.mul[3] < 0.5f)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// the gadget window a press at a stage point goes to (GameWindowManager::winProcessMouseEvent's rule: a window without input is nobody's, except a
+// combo box's part, which is the combo's); null: none
+GameWindow *gadgetAt(GameWindowManager &gwm, float x, float y)
+{
+	GameWindow *w = gwm.winPickPointerWindow((int)x, (int)y);
+	if (w && BitTest(w->winGetStatus(), WIN_STATUS_NO_INPUT))
+	{
+		GameWindow *parent = w->winGetParent();
+		w = parent && BitTest(parent->winGetStyle(), GWS_COMBO_BOX) ? parent : nullptr;
+	}
+	return w;
+}
+
+// `picked` is `w` or one of its parts (a list box's scroll bar, a slider's thumb)
+bool partOf(GameWindow *w, GameWindow *picked)
+{
+	for (GameWindow *p = picked; p; p = p->winGetParent())
+	{
+		if (p == w)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// window pixels from a point to a rectangle (0 inside)
+float distanceToRect(const Rect2 &r, const Vector2 &p)
+{
+	const float x0 = (float)r.position.x, y0 = (float)r.position.y, x1 = x0 + (float)r.size.x, y1 = y0 + (float)r.size.y;
+	const float dx = std::max(std::max(x0 - (float)p.x, 0.0f), (float)p.x - x1);
+	const float dy = std::max(std::max(y0 - (float)p.y, 0.0f), (float)p.y - y1);
+	return std::sqrt(dx * dx + dy * dy);
+}
+} // namespace
+
+Dictionary AptMenuPlayer::nearest_button(const Vector2 &window_position, double radius_px)
+{
+	return nearestButton(window_position, radius_px, false);
+}
+
+// The tap assist (a fat finger's near miss): the menus and the HUD were made for a mouse pointer, a finger lands a few points off. A tap that hits a control
+// stays exactly where it is; a tap on none goes to the centre of the nearest control whose box lies within `radius_px` window pixels (the caller's points
+// times the screen's scale). The candidates are what the pointer could press now:
+//   * the Apt buttons of every level the input reaches (AptInput's floor), enabled, seen, not a click-away area over 90 % of the stage (MenuNavigator's
+//     rule), pressed at a point the input routes to them (AptInput::hitTestButtons: the centre of their hit box, else the hit point nearest it, as
+//     find_button);
+//   * while a menu has the input, the navigation's gadgets and a screen's own targets (MenuNavigator::targets: the OpenBFME page's rows and tabs);
+//     a list box or a slider is pressed at the point of it nearest the tap (its row, its position there), any other at its centre.
+// A tap that lands on a click-away area (the Skirmish Profile pop-up's) counts as a miss of the controls over it; with `backings` (the in-game HUD) so
+// does a tap on a button whose hit box holds smaller controls' boxes (the Palantir's frame behind its command buttons). INFERENCE, the owner's review:
+// a backing's own click is nothing a player aims for. While a drop-down list is open nothing moves (its rows are not candidates yet: a tap beside it
+// closes it as before).
+Dictionary AptMenuPlayer::nearestButton(const Vector2 &window_position, double radius_px, bool backings)
+{
+	Dictionary r;
+	r["snapped"] = false;
+	r["position"] = window_position;
+	r["target"] = String();
+	r["distance"] = -1.0;
+	r["runner_up"] = -1.0;
+	if (!m_booted || !m->A())
+	{
+		r["reason"] = "no menus";
+		return r;
+	}
+	Apt &apt = *m->A();
+	AptInput &input = apt.input();
+	const Vector2 stage = window_to_stage(window_position);
+	const float sx = (float)stage.x, sy = (float)stage.y;
+	const float stageW = m->mapping.stageW, stageH = m->mapping.stageH;
+	const float radius = (float)radius_px;
+	GameWindowManager *gwm = m->shell && m->shell->layer ? &m->shell->layer->gadgets() : nullptr;
+	if (gwm && m->shell->layer->openDropDown())
+	{
+		r["reason"] = "a list is open";
+		return r;
+	}
+	// a gadget under the finger takes the tap (the gadgets see the pointer before the movies: WindowManager's input routing)
+	if (gwm)
+	{
+		if (GameWindow *g = gadgetAt(*gwm, sx, sy))
+		{
+			r["reason"] = "hit";
+			r["target"] = toGodot(g->aptInstanceName().empty() ? g->name() : g->aptInstanceName());
+			return r;
+		}
+	}
+	struct Candidate
+	{
+		String id;
+		float box[4];               // stage
+		float distance;             // window pixels
+		AptButtonInst *button;      // an Apt button (else a gadget or a screen's target)
+		GameWindow *window;         // a gadget
+		bool nearestPoint;          // a list box / slider: pressed at its point nearest the tap
+	};
+	std::vector<Candidate> candidates;
+	auto windowRect = [&](const float box[4]) {
+		return Rect2(stage_to_window(Vector2(box[0], box[1])), Vector2()).expand(stage_to_window(Vector2(box[2], box[3])));
+	};
+	// the navigation's gadgets and screen targets (a tap inside a screen's own target hits it)
+	if (m->shell && m->shell->nav)
+	{
+		syncNav();
+		for (const MenuNavTarget &t : m->shell->nav->targets())
+		{
+			if (t.kind == MenuNavTarget::Kind::Button)
+			{
+				continue; // the scan below has the buttons, of every level the input reaches
+			}
+			if (t.kind == MenuNavTarget::Kind::Item && sx >= t.x0 && sx <= t.x1 && sy >= t.y0 && sy <= t.y1)
+			{
+				r["reason"] = "hit";
+				r["target"] = toGodot(t.id);
+				return r;
+			}
+			Candidate c{ toGodot(t.id), { t.x0, t.y0, t.x1, t.y1 }, 0.0f, nullptr, t.window, false };
+			c.distance = distanceToRect(windowRect(c.box), window_position);
+			c.nearestPoint = t.window && (t.window->winGetStyle() & (GWS_SCROLL_LISTBOX | GWS_ALL_SLIDER)) != 0;
+			candidates.push_back(c);
+		}
+	}
+	// a disabled control the player can see under the finger keeps the tap too (it shows itself disabled; the neighbour was not meant)
+	if (gwm)
+	{
+		for (const WindowManager::ComponentRecord &rec : m->shell->wm->components())
+		{
+			GameWindow *w = rec.window.get();
+			if (!w || !rec.instance || !gwm->winIsAlive(w) || gwm->isHidden(w) || gwm->isEnabled(w) || !seenByPlayer(rec.instance))
+			{
+				continue;
+			}
+			int x = 0, y = 0, cw = 0, ch = 0;
+			w->winGetScreenPosition(&x, &y);
+			w->winGetSize(&cw, &ch);
+			if (sx >= (float)x && sx <= (float)(x + cw) && sy >= (float)y && sy <= (float)(y + ch))
+			{
+				r["reason"] = "hit";
+				r["target"] = toGodot(rec.instancePath);
+				return r;
+			}
+		}
+	}
+	// the Apt buttons the pointer could press
+	std::vector<AptButtonInst *> buttons;
+	for (int level : apt.loadedLevels())
+	{
+		if (level >= input.inputFloor())
+		{
+			collectButtons(apt.level(level), buttons);
+		}
+	}
+	auto isCatcher = [&](const float box[4]) { return box[2] - box[0] >= 0.9f * stageW && box[3] - box[1] >= 0.9f * stageH; };
+	AptButtonInst *disabledHit = nullptr;
+	for (AptButtonInst *b : buttons)
+	{
+		float box[4];
+		if (!b->defined() || !seenByPlayer(b) || !b->hitBounds(box) || isCatcher(box))
+		{
+			continue;
+		}
+		if (!b->enabled)
+		{
+			if (!disabledHit && b->hitTest(sx, sy))
+			{
+				disabledHit = b;
+			}
+			continue;
+		}
+		if (box[2] <= 0.0f || box[0] >= stageW || box[3] <= 0.0f || box[1] >= stageH)
+		{
+			continue; // laid out off the stage
+		}
+		Candidate c{ toGodot(b->targetPath()), { box[0], box[1], box[2], box[3] }, 0.0f, b, nullptr, false };
+		c.distance = distanceToRect(windowRect(c.box), window_position);
+		candidates.push_back(c);
+	}
+	// an Apt button under the finger takes the tap, unless it is a click-away area or (`backings`) a backing: then only the controls on it are candidates
+	AptButtonInst *hit = input.hitTestButtons(sx, sy);
+	if (disabledHit)
+	{
+		r["reason"] = "hit";
+		r["target"] = toGodot(disabledHit->targetPath());
+		return r;
+	}
+	if (hit)
+	{
+		float hb[4];
+		const bool hasBox = hit->hitBounds(hb);
+		const float hitArea = hasBox ? (hb[2] - hb[0]) * (hb[3] - hb[1]) : 0.0f;
+		auto onIt = [&](const Candidate &c) {
+			const float tolerance = 1.0f; // stage pixels
+			const float area = (c.box[2] - c.box[0]) * (c.box[3] - c.box[1]);
+			return c.button != hit && c.box[0] >= hb[0] - tolerance && c.box[1] >= hb[1] - tolerance && c.box[2] <= hb[2] + tolerance &&
+				c.box[3] <= hb[3] + tolerance && area * 4.0f <= hitArea;
+		};
+		const bool catcher = hasBox && isCatcher(hb);
+		const bool backing = hasBox && !catcher && backings && std::any_of(candidates.begin(), candidates.end(), onIt);
+		if (!catcher && !backing)
+		{
+			r["reason"] = "hit";
+			r["target"] = toGodot(hit->targetPath());
+			return r;
+		}
+		candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [&](const Candidate &c) { return !onIt(c); }), candidates.end());
+	}
+	// the nearest within reach, and where to press it
+	auto pressPoint = [&](const Candidate &c, Vector2 &out) -> bool {
+		const float cx = (c.box[0] + c.box[2]) * 0.5f, cy = (c.box[1] + c.box[3]) * 0.5f;
+		if (c.button)
+		{
+			if (input.hitTestButtons(cx, cy) == c.button)
+			{
+				out = Vector2(cx, cy);
+				return true;
+			}
+			bool found = false;
+			float best = 0.0f;
+			for (int gy = 1; gy < 16; ++gy)
+			{
+				for (int gx = 1; gx < 16; ++gx)
+				{
+					const float px = c.box[0] + (c.box[2] - c.box[0]) * (float)gx / 16.0f, py = c.box[1] + (c.box[3] - c.box[1]) * (float)gy / 16.0f;
+					const float d = (px - cx) * (px - cx) + (py - cy) * (py - cy);
+					if ((!found || d < best) && input.hitTestButtons(px, py) == c.button)
+					{
+						out = Vector2(px, py);
+						best = d;
+						found = true;
+					}
+				}
+			}
+			return found;
+		}
+		Vector2 p(cx, cy);
+		if (c.nearestPoint)
+		{
+			const float inset = std::min(2.0f, std::min(c.box[2] - c.box[0], c.box[3] - c.box[1]) * 0.25f); // stage pixels inside its edge
+			p = Vector2(std::clamp(sx, c.box[0] + inset, c.box[2] - inset), std::clamp(sy, c.box[1] + inset, c.box[3] - inset));
+		}
+		if (c.window && gwm && !partOf(c.window, gadgetAt(*gwm, (float)p.x, (float)p.y)))
+		{
+			p = Vector2(cx, cy); // covered there: its centre, if that reaches it
+			if (!partOf(c.window, gadgetAt(*gwm, cx, cy)))
+			{
+				return false;
+			}
+		}
+		out = p;
+		return true;
+	};
+	std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate &a, const Candidate &b) { return a.distance < b.distance; });
+	const Candidate *best = nullptr;
+	Vector2 press;
+	for (const Candidate &c : candidates)
+	{
+		if (c.distance > radius)
+		{
+			break;
+		}
+		Vector2 at;
+		if (!pressPoint(c, at))
+		{
+			continue; // covered: nothing a press there reaches
+		}
+		if (!best)
+		{
+			best = &c;
+			press = at;
+			continue;
+		}
+		r["runner_up"] = (double)c.distance; // the next pressable control: the caller may leave a tap between two alone
+		break;
+	}
+	if (!best)
+	{
+		r["reason"] = "none within reach";
+		return r;
+	}
+	r["snapped"] = true;
+	r["reason"] = "snapped";
+	r["target"] = best->id;
+	r["distance"] = (double)best->distance;
+	r["position"] = stage_to_window(press);
+	return r;
+}
+
+Dictionary AptMenuPlayer::scroll_list_at(const Vector2 &window_position)
+{
+	Dictionary r;
+	r["found"] = false;
+	if (!m_booted || !m->shell || !m->shell->layer)
+	{
+		return r;
+	}
+	const Vector2 stage = window_to_stage(window_position);
+	GameWindow *w = gadgetAt(m->shell->layer->gadgets(), (float)stage.x, (float)stage.y);
+	if (!w || !BitTest(w->winGetStyle(), GWS_SCROLL_LISTBOX) || m->shell->wm->componentInputBlocked())
+	{
+		return r;
+	}
+	const ListboxData *list = static_cast<const ListboxData *>(w->winGetUserData());
+	r["found"] = true;
+	r["name"] = toGodot(w->aptInstanceName().empty() ? w->name() : w->aptInstanceName());
+	r["row_height"] = list && !list->listData.empty() ? list->listData.front().height : 0;
+	return r;
 }
 
 Array AptMenuPlayer::list_gadgets()

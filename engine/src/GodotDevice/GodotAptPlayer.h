@@ -143,6 +143,14 @@ public:
 	Dictionary text_entry_state();
 	String hit_test_stage(const Vector2 &stage);
 	Dictionary gadget_pick(const Vector2 &stage);
+	// lane IOS-10 (OpenBFME, not retail; touch only: scripts/touch/touch_controls.gd). nearest_button: the tap assist, where a tap at a window point
+	// presses: { snapped, position (window), target, distance and runner_up (window pixels from the tap to the nearest and the next control's box,
+	// -1 none), reason }. A tap on a control stays; one on none goes to the nearest control within `radius_px`. nearestButton's `backings`
+	// (the in-game HUD's) also takes a tap on a button that only backs others (the Palantir's frame) as a miss of the ones on it. scroll_list_at: the
+	// list box a finger's drag at a window point scrolls { found, name, row_height (stage) }; only the list itself, not its scroll bar
+	Dictionary nearest_button(const Vector2 &window_position, double radius_px);
+	Dictionary nearestButton(const Vector2 &window_position, double radius_px, bool backings);
+	Dictionary scroll_list_at(const Vector2 &window_position);
 	void _ready() override;
 	void _process(double delta) override;
 

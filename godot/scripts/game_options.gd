@@ -69,6 +69,13 @@ const RETAIL_KEYS := {
 	"AllHealthBars": {"default": "no", "choices": ["yes", "no"]},     # the health bars box (RW 0x6E6179: "yes")
 	"AlternateMouseSetup": {"default": "no", "choices": ["yes", "no"]}, # the box (RW 0x920A7B): yes = the left click orders
 }
+## lane IOS-10 (prototype, for the owner's review): a phone or tablet (OS feature "mobile") starts from these where Options.ini has no entry; a value
+## the player saved always wins and a desktop never sees them (as display_settings.gd's MOBILE_DEFAULTS). OpenBFMEUIScale 150: the health bars,
+## veterancy marks, the clock and the frame counter are drawn in screen pixels (a health bar's fill is 3 pixel rows, DrawableIconUI.h; the clock 16 px),
+## which on the iPhone Duo's ~3 pixels per point is a 1 pt bar and a 5 pt clock; 150 % makes them 1.5 pt and 8 pt. (200 % would be 2 pt and 11 pt
+## but doubles the placement text, which already follows the screen's height: 15 pt at 100 % on the Duo's inner screen.) NOT a touch-target
+## change: the scale does not reach the Palantir, its buttons or the side bar (they follow the stage mapping, AptPalantir::setViewportSize)
+const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150"}
 const AA_LABELS := {"off": "Off", "fxaa": "FXAA", "msaa2": "MSAA 2x", "msaa4": "MSAA 4x", "taa": "TAA"}
 
 var shell: Node                  # the AptMenuPlayer (Options.ini)
@@ -144,17 +151,23 @@ static func spec(key: String) -> Dictionary:
 	return EXTRAS.get(key, RETAIL_KEYS.get(key, {}))
 
 
+## the default of `key` on this device (lane IOS-10: MOBILE_DEFAULTS on a phone or tablet, else the table's)
+static func default_of(key: String) -> String:
+	if OS.has_feature("mobile") and MOBILE_DEFAULTS.has(key):
+		return str(MOBILE_DEFAULTS[key])
+	return str(spec(key).get("default", ""))
+
+
 ## the value of `key` in `opts` (Options.ini's entries), or its default; a value the key does not take is reported in `out_problems`, never used
 static func value_of(opts: Dictionary, key: String, out_problems = null) -> String:
-	var s := spec(key)
 	if not opts.has(key):
-		return s.get("default", "")
+		return default_of(key)
 	var v := str(opts[key])
 	if valid(key, v):
 		return v
 	if out_problems != null:
-		out_problems.append("%s = '%s' is not a value it takes; its default '%s' is in effect" % [key, v, s.get("default", "")])
-	return s.get("default", "")
+		out_problems.append("%s = '%s' is not a value it takes; its default '%s' is in effect" % [key, v, default_of(key)])
+	return default_of(key)
 
 
 static func valid(key: String, v: String) -> bool:
@@ -189,9 +202,9 @@ func current() -> Dictionary:
 static func defaults() -> Dictionary:
 	var out := {}
 	for key in EXTRAS:
-		out[key] = EXTRAS[key].default
+		out[key] = default_of(key)
 	for key in RETAIL_KEYS:
-		out[key] = RETAIL_KEYS[key].default
+		out[key] = default_of(key)
 	return out
 
 

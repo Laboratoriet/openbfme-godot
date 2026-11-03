@@ -166,6 +166,10 @@ public:
 	String dump_tree(int max_depth) const;
 	// the bounds of the HUD element that draws at `path` (stage coordinates -> window pixels), for harnesses that click a button: { found, x, y }
 	Dictionary find_button_window(const String &path) const;
+	// lane IOS-10 (OpenBFME, not retail; touch only): the tap assist over a game, AptMenuPlayer::nearest_button's answer for a tap at window `pixel`
+	// (a menu over the game answers with its own controls; the radar, a radial bubble, a unit or building under the finger and a tap that aims a
+	// placement, a power or a command keep the tap where it is)
+	Dictionary nearest_button(const Vector2 &pixel, double radius_px);
 	// lane SPELL-2: a MappedImage of the HUD's collection as its texture and the source rectangle in texture pixels { found, texture, region } (the spell
 	// book screens draw the command buttons' ButtonImage with it)
 	Dictionary get_mapped_image(const String &name);

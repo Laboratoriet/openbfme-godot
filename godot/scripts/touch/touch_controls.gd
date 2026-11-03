@@ -15,6 +15,15 @@ extends Node
 ##
 ## Active on a mobile build (OS feature "mobile") or with `-- --touch` (to try it on a desktop with a touch screen or synthetic events).
 ## The thresholds are in points (DisplayServer.screen_get_scale), so they are the same physical size on any screen.
+##
+## Lane IOS-10 (prototype, for the owner's review), the menus and the HUD for fingers:
+##   tap assist ................. a tap on no button but within ASSIST_PT of one presses that button (its centre); a tap that hits a control
+##                                never moves, nor one that picks a unit / building, aims a placement, a power or a command, or lands on the
+##                                radar; a tap about as near two buttons (ASSIST_TIE_PT) stays where it is. AptMenuPlayer / InGameHudNode
+##                                nearest_button decide (the controls the pointer could press now). Counted in stats.assisted_taps.
+##   one finger, drag on a list . scrolls the list (a mouse wheel notch per row of finger travel) instead of a press-and-drag; a drag that
+##                                starts on its scroll bar still drags the bar. Menus only (over a game: while a menu has the input).
+## `-- --no-tap-assist` / `-- --no-list-scroll` turn either off for a comparison.
 
 const TAP_MAX_MS := 280          # a finger down longer than this is not a tap
 const LONG_PRESS_MS := 450       # a still finger held this long is a right click
@@ -22,8 +31,10 @@ const SLOP_PT := 10.0            # movement under this is still a tap / hold (po
 const DOUBLE_TAP_MS := 320       # two taps within this ...
 const DOUBLE_TAP_PT := 24.0      # ... and this distance are a double click
 const PINCH_STEP := 0.12         # a 12 % change of the fingers' distance is one wheel notch
+const ASSIST_PT := 9.0           # lane IOS-10: the tap assist's reach from a button's edge (points)
+const ASSIST_TIE_PT := 3.0       # lane IOS-10: a second button within this much of the nearest one's distance makes the tap ambiguous: no assist
 
-enum Gesture { NONE, PENDING, DRAG, HELD, TWO }
+enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL }
 
 var active := false
 var _gesture := Gesture.NONE
@@ -36,8 +47,15 @@ var _last_centroid := Vector2.ZERO
 var _last_tap_ms := -100000
 var _last_tap_pos := Vector2(-1000, -1000)
 var _hud: Node = null            # the game's InGameHudNode while a game is on screen
+var _menus: Node = null          # lane IOS-10: the shell's AptMenuPlayer (the menus' tap assist and lists)
 var _scale := 1.0                # pixels per point
-var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0}
+var tap_assist := true           # lane IOS-10
+var list_scroll := true          # lane IOS-10
+var _scroll_at := Vector2.ZERO   # lane IOS-10: where the list drag began (the wheel's pointer stays there)
+var _scroll_anchor := 0.0        # the finger's stage y at the last notch
+var _scroll_row := 0.0           # stage pixels of finger travel per notch (the list's row height)
+var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "assisted_taps": 0,
+	"list_scrolls": 0}
 
 
 func _ready() -> void:
@@ -50,8 +68,11 @@ func _ready() -> void:
 		return
 	Input.emulate_mouse_from_touch = false  # this node makes the mouse events; Godot's own translation would make a second set
 	_scale = maxf(1.0, DisplayServer.screen_get_scale())
+	tap_assist = not OS.get_cmdline_user_args().has("--no-tap-assist")
+	list_scroll = not OS.get_cmdline_user_args().has("--no-list-scroll")
 	print("TOUCH controls on (%s), %.1f px per point" % ["mobile" if OS.has_feature("mobile") else "--touch", _scale])
 	print("TOUCH arguments: engine %s, game %s" % [OS.get_cmdline_args(), OS.get_cmdline_user_args()])
+	print("TOUCH tap assist %s (%.0f pt), list scrolling %s" % ["on" if tap_assist else "off", ASSIST_PT, "on" if list_scroll else "off"])
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--touch-selftest="):
 			var test: Node = preload("res://scripts/touch/touch_selftest.gd").new()
@@ -94,6 +115,7 @@ func _touch(e: InputEventScreenTouch) -> void:
 			2:
 				if _gesture == Gesture.DRAG:
 					_button(MOUSE_BUTTON_LEFT, false, _fingers[_first].pos)  # a second finger ends the drag where it is
+				# (a list scroll just stops: it pressed nothing)
 				_gesture = Gesture.TWO
 				_two_start_ms = now
 				_two_moved = false
@@ -127,20 +149,31 @@ func _drag(e: InputEventScreenDrag) -> void:
 	match _gesture:
 		Gesture.PENDING:
 			if e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
-				_gesture = Gesture.DRAG
-				stats.drags += 1
-				_button(MOUSE_BUTTON_LEFT, true, _fingers[e.index].start)
-				_move(e.position)
+				if _begin_list_scroll(_fingers[e.index].start):
+					_gesture = Gesture.SCROLL
+					stats.list_scrolls += 1
+					_scroll_list(e.position)
+				else:
+					_gesture = Gesture.DRAG
+					stats.drags += 1
+					_button(MOUSE_BUTTON_LEFT, true, _fingers[e.index].start)
+					_move(e.position)
 		Gesture.DRAG:
 			if e.index == _first:
 				_move(e.position)
+		Gesture.SCROLL:
+			if e.index == _first:
+				_scroll_list(e.position)
 		Gesture.TWO:
 			_two_finger_move()
 
 
 func _tap(at: Vector2, now: int) -> void:
 	var double := now - _last_tap_ms <= DOUBLE_TAP_MS and at.distance_to(_last_tap_pos) <= DOUBLE_TAP_PT * _scale
-	_click(MOUSE_BUTTON_LEFT, at, double)
+	var assist := assist_probe(at)
+	if assist.snapped:
+		stats.assisted_taps += 1
+	_click(MOUSE_BUTTON_LEFT, assist.position, double)
 	if double:
 		stats.double_taps += 1
 		_last_tap_ms = -100000  # a third tap starts over
@@ -206,6 +239,91 @@ func _game_hud() -> Node:
 		_hud.set_edge_scroll(false)  # a finger near the edge is not a wish to scroll
 		print("TOUCH game HUD found: edge scrolling off")
 	return _hud
+
+
+## lane IOS-10: the shell's AptMenuPlayer (the menus), or null before it boots
+func _menu_player() -> Node:
+	if is_instance_valid(_menus) and _menus.is_inside_tree():
+		return _menus
+	_menus = null
+	for p in get_tree().root.find_children("*", "AptMenuPlayer", true, false):
+		if p.is_booted():
+			_menus = p
+			break
+	return _menus
+
+
+## lane IOS-10: where a tap at `at` presses: { position, snapped, target, reason } (no click, nothing counted; touch_selftest.gd asks it too).
+## Over a game the HUD answers (its buttons, or a menu over it), else the menus. A tap the answer leaves alone keeps its own point.
+func assist_probe(at: Vector2) -> Dictionary:
+	var out := {"position": at, "snapped": false, "target": "", "reason": "off"}
+	if not tap_assist:
+		return out
+	var source: Node = _game_hud()
+	if source == null:
+		source = _menu_player()
+	if source == null or not source.has_method("nearest_button"):
+		out.reason = "no source"  # in a game's load, or an extension built before lane IOS-10
+		return out
+	var r: Dictionary = source.nearest_button(at, ASSIST_PT * _scale)
+	out.target = str(r.get("target", ""))
+	out.reason = str(r.get("reason", ""))
+	if not r.get("snapped", false):
+		return out
+	var runner_up := float(r.get("runner_up", -1.0))
+	if runner_up >= 0.0 and runner_up - float(r.get("distance", 0.0)) < ASSIST_TIE_PT * _scale:
+		out.reason = "between two"
+		return out
+	out.position = r.position
+	out.snapped = true
+	return out
+
+
+## lane IOS-10: a one-finger drag that starts on a list box scrolls it (true: the gesture is a list scroll). Never over a game's world: there a
+## drag is a selection box; only while a menu has the input (the save / load list over a game)
+func _begin_list_scroll(start: Vector2) -> bool:
+	if not list_scroll:
+		return false
+	var menus := _menu_player()
+	if menus == null or not menus.has_method("scroll_list_at"):
+		return false
+	if _game_hud() != null and not menus.modal_menu():
+		return false
+	var list: Dictionary = menus.scroll_list_at(start)
+	var row := float(list.get("row_height", 0))
+	if not list.get("found", false) or row <= 0.0:
+		return false  # an empty list has nothing to scroll: the drag stays a drag
+	_scroll_at = start
+	_scroll_row = row
+	_scroll_anchor = menus.window_to_stage(start).y
+	return true
+
+
+## the finger's travel since the last notch, in rows: a notch each (the content follows the finger: up shows the later rows, the wheel's down)
+func _scroll_list(at: Vector2) -> void:
+	var menus := _menu_player()
+	if menus == null:
+		return
+	var travel: float = _scroll_anchor - menus.window_to_stage(at).y
+	while travel >= _scroll_row:
+		_wheel(MOUSE_BUTTON_WHEEL_DOWN, _scroll_at)
+		_scroll_anchor -= _scroll_row
+		travel -= _scroll_row
+	while travel <= -_scroll_row:
+		_wheel(MOUSE_BUTTON_WHEEL_UP, _scroll_at)
+		_scroll_anchor += _scroll_row
+		travel += _scroll_row
+
+
+func _wheel(button: MouseButton, at: Vector2) -> void:
+	for down in [true, false]:
+		var b := InputEventMouseButton.new()
+		b.button_index = button
+		b.pressed = down
+		b.factor = 1.0
+		b.position = at
+		b.global_position = at
+		Input.parse_input_event(b)
 
 
 func _move(at: Vector2) -> void:

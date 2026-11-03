@@ -1228,6 +1228,7 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("pick_probe", "pixel", "id"), &InGameHudNode::pick_probe);
 	ClassDB::bind_method(D_METHOD("pick_box_pixels", "id"), &InGameHudNode::pick_box_pixels);
 	ClassDB::bind_method(D_METHOD("find_button_window", "path"), &InGameHudNode::find_button_window);
+	ClassDB::bind_method(D_METHOD("nearest_button", "pixel", "radius_px"), &InGameHudNode::nearest_button); // lane IOS-10
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
 	ClassDB::bind_method(D_METHOD("world_to_radar_pixel", "world_xy"), &InGameHudNode::world_to_radar_pixel);
 	ClassDB::bind_method(D_METHOD("create_radar_event", "world_xy", "type", "jump_to"), &InGameHudNode::create_radar_event, DEFVAL(false));
@@ -4401,6 +4402,66 @@ Dictionary InGameHudNode::find_button_window(const String &path) const
 	r["x"] = (double)w.x;
 	r["y"] = (double)w.y;
 	return r;
+}
+
+// lane IOS-10 (OpenBFME, not retail; touch only: scripts/touch/touch_controls.gd): the tap assist over a game. The candidates are the Apt buttons the
+// pointer could press (the Palantir's, the side bar's, the spell book's: AptMenuPlayer::nearestButton with backings, so a tap on the Palantir's frame
+// next to a command button is a miss of that button). Never a unit or the ground: the world is no candidate, and a tap that picks an object, aims (a
+// building's placement, a command button or a spell book power waiting for its target) or lands on the radar or a radial bubble stays where it is
+Dictionary InGameHudNode::nearest_button(const Vector2 &pixel, double radius_px)
+{
+	waitLogic(d.get());
+	Dictionary r;
+	r["snapped"] = false;
+	r["position"] = pixel;
+	r["target"] = String();
+	r["distance"] = -1.0;
+	r["runner_up"] = -1.0;
+	if (!d->ready || !d->hud || !d->player)
+	{
+		r["reason"] = "no game";
+		return r;
+	}
+	if (!d->ownsPlayer && d->player->modal_menu())
+	{
+		return d->player->nearest_button(pixel, radius_px); // the quit menu, Options, the save screen over the game: the menus' own controls
+	}
+	const auto worldContext = d->hud->enterContext(); // the HUD's stores (the pick, the control bar) for the whole call
+	if (d->hud->broadcastClean())
+	{
+		r["reason"] = "the HUD is hidden";
+		return r;
+	}
+	const int x = (int)pixel.x, y = (int)pixel.y;
+	float sq[4];
+	if (d->hud->radarSquare(sq) && (float)x >= sq[0] && (float)x <= sq[2] && (float)y >= sq[1] && (float)y <= sq[3])
+	{
+		r["reason"] = "hit";
+		r["target"] = "radar";
+		return r;
+	}
+	const bool onButton = !d->player->hit_test_stage(d->player->window_to_stage(pixel)).is_empty();
+	if (!onButton)
+	{
+		if (d->hud->isOverGui(x, y))
+		{
+			r["reason"] = "hit"; // a radial bubble (HUD-6), a screen that takes every press
+			return r;
+		}
+		const InGameUI &ui = d->hud->input().ui();
+		if (ui.isPlacing() || ui.getGUICommand() || d->hud->spellBar().targeting())
+		{
+			r["reason"] = "aiming"; // the tap picks a point of the world
+			return r;
+		}
+		const HudContext &ctx = d->hud->input().context();
+		if (HudObjects::pickForSelection(ctx, ICoord2D{ x, y }))
+		{
+			r["reason"] = "on an object";
+			return r;
+		}
+	}
+	return d->player->nearestButton(pixel, radius_px, true);
 }
 
 // lane CHEAT-1 ------------------------------------------------------------------------------------------------------------------------------------------

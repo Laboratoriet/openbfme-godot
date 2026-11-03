@@ -1,6 +1,7 @@
 extends Node
 ## Lane IOS-2: `-- --touch --touch-selftest=<folder>` in a game (with --auto): plays the touch gestures as synthetic touch events, through the same
 ## Input path a phone's touches take, and reports what each did to the camera, plus a picture after each. Prints TOUCH SELFTEST PASS / FAIL.
+## Lane IOS-10: last, a tap 6 pt beside the Palantir's key must be moved onto it by the tap assist and open the quit menu (closed again after).
 
 var _out := ""
 var _controls: Node
@@ -67,10 +68,65 @@ func _run() -> void:
 	for k in ["drags", "taps", "double_taps", "holds", "pans", "zoom_notches"]:
 		if int(s.get(k, 0)) < 1:
 			failures.append("no " + k)
+
+	# 4. lane IOS-10, the tap assist: a tap 6 points beside the Palantir's key (its Options button), outside the key, presses it: the quit menu opens
+	var assist_failures: PackedStringArray = await _assisted_tap_check(hud)
+	failures.append_array(assist_failures)
 	if failures.is_empty():
 		print("TOUCH SELFTEST PASS")
 	else:
 		print("TOUCH SELFTEST FAIL: ", "; ".join(failures))
+
+
+## lane IOS-10: the tap assist's check; its failures (none: passed)
+func _assisted_tap_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	if not hud.has_method("nearest_button"):
+		out.append("the extension has no nearest_button (built before lane IOS-10)")
+		return out
+	var path := "PalantirButtons.Buttons.Options"
+	var at := _beside(hud, path, 6.0)
+	if not at.is_finite():
+		out.append("no point 6 pt beside the Palantir's key that the tap assist sends to it")
+		return out
+	var game: Node = get_tree().current_scene
+	var assisted0 := int(_controls.stats.assisted_taps)
+	await _tap(at)
+	await _wait(1.5)
+	var opened: bool = game != null and game.get("_quit_open") == true
+	print("TOUCH SELFTEST tap assist: a tap at %s, 6 pt beside the key: assisted %d, quit menu %s" % [at, int(_controls.stats.assisted_taps) - assisted0, opened])
+	await _shot("5-after-assisted-tap")
+	if int(_controls.stats.assisted_taps) != assisted0 + 1:
+		out.append("the tap beside the key was not assisted")
+	if not opened:
+		out.append("the assisted tap did not press the key (no quit menu)")
+	elif game.has_method("_close_quit_menu"):
+		game._close_quit_menu()
+		await _wait(1.0)
+	return out
+
+
+## a window point `points` beside the HUD button at `path`, just outside its hit area, that the tap assist sends to it (Vector2.INF: none). It walks
+## out of the button from its centre (up, left, down, right) to the first point the assist does not call a hit of it, then `points` further
+func _beside(hud: Node, path: String, points: float) -> Vector2:
+	var b: Dictionary = hud.find_button_window(path)
+	if not b.get("found", false):
+		return Vector2.INF
+	var centre := Vector2(float(b.x), float(b.y))
+	var px_per_pt: float = _controls._scale
+	for dir in [Vector2.UP, Vector2.LEFT, Vector2.DOWN, Vector2.RIGHT]:
+		var p := centre
+		for i in 400:
+			var r: Dictionary = hud.nearest_button(p, 0.0)
+			if str(r.get("reason", "")) != "hit" or not str(r.get("target", "")).contains(path):
+				break
+			p += dir
+		var q: Vector2 = p + dir * (points * px_per_pt)
+		var probe: Dictionary = _controls.assist_probe(q)
+		print("TOUCH SELFTEST tap assist probe %s: %s" % [q, JSON.stringify(probe)])
+		if probe.snapped and str(probe.target).contains(path):
+			return q
+	return Vector2.INF
 
 
 func _touch(index: int, at: Vector2, down: bool) -> void:
