@@ -26,6 +26,16 @@ plutil -replace UIFileSharingEnabled -bool YES "$PLIST"
 plutil -replace LSSupportsOpeningDocumentsInPlace -bool YES "$PLIST"
 echo "IOS $PLIST: Documents shared (Finder's Files, the Files app's On My iPhone > OpenBFME: copy RotWK and BFME2 there)"
 
+# IOS-12: the first-run screen's Open in Files opens shareddocuments://<the app's Documents folder> (first_run.gd _open_files). Godot's
+# OS.shell_open asks canOpenURL first, which answers NO for any scheme the app does not list under LSApplicationQueriesSchemes.
+if ! /usr/libexec/PlistBuddy -c "Print :LSApplicationQueriesSchemes" "$PLIST" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy -c "Add :LSApplicationQueriesSchemes array" "$PLIST"
+fi
+if ! /usr/libexec/PlistBuddy -c "Print :LSApplicationQueriesSchemes" "$PLIST" | grep -qx " *shareddocuments"; then
+    /usr/libexec/PlistBuddy -c "Add :LSApplicationQueriesSchemes: string shareddocuments" "$PLIST"
+fi
+echo "IOS $PLIST: shareddocuments queryable (Open in Files)"
+
 # IOS-7: the increased memory limit (com.apple.developer.kernel.increased-memory-limit): a game on 8.6 GB of retail data, with about 1 GB of
 # video memory in a skirmish (measured: -- --gpu-probe), keeps clear of iOS's default per-app limit; Xcode's automatic signing adds the
 # capability to the App ID.
