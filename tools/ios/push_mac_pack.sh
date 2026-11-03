@@ -14,8 +14,8 @@ for c in "$HOME"/Library/Containers/*/; do
     fi
 done
 [ -n "$DEST" ] || { echo "IOS no container of $BUNDLE_ID" >&2; exit 1; }
-"$GODOT" --headless --path "$ROOT/godot" --export-pack "iOS" "$DEST.new"
-mv "$DEST.new" "$DEST"
+"$GODOT" --headless --path "$ROOT/godot" --export-pack "iOS" "${DEST%.pck}-new.pck"
+mv "${DEST%.pck}-new.pck" "$DEST"
 pkill -f "Wrapper/OpenBFME.app/OpenBFME" 2>/dev/null || true
 sleep 1
 open "$ROOT/workspace/ios-mac/OpenBFME-Mac.app"

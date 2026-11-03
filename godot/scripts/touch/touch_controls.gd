@@ -110,7 +110,7 @@ func _ready() -> void:
 	list_scroll = not OS.get_cmdline_user_args().has("--no-list-scroll")
 	print("TOUCH controls on (%s), %.1f px per point" % ["mobile" if OS.has_feature("mobile") else "--touch", _scale])
 	print("TOUCH arguments: engine %s, game %s" % [OS.get_cmdline_args(), OS.get_cmdline_user_args()])
-	print("TOUCH tap assist %s (%.0f pt), list scrolling %s" % ["on" if tap_assist else "off", ASSIST_PT, "on" if list_scroll else "off"])
+	print("TOUCH tap assist %s (%.0f pt), list scrolling %s, twist turns the camera (IOS-15)" % ["on" if tap_assist else "off", ASSIST_PT, "on" if list_scroll else "off"])
 	if ClassDB.class_exists("IOSPointer"):
 		_pointer = ClassDB.instantiate("IOSPointer")
 		var started: bool = _pointer.start()
