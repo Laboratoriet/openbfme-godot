@@ -349,7 +349,8 @@ func _game_hud() -> Node:
 	_hud = found[0] if not found.is_empty() else null
 	if _hud != null:
 		# a finger near the edge is not a wish to scroll; a mouse's pointer is (lane IOS-14: on while a mouse is there, _pump_bridge follows it).
-		# On iOS the HUD's retail rule also scrolls in a full-screen window (InGameHudNode::_process), which Godot's iOS window always is
+		# set_edge_scroll replaces the HUD's retail rule (scroll in a full-screen window, which Godot's iOS window always is) and edge_scroll_mode
+		# maps the option's "retail" the same way (IOS-17)
 		_apply_edge_scroll()
 		print("TOUCH game HUD found: edge scrolling %s (option %s)" % [edge_scroll_mode(_edge_option), _edge_option])
 	return _hud
