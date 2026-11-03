@@ -35,6 +35,7 @@ const UpdateHandover := preload("res://scripts/release/update_handover.gd")
 const CrashClient := preload("res://scripts/crash/crash_client.gd")
 const GameOptions := preload("res://scripts/game_options.gd")
 const LanguageWarning := preload("res://scripts/release/language_warning.gd")
+const GameFileImport := preload("res://scripts/release/game_file_import.gd") # lane IOS-9
 const UPDATE_POLL_SECONDS := 1.0
 const UPDATE_NOTE_SECONDS := 15.0   # how long "Up to date" stays in the corner
 const UPDATE_WATCH_SECONDS := 3 * 3600.0
@@ -588,7 +589,9 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 		printerr("RELEASE ", problem)
 	# lane IOS-4: on iOS, with nothing set or remembered, the RotWK and BFME2 folders the player copied into the app's Documents folder
 	# (InstallLocator.h "iOS"). The mount checks every archive like any other pick; a failure is shown on the first-run screen.
-	if conf.source == "documents" and test_pick.is_empty():
+	# lane IOS-9: not while an install from the game file is unfinished (its list is there): the folders hold part of the files, and the mount
+	# would refuse them as a broken copy; the first-run screen offers to carry on instead (scripts/release/game_file_import.gd)
+	if conf.source == "documents" and test_pick.is_empty() and not GameFileImport.pending():
 		var mount: Dictionary = fs.mount_retail_paths(conf.rotwk, conf.bfme2)
 		if mount.ok:
 			return mount

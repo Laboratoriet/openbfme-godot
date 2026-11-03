@@ -7,9 +7,12 @@
 # Godot 4.7.2 with its export templates (the official device libgodot is arm64), Xcode signed in to an Apple account whose team is TEAM_ID
 # (a free personal team works; its apps expire after 7 days), the device connected, unlocked and in Developer Mode.
 #
-# Game files: a phone cannot read the Mac's folders. Copy the two installations into the app's Documents folder as RotWK and BFME2
-# (Finder > the device > Files > drag onto OpenBFME, or the Files app's On My iPhone > OpenBFME; tools/ios/patch_export.sh shares it), then
-# come back to the app: IOS-4 finds them there on every start, no install-paths.cfg needed. The first-run screen shows these steps.
+# Game files: a phone cannot read the Mac's folders. IOS-9, one file: make it on the Mac with
+#   python3 tools/ios/make_game_file.py --rotwk <RotWK folder> --bfme2 <BFME2 folder>     (or ROTWK_INSTALL / BFME2_INSTALL set)
+# which checks every file and writes OpenBFME-GameData.obfme (about 6.5 GB for the English 2.01 + 1.06; --store: 8.5 GB, uncompressed).
+# Drag it onto OpenBFME in Finder > the device > Files (tools/ios/patch_export.sh shares the app's Documents folder), or AirDrop it and save
+# it to On My iPhone > OpenBFME; the first-run screen offers to install it (it needs about 9 GB free besides the file) and deletes it after.
+# The other way (IOS-4): copy the two folders there as RotWK and BFME2. Either way the game finds them on every start, no install-paths.cfg.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
