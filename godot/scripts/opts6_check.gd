@@ -837,6 +837,10 @@ func probe_dropdown_items(key: String, r: Dictionary, drawn: Rect2) -> PackedStr
 		var bottom: float = top + pitch
 		var centre: float = (top + bottom) * 0.5
 		var x: float = list.get_center().x
+		# a greyed item (the screen's row item "enabled": false, e.g. Apple MetalFX where the rendering device has no MetalFX: the headless check) is
+		# covered the other way: a press inside it chooses nothing (the value stays)
+		var items: Array = screen._rows.get(key, {}).get("items", [])
+		var greyed: bool = k < items.size() and items[k] is Dictionary and not bool(items[k].get("enabled", true))
 		var points := [
 			[Vector2(x, top + IN), true, "top inside"], [Vector2(x, bottom - IN), true, "bottom inside"],
 			[Vector2(list.position.x - OUT, centre), false, "left outside"], [Vector2(list.end.x + OUT, centre), false, "right outside"]]
@@ -852,7 +856,9 @@ func probe_dropdown_items(key: String, r: Dictionary, drawn: Rect2) -> PackedStr
 				continue
 			await click(p[0])
 			var v := int(page().rows[key].value)
-			if p[1] and v != k:
+			if p[1] and greyed and v != base:
+				bad.append("%s item %d (%s, greyed) %s: value %d, chosen (the press at %s, the row %.1f..%.1f)" % [key, k, rows[k].text, p[2], v, str(p[0]), top, bottom])
+			if p[1] and not greyed and v != k:
 				bad.append("%s item %d (%s) %s: value %d, not chosen (the press at %s, the row %.1f..%.1f)" % [key, k, rows[k].text, p[2], v, str(p[0]), top, bottom])
 			if not p[1] and v != base:
 				bad.append("%s item %d (%s) %s: value %d, changed from %d" % [key, k, rows[k].text, p[2], v, base])
