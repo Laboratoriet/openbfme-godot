@@ -147,6 +147,17 @@ public:
 	// object } (FIRE_WEAPON, RW 0x941391); a CANCELABLE build button cancels (cancelQueued); a target-needing button without either cancels the GUI command mode
 	// (RW 0x94089C with null). true when a message went out
 	bool rightPressButton(int slot, bool inPalantir, bool shift = false);
+	// lane IOS-21: what rightPressButton would do for the button in `slot` now, without doing it (its gates and its command switch): nothing, leave the
+	// GUI command mode, toggle the ability's autocast (MSG_DO_AUTO_ABILITY / _WEAPON) or cancel a queued unit / upgrade. The touch layer's double tap
+	// toggles autocast only on an AutoAbility button (InGameHud::touchButtonAt); every other button keeps a double tap as two presses
+	enum class RightPress
+	{
+		None,
+		LeaveCommandMode,
+		AutoAbility,
+		Cancel
+	};
+	RightPress rightPressKind(int slot, bool inPalantir) const;
 	unsigned autoAbilityToggles() const { return m_autoToggles; }
 	const std::map<std::string, unsigned> &unportedPresses() const { return m_unported; }
 

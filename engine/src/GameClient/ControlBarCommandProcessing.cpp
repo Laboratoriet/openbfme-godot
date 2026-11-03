@@ -501,19 +501,20 @@ bool ControlBar::cancelQueued(int slot, bool inPalantir, bool shift)
 }
 
 
-bool ControlBar::rightPressButton(int slot, bool inPalantir, bool shift)
+// lane IOS-21: rightPressButton's gates, without its effects (the touch layer asks it, InGameHud::touchButtonAt, to tell an autocast ability button apart)
+ControlBar::RightPress ControlBar::rightPressKind(int slot, bool inPalantir) const
 {
 	const ControlBarButton *cb = find(slot, inPalantir);
-	Object *obj = m_ctx.logic.findObjectByID(m_source);
+	const Object *obj = m_ctx.logic.findObjectByID(m_source);
 	if (!cb || !cb->button || !obj)
 	{
-		return false;
+		return RightPress::None;
 	}
 	// lane OWNERFIX-3 (INFERENCE, stop S-5040): another player's command set is shown disabled (ControlBar::foreignDisable, RW 0x94397F); a CANCELABLE
 	// button's right press would still reach processCommandUI for that object, whose messages the logic refuses for a non-owner: none is sent
 	if (m_foreignView)
 	{
-		return false;
+		return RightPress::None;
 	}
 	const CommandButton &b = *cb->button;
 	// lane AUTOCAST-1, the command button clip's right press (RW 0x9D6E54: TheAptWindowManager + 0x318 == 2; the state _up goes to RW 0x9D288A, any other
@@ -522,7 +523,7 @@ bool ControlBar::rightPressButton(int slot, bool inPalantir, bool shift)
 	const bool cancelable = b.hasOption(COMMAND_OPTION_CANCELABLE);
 	if ((cb->state == ButtonState::Restricted || cb->state == ButtonState::CantAfford || cb->state == ButtonState::Purchased) && !cancelable) // lane HUD-7: Purchased is a _cantAfford clip
 	{
-		return false;
+		return RightPress::None;
 	}
 	// processCommandUI (RW 0x940435), the right press: nothing for a button that is not clickable (+ 0x105); "autoable" (the byte at ebp + 0xB) is
 	// AutoAbility (+ 0x10C) or CANCELABLE. A FIRE_WEAPON / SPECIAL_POWER button whose command is not available (RW 0x75CC3E) stops there unless autoable;
@@ -530,54 +531,68 @@ bool ControlBar::rightPressButton(int slot, bool inPalantir, bool shift)
 	// INFERENCE: the NONPRESSABLE refusal (RW 0x940435 does not test the bit; retail shows such a button _static, RW 0x9D2BFA), as pressButton
 	if (!b.m_isClickable || b.hasOption(COMMAND_OPTION_NONPRESSABLE))
 	{
-		return false;
+		return RightPress::None;
 	}
 	const bool autoable = b.m_autoAbility || cancelable;
 	if (!autoable)
 	{
 		// RW 0x940877 .. 0x94089C: a button that needs a target (Options & 0x227) leaves the GUI command mode (setGUICommand(null)); INFERENCE: the
 		// availability tests before it (RW 0x75CC3E / 0x942733) are not repeated here: leaving the mode on a press of an unavailable button is harmless
-		if (b.m_options & 0x227u)
-		{
-			m_ctx.ui.setGUICommand(nullptr);
-		}
-		return false;
+		return (b.m_options & 0x227u) ? RightPress::LeaveCommandMode : RightPress::None;
 	}
 	switch (b.m_command)
 	{
 		case GUI_COMMAND_SPECIAL_POWER:
 		case GUI_COMMAND_SPECIAL_POWER_TOGGLE:
-		{
-			// RW 0x941511 (case 0x18) / RW 0x9418F7 (case 0x25): MSG_DO_AUTO_ABILITY { int the power's id (RW 0x688D3C + 0x14), objectID the object (+ 0x74) }
-			const SpecialPowerTemplate *t = specialPowerOf(b);
-			if (!t)
-			{
-				++m_unported["AUTO_ABILITY (no template)"];
-				return false;
-			}
-			ClientMessage &m = m_ctx.stream.append(MSG_DO_AUTO_ABILITY);
-			m.appendInteger((int)t->getID());
-			m.appendObjectID(obj->getID());
-			++m_autoToggles;
-			return true;
-		}
 		case GUI_COMMAND_FIRE_WEAPON:
-		{
-			// RW 0x941391 (case 0x17): MSG_DO_AUTO_ABILITY_WEAPON { int WeaponSlot (+ 0x80), objectID the object }
-			ClientMessage &m = m_ctx.stream.append(MSG_DO_AUTO_ABILITY_WEAPON);
-			m.appendInteger(b.m_weaponSlot);
-			m.appendObjectID(obj->getID());
-			++m_autoToggles;
-			return true;
-		}
+			return RightPress::AutoAbility;
 		case GUI_COMMAND_UNIT_BUILD:
 		case GUI_COMMAND_REVIVE: // lane HUD-7: the same case in RotWK (RW 0x940B0E)
-			return cancelable && cancelQueued(slot, inPalantir, shift); // RW 0x940C59 .. 0x940C70 (the production cancel, lane HUD-6)
+			return cancelable ? RightPress::Cancel : RightPress::None; // RW 0x940C59 .. 0x940C70 (the production cancel, lane HUD-6)
 		case GUI_COMMAND_PLAYER_UPGRADE:
 		case GUI_COMMAND_OBJECT_UPGRADE:
 		case GUI_COMMAND_CASTLE_UPGRADE:
-			return cancelQueued(slot, inPalantir, shift); // lane FBSIM-1: the upgrade cancel RW 0x940E77 / 0x940FB3
+			return RightPress::Cancel; // lane FBSIM-1: the upgrade cancel RW 0x940E77 / 0x940FB3
 		default:
-			return false; // INFERENCE / not ported here: the other right press cases stay the left press handlers' (S-3460)
+			return RightPress::None; // INFERENCE / not ported here: the other right press cases stay the left press handlers' (S-3460)
 	}
+}
+
+bool ControlBar::rightPressButton(int slot, bool inPalantir, bool shift)
+{
+	switch (rightPressKind(slot, inPalantir))
+	{
+		case RightPress::None:
+			return false;
+		case RightPress::LeaveCommandMode:
+			m_ctx.ui.setGUICommand(nullptr);
+			return false;
+		case RightPress::Cancel:
+			return cancelQueued(slot, inPalantir, shift);
+		case RightPress::AutoAbility:
+			break;
+	}
+	const CommandButton &b = *find(slot, inPalantir)->button;
+	Object *obj = m_ctx.logic.findObjectByID(m_source);
+	if (b.m_command == GUI_COMMAND_FIRE_WEAPON)
+	{
+		// RW 0x941391 (case 0x17): MSG_DO_AUTO_ABILITY_WEAPON { int WeaponSlot (+ 0x80), objectID the object }
+		ClientMessage &m = m_ctx.stream.append(MSG_DO_AUTO_ABILITY_WEAPON);
+		m.appendInteger(b.m_weaponSlot);
+		m.appendObjectID(obj->getID());
+		++m_autoToggles;
+		return true;
+	}
+	// RW 0x941511 (case 0x18) / RW 0x9418F7 (case 0x25): MSG_DO_AUTO_ABILITY { int the power's id (RW 0x688D3C + 0x14), objectID the object (+ 0x74) }
+	const SpecialPowerTemplate *t = specialPowerOf(b);
+	if (!t)
+	{
+		++m_unported["AUTO_ABILITY (no template)"];
+		return false;
+	}
+	ClientMessage &m = m_ctx.stream.append(MSG_DO_AUTO_ABILITY);
+	m.appendInteger((int)t->getID());
+	m.appendObjectID(obj->getID());
+	++m_autoToggles;
+	return true;
 }
