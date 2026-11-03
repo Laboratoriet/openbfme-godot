@@ -243,6 +243,17 @@ func set_crash_context(context: Dictionary, settings: Dictionary) -> void:
 	_write_marker()
 
 
+## lane IOS-8: a phone or tablet ends an app in the background without telling it (the system reclaims a suspended app): the marker goes while the
+## app is in the background and comes back when it returns, so only a run that ended while in front counts as "did not close normally"
+func _notification(what: int) -> void:
+	if _marker.is_empty():
+		return
+	if what == NOTIFICATION_APPLICATION_PAUSED:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(_marker))
+	elif what == NOTIFICATION_APPLICATION_RESUMED:
+		_write_marker()
+
+
 func _exit_tree() -> void:
 	# a normal end (quit, window closed): the marker goes, the log is closed
 	if not _marker.is_empty():
@@ -441,6 +452,18 @@ func style_corner(shell: Object, size: Vector2, errors: Array) -> void:
 		line.offset_top = y
 		line.offset_bottom = y
 		y += h
+
+
+## lane IOS-8: the version corner moved inside the screen's safe area (DisplayServer.get_display_safe_area: the screen less the status bar, the
+## camera housing and the rounded corners), by the inset on the top and the right
+func _fit_watermark_to_safe_area() -> void:
+	if _watermark == null:
+		return
+	var safe := DisplayServer.get_display_safe_area()
+	var size := DisplayServer.window_get_size()
+	if safe.size.x <= 0 or safe.size.y <= 0:
+		return
+	_watermark.offset = Vector2(-(size.x - safe.end.x), safe.position.y)
 
 
 ## game.gd: true while a game is on screen (the version corner is shown in the menus only).
@@ -969,3 +992,7 @@ func _add_watermark() -> void:
 	_update_note.add_to_group("player_message_obstacles")
 	_watermark.name = "ReleaseWatermark"
 	add_child(_watermark)
+	# lane IOS-8: on a phone or tablet the corner keeps clear of the status bar, the camera and the rounded corners (the safe area), on every turn
+	if OS.has_feature("mobile"):
+		get_viewport().size_changed.connect(_fit_watermark_to_safe_area)
+		_fit_watermark_to_safe_area()
