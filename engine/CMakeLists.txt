@@ -704,12 +704,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         LIBRARY_OUTPUT_DIRECTORY "$<1:${OPENBFME_GODOT_BIN}/ios/${OPENBFME_IOS_SDK}>"
         INSTALL_NAME_DIR "@rpath")
     # IOS-14: the mouse, trackpad and hardware keyboard bridge (UIKit recognizers on Godot's view, GameController's GCMouse / GCKeyboard), the
-    # IOSPointer class (registered under OPENBFME_IOS_POINTER only). The bridge is the extension's one Objective-C++ file, built with ARC.
+    # IOSPointer class (registered under OPENBFME_IOS_POINTER only). The bridge is an Objective-C++ file, built with ARC.
     enable_language(OBJCXX)
     target_sources(openbfme PRIVATE src/GodotDevice/IOSPointerBridge.mm src/GodotDevice/GodotIOSPointer.cpp)
     set_source_files_properties(src/GodotDevice/IOSPointerBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_POINTER=1)
     target_link_libraries(openbfme PRIVATE "-framework GameController" "-framework UIKit" "-framework CoreGraphics" "-framework Foundation")
+    # IOS-20: the audio session's category set live (Play sound in silent mode), the IOSAudioSession class (registered under
+    # OPENBFME_IOS_AUDIO_SESSION only). Objective-C++ with ARC, as the pointer bridge.
+    target_sources(openbfme PRIVATE src/GodotDevice/IOSAudioSessionBridge.mm src/GodotDevice/GodotIOSAudioSession.cpp)
+    set_source_files_properties(src/GodotDevice/IOSAudioSessionBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_AUDIO_SESSION=1)
+    target_link_libraries(openbfme PRIVATE "-framework AVFoundation")
 endif()
 endif()
 

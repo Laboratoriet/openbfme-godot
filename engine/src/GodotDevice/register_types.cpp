@@ -25,6 +25,9 @@
 #if defined(OPENBFME_IOS_POINTER)
 #include "GodotDevice/GodotIOSPointer.h" // IOS-14: iOS builds only (engine/CMakeLists.txt)
 #endif
+#if defined(OPENBFME_IOS_AUDIO_SESSION)
+#include "GodotDevice/GodotIOSAudioSession.h" // IOS-20: iOS builds only (engine/CMakeLists.txt)
+#endif
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -64,6 +67,9 @@ static void initialize_openbfme(ModuleInitializationLevel p_level)
 	GDREGISTER_CLASS(LivingWorldGame); // WOTR-1
 #if defined(OPENBFME_IOS_POINTER)
 	GDREGISTER_CLASS(IOSPointer); // IOS-14: the mouse, trackpad and hardware keyboard of the iOS build
+#endif
+#if defined(OPENBFME_IOS_AUDIO_SESSION)
+	GDREGISTER_CLASS(IOSAudioSession); // IOS-20: the audio session's category (Play sound in silent mode)
 #endif
 }
 

@@ -6,7 +6,7 @@
 // pointer from UIKit (a hover recognizer, a touch observer and a scroll recognizer on Godot's view) and the buttons and keys from GameController
 // (GCMouse, GCKeyboard), and queues them for the Godot side (GodotIOSPointer.cpp: the IOSPointer class; scripts/touch/touch_controls.gd).
 //
-// Plain C++ on purpose: IOSPointerBridge.mm is the only Objective-C++ file and includes no godot-cpp header. Every function runs on the main
+// Plain C++ on purpose: IOSPointerBridge.mm is Objective-C++ and includes no godot-cpp header. Every function runs on the main
 // thread (UIKit's and GameController's handlers are set to the main queue; Godot's iOS main loop runs there too).
 
 #pragma once
