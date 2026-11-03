@@ -8,7 +8,7 @@ extends Node
 ##   one finger, tap ............ left click (select; with the touch default of Alternate Mouse Setup the left click also orders)
 ##   one finger, two quick taps . double click (select all of that type on screen)
 ##   one finger, drag ........... left drag (a selection box; in a menu, a list or slider drag)
-##   one finger, hold ........... right click (deselect / cancel; on an ability button: autocast) with a short vibration
+##   one finger, hold ........... right click (deselect / cancel) with a short vibration; on a HUD button its help instead (lane IOS-21, below)
 ##   two fingers, drag .......... pan the camera: the ground under the fingers stays under them
 ##   two fingers, pinch ......... zoom (the mouse wheel's notches)
 ##   two fingers, twist ......... turn the camera (lane IOS-15; past an 8 degree turn, so pinches and pans do not turn it)
@@ -25,6 +25,20 @@ extends Node
 ##   one finger, drag on a list . scrolls the list (a mouse wheel notch per row of finger travel) instead of a press-and-drag; a drag that
 ##                                starts on its scroll bar still drags the bar. Menus only (over a game: while a menu has the input).
 ## `-- --no-tap-assist` / `-- --no-list-scroll` turn either off for a comparison.
+##
+## Lane IOS-21 (the owner's decision, 2026-11-03: "hold shows info"), information without a hover:
+##   hold on a HUD button ....... its help box at once (no tooltip delay) for as long as the finger stays, with a lighter vibration; lifting does
+##                                nothing (a preview, never a press); sliding off past SLOP_PT ends it. The HUD buttons: the Palantir's (the arc,
+##                                its keys, the portrait: the selection's name and help), the side command bar, the spell book, the hero bar, the
+##                                radial bubbles (InGameHudNode.touch_button_at, the clicks' own hit test with the HUD size). The world, the radar
+##                                and a menu over the game keep the hold's right click. The help box shows only for a held finger (set_touch_help):
+##                                the pointer a tap leaves on a button opens none. A mouse in use (IOS-14) gives the desktop's hover back.
+##   two taps on an ability ..... toggle its autocast (the right press of lane AUTOCAST-1), only on a button whose right press does that
+##                                (touch_button_at's "autocast": an AutoAbility power or weapon of the Palantir / side bar). Its first tap waits
+##                                DOUBLE_TAP_MS for a second one before it presses (else a double tap would cast the power, or start its aiming,
+##                                on the way to the toggle). Every other button keeps two taps as two presses (a bubble queues two units).
+##   (production cancel ........ was the hold on a bubble (its right press); now a two-finger tap whose middle is on the bubble, the one right click
+##                                left on a HUD button: an open question for the owner)
 ##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
 ## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
@@ -61,7 +75,7 @@ const KEY_UP_WAIT_MS := 250      # ... and this long for a press Godot delivers 
 const BRIDGE_DEVICE := 0x14      # lane IOS-14: the device id of the key releases made here (Godot's own keys are device 0)
 const LEAVE_INSET_PX := 8.0      # lane IOS-14: on the Mac host a pointer that left the window over an edge is put this far inside it
 
-enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL }
+enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO }  # INFO: lane IOS-21, a finger held on a HUD button shows its help
 
 var active := false
 var _gesture := Gesture.NONE
@@ -84,7 +98,11 @@ var _scroll_at := Vector2.ZERO   # lane IOS-10: where the list drag began (the w
 var _scroll_anchor := 0.0        # the finger's stage y at the last notch
 var _scroll_row := 0.0           # stage pixels of finger travel per notch (the list's row height)
 var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "twists": 0, "assisted_taps": 0,
-	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0}
+	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
+	"waited_taps": 0}
+var _waiting := {}               # lane IOS-21: a tap on an autocast ability waiting for a second one: {"at": the press point, "due": msec, "second":
+                                 # a finger came down on it in time (its tap is the second, however long it stays)}
+var _touch_help := -1            # lane IOS-21: the touch help the HUD was last given (-1: none yet)
 var _pointer: RefCounted = null  # lane IOS-14: the extension's IOSPointer (iOS builds only)
 var _mouse := false              # lane IOS-14: a mouse or trackpad is there (the bridge says)
 var _on_mac := false             # lane IOS-14: the iPhone / iPad build on an Apple Silicon Mac (its pointer can leave the window)
@@ -181,9 +199,21 @@ func _process(_delta: float) -> void:
 			if now != _status_last:
 				_status_last = now
 				print("TOUCH IOS-14 status: ", now)
-	# the hold: a still finger that stays down becomes a right click while it is still down (the player feels it fire)
+	if not _waiting.is_empty() and Time.get_ticks_msec() >= int(_waiting.due) and not _waiting.get("second", false):
+		_press_waiting()  # lane IOS-21: no second tap came: the first one's press
+	# the hold: a still finger that stays down becomes a right click while it is still down (the player feels it fire); lane IOS-21: on a HUD button
+	# it shows the button's help instead, until the finger lifts
 	if _gesture == Gesture.PENDING and _fingers.has(_first) and Time.get_ticks_msec() - int(_fingers[_first].at) >= LONG_PRESS_MS:
 		var at: Vector2 = _fingers[_first].pos
+		_press_waiting()
+		var button := _hud_button(at)
+		if not button.is_empty():
+			_move(button.position)  # the pointer on the button (the tap assist's point): the help box's provider is the button under it
+			_hud.hold_help(true)
+			Input.vibrate_handheld(10)
+			_gesture = Gesture.INFO
+			stats.infos += 1
+			return
 		_click(MOUSE_BUTTON_RIGHT, at)
 		Input.vibrate_handheld(15)
 		_gesture = Gesture.HELD
@@ -194,12 +224,17 @@ func _touch(e: InputEventScreenTouch) -> void:
 	var now := Time.get_ticks_msec()
 	if e.pressed:
 		_fingers[e.index] = {"start": e.position, "pos": e.position, "at": now}
+		if not _waiting.is_empty() and (_fingers.size() > 1 or e.position.distance_to(_waiting.at) > DOUBLE_TAP_PT * _scale):
+			_press_waiting()  # lane IOS-21: a finger elsewhere is no second tap: the waiting press goes first
+		elif not _waiting.is_empty() and now <= int(_waiting.due):
+			_waiting["second"] = true  # its tap toggles the autocast; a hold or a drag of it presses the waiting tap first
 		match _fingers.size():
 			1:
 				_gesture = Gesture.PENDING
 				_first = e.index
 				_move(e.position)  # the pointer goes where the finger is (the game's hover, the cursor's picture)
 			2:
+				_end_info()
 				if _gesture == Gesture.DRAG:
 					_button(MOUSE_BUTTON_LEFT, false, _fingers[_first].pos)  # a second finger ends the drag where it is
 				# (a list scroll just stops: it pressed nothing)
@@ -219,6 +254,8 @@ func _touch(e: InputEventScreenTouch) -> void:
 			_tap(e.position, now)  # up before the hold fired and without moving: a tap
 		Gesture.DRAG:
 			_button(MOUSE_BUTTON_LEFT, false, e.position)
+		Gesture.INFO:
+			_end_info()  # lane IOS-21: lifting ends the preview; nothing is pressed
 		Gesture.TWO:
 			if _fingers.size() == 2 and not _two_moved and now - _two_start_ms <= TAP_MAX_MS:
 				_click(MOUSE_BUTTON_RIGHT, _centroid())
@@ -238,6 +275,7 @@ func _drag(e: InputEventScreenDrag) -> void:
 	match _gesture:
 		Gesture.PENDING:
 			if e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
+				_press_waiting()
 				if _begin_list_scroll(_fingers[e.index].start):
 					_gesture = Gesture.SCROLL
 					stats.list_scrolls += 1
@@ -250,6 +288,10 @@ func _drag(e: InputEventScreenDrag) -> void:
 		Gesture.DRAG:
 			if e.index == _first:
 				_move(e.position)
+		Gesture.INFO:
+			if e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
+				_end_info()  # lane IOS-21: sliding off ends the help; the finger does nothing more until it lifts
+				_gesture = Gesture.HELD
 		Gesture.SCROLL:
 			if e.index == _first:
 				_scroll_list(e.position)
@@ -262,6 +304,24 @@ func _tap(at: Vector2, now: int) -> void:
 	var assist := assist_probe(at)
 	if assist.snapped:
 		stats.assisted_taps += 1
+	# lane IOS-21: the second tap on an autocast ability toggles its autocast (its right press); the first tap's press is dropped
+	if not _waiting.is_empty():
+		if double or _waiting.get("second", false):
+			var on: Vector2 = _waiting.at
+			_waiting = {}
+			_click(MOUSE_BUTTON_RIGHT, on)
+			stats.autocast_taps += 1
+			stats.double_taps += 1
+			_last_tap_ms = -100000
+			return
+		_press_waiting()
+	if not double and _hud_button(at, assist.position).get("autocast", false):
+		_waiting = {"at": assist.position, "due": now + DOUBLE_TAP_MS}
+		stats.waited_taps += 1
+		stats.taps += 1
+		_last_tap_ms = now
+		_last_tap_pos = at
+		return
 	_click(MOUSE_BUTTON_LEFT, assist.position, double)
 	if double:
 		stats.double_taps += 1
@@ -270,6 +330,43 @@ func _tap(at: Vector2, now: int) -> void:
 		stats.taps += 1
 		_last_tap_ms = now
 		_last_tap_pos = at
+
+
+## lane IOS-21: the HUD button a finger at `at` is on ({} none): touch_button_at's answer at the tap assist's point (`assisted`, else asked here), with
+## "position" the point the pointer goes to. Only over a game's HUD (the menus' hold stays the right click), with an extension that has the call
+func _hud_button(at: Vector2, assisted := Vector2.INF) -> Dictionary:
+	var hud := _game_hud()
+	if hud == null or not hud.has_method("touch_button_at"):
+		return {}
+	var point: Vector2 = assisted if assisted.is_finite() else assist_probe(at).position
+	var r: Dictionary = hud.touch_button_at(point)
+	if str(r.get("kind", "")) == "":
+		return {}
+	r["position"] = point
+	return r
+
+
+## lane IOS-21: the waiting tap's press, now (a second tap did not come, or another gesture began)
+func _press_waiting() -> void:
+	if _waiting.is_empty():
+		return
+	var at: Vector2 = _waiting.at
+	_waiting = {}
+	_click(MOUSE_BUTTON_LEFT, at)
+
+
+## lane IOS-21: a held finger's help ends (the HUD hides the box with its own count down)
+func _end_info() -> void:
+	if _gesture == Gesture.INFO and is_instance_valid(_hud):
+		_hud.hold_help(false)
+
+
+## lane IOS-21: the help box shows only for a held finger, unless a mouse is in use (its hover is the desktop's)
+func _apply_touch_help() -> void:
+	var on := 0 if _mouse else 1
+	if _touch_help != on and _hud.has_method("set_touch_help"):
+		_hud.set_touch_help(on == 1)
+		_touch_help = on
 
 
 func _two_finger_move() -> void:
@@ -339,6 +436,7 @@ func _distance() -> float:
 func _apply_edge_scroll() -> void:
 	_hud.set_edge_scroll(_mouse)
 	_hud.set_view_options({"edge_scroll_mode": edge_scroll_mode(_edge_option)})
+	_apply_touch_help()
 
 
 ## the game's HUD node while a game is on screen (null in the menus); edge scrolling goes off for touch the first time it is found
@@ -347,6 +445,7 @@ func _game_hud() -> Node:
 		return _hud
 	var found := get_tree().root.find_children("*", "InGameHudNode", true, false)
 	_hud = found[0] if not found.is_empty() else null
+	_touch_help = -1  # a new game's HUD starts with the desktop's hover help
 	if _hud != null:
 		# a finger near the edge is not a wish to scroll; a mouse's pointer is (lane IOS-14: on while a mouse is there, _pump_bridge follows it).
 		# set_edge_scroll replaces the HUD's retail rule (scroll in a full-screen window, which Godot's iOS window always is) and edge_scroll_mode
