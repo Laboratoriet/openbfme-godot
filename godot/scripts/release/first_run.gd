@@ -39,7 +39,7 @@ var _dialog: FileDialog
 var _dialog_target: LineEdit
 var _checked_ok := false
 # lane IOS-4
-var _ios := OS.has_feature("ios")
+var _ios := OS.has_feature("ios") or OS.get_cmdline_user_args().has("--first-run-ios") # the dev switch: the iOS screen on a desktop (layout checks)
 var _frame: Control            # iOS: the screen laid out in points and scaled to the display's pixels
 var _margin: MarginContainer   # iOS: kept clear of the notch / home indicator (the display's safe area)
 var _mounting := false         # the full check is running: coming back to the app must not look again over it
@@ -268,6 +268,7 @@ func _build_ui(problem: String) -> void:
 	box.add_child(buttons)
 	var version := Label.new()
 	version.text = Release.display_line()  # lane VERSION-1: "OpenBFME Alpha 0.4.5 (<date>)"
+	version.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART # lane IOS-4: a nightly's long version line must not widen the screen past a phone's width
 	version.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
 	box.add_child(version)
 
