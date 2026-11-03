@@ -29,8 +29,9 @@ file_logging/enable_file_logging.pc=false
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
-; lane IOS-3: phones and tablets turn the game with the device between the two landscape orientations (desktops ignore it)
-window/handheld/orientation=4
+; lane IOS-3: phones and tablets turn the game with the device, landscape and portrait (desktops ignore it); upright, the menus are letterboxed,
+; the HUD keeps its proportions and the camera keeps a 4:3 vertical view (game.gd _portrait_menus_tick, AptPalantir, TacticalCamera)
+window/handheld/orientation=6
 
 [rendering]
 
