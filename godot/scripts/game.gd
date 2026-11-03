@@ -5922,6 +5922,14 @@ func _online_count_show(text: String) -> void:
 		_stats_label.set_meta("game_text", true)
 		layer.add_child(_stats_label)
 		add_child(layer)
+		if OS.has_feature("mobile"):
+			# lane IOS-8: clear of the status bar, the camera and the rounded corners (the safe area's top-left inset), on every turn
+			var fit := func() -> void:
+				var safe := DisplayServer.get_display_safe_area()
+				if safe.size.x > 0 and safe.size.y > 0:
+					layer.offset = Vector2(safe.position)
+			get_viewport().size_changed.connect(fit)
+			fit.call()
 		_style_menu_texts() # lane MENUFIX-1
 	_stats_label.text = text
 	_stats_label.visible = not text.is_empty()

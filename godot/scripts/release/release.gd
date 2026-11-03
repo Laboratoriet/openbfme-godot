@@ -464,6 +464,7 @@ func _fit_watermark_to_safe_area() -> void:
 	if safe.size.x <= 0 or safe.size.y <= 0:
 		return
 	_watermark.offset = Vector2(-(size.x - safe.end.x), safe.position.y)
+	print("RELEASE safe area %s in a %s window (screen %s): corner offset %s" % [str(safe), str(size), str(DisplayServer.screen_get_size()), str(_watermark.offset)])
 
 
 ## game.gd: true while a game is on screen (the version corner is shown in the menus only).
