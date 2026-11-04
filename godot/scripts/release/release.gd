@@ -67,6 +67,7 @@ var _handover: RefCounted   # UpdateHandover of this start (null: the launcher w
 var _update_note: Label
 var _update_timer: Timer
 var _update_watched := 0.0
+var last_mount := {}        # lane IOS-24: the mount report of this start (mount_retail): the Options page's "iPhone / iPad" tab packs its archives
 
 
 func _init() -> void:
@@ -491,6 +492,8 @@ func mount_retail(fs: RefCounted) -> Dictionary:
 		_write_asset_pack_report(fs) # lane SDK-1b (b)
 	if mount.get("ok", false) and await language_warning(mount):
 		mount["quit"] = true # --language-warning-shot: the capture is saved, the game quits (game.gd)
+	if mount.get("ok", false):
+		last_mount = mount
 	return mount
 
 

@@ -26,6 +26,7 @@
 extends CanvasLayer
 
 const DisplaySettings := preload("res://scripts/display_settings.gd")
+const PrepareMobileTab := preload("res://scripts/release/prepare_mobile_tab.gd") # lane IOS-24
 const TABS := ["Display", "Graphics", "Audio", "Camera", "Interface", "Online", "Performance", "Controls"]
 ## lane OPTS-5: the tab the menu shows first when the main menu's CUSTOM SETTINGS opened it
 const DETAIL_TAB := "Graphics"
@@ -138,6 +139,7 @@ var _hotkeys := []                 # [[action, keys]] of the CommandMap (read on
 var _options_top := false
 var _retail := {}                  # lane OPTS-5: the shell's rows of the original game's settings (options_retail_rows), read for each spec
 var _menu := false                 # lane OPTS-5: the page is the Options screen (the shell's kOpenBFMEMenu)
+var _prepare := PrepareMobileTab.new() # lane IOS-24: the "iPhone / iPad" tab (desktop only): the game file for the phone or tablet
 
 
 func _ready() -> void:
@@ -151,6 +153,7 @@ func _ready() -> void:
 		skin_errors.append("the shell has no OpenBFME page (AptMenuPlayer.set_openbfme_available)")
 	for e in skin_errors:
 		printerr("GAME DISPLAY page: ", e)
+	_prepare.mount_getter = func(): return Release.last_mount # lane IOS-24: the archives this start mounted
 
 
 func is_open() -> bool:
@@ -190,14 +193,35 @@ func _process(_delta: float) -> void:
 			"value":
 				_on_value(String(e.key), int(e.value))
 			"tab":
-				if int(e.value) >= 0 and int(e.value) < TABS.size():
-					_show_tab(TABS[int(e.value)])
+				var tabs := tabs()
+				if int(e.value) >= 0 and int(e.value) < tabs.size():
+					_show_tab(tabs[int(e.value)])
+			"press": # lane IOS-24: a Button row
+				if _tab == PrepareMobileTab.TAB:
+					_prepare.press(String(e.key))
+					_show_tab(_tab)
 			"cancel":
 				close(false)
 			"reset":
 				reset_defaults()
 			"accept":
 				close(true)
+	# lane IOS-24: the game file's progress while its tab is shown
+	if _open and _tab == PrepareMobileTab.TAB:
+		match _prepare.tick():
+			"show":
+				_show_tab(_tab)
+			"sync":
+				_sync()
+
+
+func _exit_tree() -> void:
+	_prepare.stop() # lane IOS-24: a game file being written is stopped and its half-written file deleted
+
+
+## The tabs the page shows: TABS, and on a desktop the "iPhone / iPad" tab (lane IOS-24) last
+func tabs() -> Array:
+	return TABS + [PrepareMobileTab.TAB] if PrepareMobileTab.available() else TABS
 
 
 func open(first_tab := 0) -> void:
@@ -445,11 +469,14 @@ func _spec() -> Dictionary:
 			rows = _performance_rows()
 		"Controls":
 			rows = []
+		PrepareMobileTab.TAB:
+			rows = _prepare.rows()
+			note = _prepare.note()
 	var spec := {
 		"subtitle": SUBTITLE,
 		"tabs_header": "OpenBFME",
-		"tabs": TABS,
-		"tab": TABS.find(_tab),
+		"tabs": tabs(),
+		"tab": tabs().find(_tab),
 		"panel_header": _tab,
 		"rows": rows,
 		"note": note,

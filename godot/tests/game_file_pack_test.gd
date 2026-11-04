@@ -9,6 +9,7 @@ extends SceneTree
 
 const Pack := preload("res://scripts/release/game_file_pack.gd")
 const Import := preload("res://scripts/release/game_file_import.gd")
+const Tab := preload("res://scripts/release/prepare_mobile_tab.gd")
 
 var checks := 0
 var failed := 0
@@ -119,6 +120,29 @@ func _synthetic() -> void:
 		var got := FileAccess.get_file_as_bytes(imp.root.path_join(item.path))
 		check(got == made[item.path], "%s arrives byte-identical" % item.path)
 	check(not FileAccess.file_exists(out), "the importer deleted the game file")
+
+	# lane IOS-24: the options page's "iPhone / iPad" tab through its states (rows and note), writing to the scratch folder
+	var tab := Tab.new()
+	tab.output = out
+	check(tab.rows()[2].kind == "button" and not tab.rows()[2].enabled and tab.note().contains("has not opened the game folders"),
+		"no mount: PREPARE greyed, the note says why")
+	tab.mount_getter = func(): return mount
+	var rows: Array = tab.rows()
+	check(rows[2].enabled and rows[2].value_text == "PREPARE" and rows[3].value_text == "Ready", "ready: PREPARE, %s" % rows[3].value_text)
+	tab.press(Tab.ACTION)
+	check(tab.tick() == "show" and tab.rows()[2].value_text == "CANCEL", "writing: CANCEL")
+	while tab.tick() != "show":
+		await process_frame
+	rows = tab.rows()
+	check(rows[2].value_text == "SHOW FILE" and rows[3].value_text.begins_with("Done") and rows.size() == 7 and FileAccess.file_exists(out),
+		"done: SHOW FILE, %s, the three ways to send it" % rows[3].value_text)
+	check(tab.note().begins_with("Now send it to your iPhone or iPad"), "done: the note says what is next")
+	DirAccess.remove_absolute(out)
+	var broken := Tab.new()
+	broken.output = rotwk.path_join(Pack.FILE_NAME)
+	broken.mount_getter = func(): return mount
+	broken.press(Tab.ACTION)
+	check(broken.rows()[2].value_text == "TRY AGAIN" and broken.note().contains("outside the game folders"), "refused: TRY AGAIN and why")
 
 	# cancelling stops and leaves no file behind
 	var again := Pack.new()

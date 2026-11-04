@@ -73,19 +73,22 @@ func run(p_game: Node, p_shots: String) -> int:
 		"open %s tab %s" % [screen.is_open(), screen.current_tab()])
 	if not screen.is_open():
 		return finish()
-	for tab in screen.TABS:
+	var shown_tabs: Array = screen.tabs() # lane IOS-24: TABS and, on a desktop, the "iPhone / iPad" tab
+	for tab in shown_tabs:
 		await click_tab(tab)
 		await game._step(20)
 		# the texts the shell draws from now on are this tab's: the pointer moves onto another tab (it lights up), so the page is drawn again
 		shell.drawn_texts(true)
 		var tabs: Array = page().get("tabs", [])
-		if tabs.size() == screen.TABS.size():
-			game._mouse_event((tabs[(screen.TABS.find(tab) + 1) % tabs.size()] as Rect2).get_center(), false, false)
+		if tabs.size() == shown_tabs.size():
+			game._mouse_event((tabs[(shown_tabs.find(tab) + 1) % tabs.size()] as Rect2).get_center(), false, false)
 		await game._step(8)
-		check("the %s tab shows" % tab, screen.current_tab() == tab and int(page().get("tab", -1)) == screen.TABS.find(tab), screen.current_tab())
+		check("the %s tab shows" % tab, screen.current_tab() == tab and int(page().get("tab", -1)) == shown_tabs.find(tab), screen.current_tab())
 		await shot("opts2-%s-%dx%d" % [tab.to_lower(), root.size.x, root.size.y])
 		_text_colours_check(tab)
 		await _green_pixels_check(tab)
+	await click_tab("Controls") # lane IOS-24: the walk above ends on the desktop's "iPhone / iPad" tab
+	await game._step(8)
 	check("the Controls tab lists the CommandMap's hot keys (%d) in a list box" % screen.hotkey_count(), screen.hotkey_count() >= 20 and page().has("list"),
 		str(screen.hotkey_count()))
 
@@ -382,7 +385,7 @@ func click_stage(p: Vector2) -> void:
 
 func click_tab(tab: String) -> void:
 	var tabs: Array = page().get("tabs", [])
-	var i: int = screen.TABS.find(tab)
+	var i: int = screen.tabs().find(tab)
 	if i < 0 or i >= tabs.size():
 		check("the tab %s is on the page" % tab, false, str(tabs))
 		return

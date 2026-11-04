@@ -42,6 +42,9 @@ const REQUIRED_ROWS := {
 }
 ## lane IOS-20: rows a tab shows on iOS only (the extension's IOSAudioSession class exists there only; game_options.gd ios_audio_available)
 const REQUIRED_ROWS_IOS := {"Audio": ["OpenBFMEIOSSilentSound"]}
+## lane IOS-24: the tab a desktop shows last (prepare_mobile_tab.gd: the game file for the iPhone / iPad) and its rows before a file is made
+const DESKTOP_TAB := "iPhone / iPad"
+const DESKTOP_ROWS := ["Prepare.action", "Prepare.file", "Prepare.folders", "Prepare.state"]
 const REQUIRED_BAR := ["accept", "cancel", "reset"]
 const REQUIRED_MAIN := ["MultiPlayNav", "MyHeroes", "OptionsNav", "QuitMainMenu", "SoloPlayNav", "corner"] # the corner button (a 194 x 105 box) has no name
 const REQUIRED_SUB := {
@@ -631,10 +634,12 @@ func rest_window() -> Vector2:
 
 
 func settings_hits() -> void:
-	for tab in screen.TABS:
+	for tab in screen.tabs():
 		await click_tab_named(tab)
 		var rows: Dictionary = page().get("rows", {})
 		var tab_rows: Array = REQUIRED_ROWS.get(tab, []) + (REQUIRED_ROWS_IOS.get(tab, []) if ClassDB.class_exists("IOSAudioSession") else [])
+		if tab == DESKTOP_TAB:
+			tab_rows = DESKTOP_ROWS
 		check_inventory("the %s tab" % tab, required(tab_rows), shown(rows.keys()))
 		if OS.get_environment("OPTS6_ONLY") == "inventory":
 			continue
@@ -668,12 +673,17 @@ func settings_hits() -> void:
 			greyed += 0 if rows[key].enabled else 1
 		if tab == "Controls":
 			check("Controls: the hot key list is shown (read only)", page().has("list"), "")
+		elif tab == DESKTOP_TAB:
+			# lane IOS-24: text rows and one button, which is not pressed here (it would write a 6.5 GB file); its box is checked
+			var action: Dictionary = rows.get("Prepare.action", {})
+			check("%s at %s: the PREPARE button has its box" % [tab, size_tag], action.get("kind", "") == "button" and action.has("rect"), str(action))
 		elif n == 0 and greyed > 0 and bad.is_empty():
 			check("%s: every row is greyed here (%d), nothing to press" % [tab, greyed], true, "")
 		else:
 			check("%s at %s: %d controls react just inside their drawn shape and not just outside" % [tab, size_tag, n], n > 0 and bad.is_empty(), "; ".join(bad))
-	check_inventory("the tab bar", required(REQUIRED_TABS), shown(Array(screen.TABS)))
-	check("the page offers a tab bar box for each of the %d required tabs" % REQUIRED_TABS.size(), page().get("tabs", []).size() == REQUIRED_TABS.size(), str(page().get("tabs", []).size()))
+	var required_tabs: Array = REQUIRED_TABS + ([DESKTOP_TAB] if not OS.has_feature("mobile") else [])
+	check_inventory("the tab bar", required(required_tabs), shown(Array(screen.tabs())))
+	check("the page offers a tab bar box for each of the %d required tabs" % required_tabs.size(), page().get("tabs", []).size() == required_tabs.size(), str(page().get("tabs", []).size()))
 	check_inventory("the bottom bar", required(REQUIRED_BAR), shown(page().get("buttons", {}).keys()))
 	if OS.get_environment("OPTS6_ONLY") == "inventory":
 		return
@@ -683,13 +693,13 @@ func settings_hits() -> void:
 	for i in tabs.size():
 		var r: Rect2 = window_rect(tabs[i])
 		for p in probes(r, 0.0, 0.5):
-			await click_tab_named(screen.TABS[(i + 1) % tabs.size()])
+			await click_tab_named(screen.tabs()[(i + 1) % tabs.size()])
 			await click(p[0])
-			var shown: bool = screen.current_tab() == screen.TABS[i]
+			var shown: bool = screen.current_tab() == screen.tabs()[i]
 			if shown != p[1]:
-				bad_tabs.append("%s %s" % [screen.TABS[i], p[2]])
+				bad_tabs.append("%s %s" % [screen.tabs()[i], p[2]])
 		probed += 1
-	check("the %d tabs show just inside their bar and not just outside" % tabs.size(), tabs.size() == screen.TABS.size() and bad_tabs.is_empty(), "; ".join(bad_tabs))
+	check("the %d tabs show just inside their bar and not just outside" % tabs.size(), tabs.size() == screen.tabs().size() and bad_tabs.is_empty(), "; ".join(bad_tabs))
 
 
 func probe_row(key: String, r: Dictionary, drawn: Rect2) -> PackedStringArray:
@@ -1539,7 +1549,7 @@ func click_tab_named(tab: String) -> void:
 	if screen.current_tab() == tab:
 		return
 	var tabs: Array = page().get("tabs", [])
-	var i: int = screen.TABS.find(tab)
+	var i: int = screen.tabs().find(tab)
 	if i < 0 or i >= tabs.size():
 		check("the tab %s is on the page" % tab, false, str(tabs))
 		return
