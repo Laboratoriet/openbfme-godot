@@ -180,8 +180,13 @@ public:
 	Dictionary touch_button_at(const Vector2 &pixel);
 	// lane IOS-23 (OpenBFME, not retail; touch only): whether a finger at window `pixel` aims a building's placement: { placing (a build button waits for
 	// its site, InGameUI::isPlacing), line_build (a wall span from a hub, InGameUI::isLineBuildStarted), world (the pixel is on the world: not on the HUD,
-	// the radar, a radial bubble or a menu over the game, InGameHud::isOverGui) }
+	// the radar, a radial bubble or a menu over the game, InGameHud::isOverGui), builds (lane IOS-36: the construction orders placements have issued so
+	// far, PlaceEventTranslator::Stats placed + wallSpans; a refused or cancelled placement leaves it) }
 	Dictionary touch_placement_at(const Vector2 &pixel);
+	// lane IOS-36 (OpenBFME, not retail; touch only), after daisyhasacat/openbfme-godot facef81b: the touch layer calls this once a ✓ it gave was
+	// accepted (touch_placement_at's builds went up). When every selected object is a builder (KindOf DOZER) the selection is dropped with retail's
+	// message (InGameUI::deselectAll: MSG_DESTROY_SELECTED_GROUP after the construct order, so the logic still saw the issuing builder); true when it did
+	bool deselect_builders();
 	// lane SPELL-2: a MappedImage of the HUD's collection as its texture and the source rectangle in texture pixels { found, texture, region } (the spell
 	// book screens draw the command buttons' ButtonImage with it)
 	Dictionary get_mapped_image(const String &name);

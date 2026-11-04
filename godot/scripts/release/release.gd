@@ -626,6 +626,7 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 	if conf.source == "documents" and test_pick.is_empty() and not GameFileImport.pending():
 		var mount: Dictionary = fs.mount_retail_paths(conf.rotwk, conf.bfme2)
 		if mount.ok:
+			exclude_from_backup([conf.rotwk, conf.bfme2])
 			return mount
 		problem = "The RotWK and BFME2 folders in OpenBFME's Files folder could not be used:\n" + "\n".join(mount.errors)
 		printerr("RELEASE ", problem)
@@ -638,6 +639,18 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 	var result: Dictionary = await screen.run(fs, setup, problem, test_pick)
 	screen.queue_free()
 	return result
+
+
+# lane IOS-36, after daisyhasacat/openbfme-godot GodotIOSAssets.mm (exclude_from_backup, applied to her download folder): the game folders in the
+# app's Documents (installed from the game file or copied by hand) are left out of iCloud and computer backups, 8.5 GB the player can send
+# again (Apple's data storage guidelines: data that can be recreated is not backed up). The extension's IOSFiles exists on iOS only: elsewhere
+# nothing happens. Marked on every mount (cheap, and it covers folders copied in by hand); a failure is logged, never in the player's way
+func exclude_from_backup(folders: Array) -> void:
+	if not ClassDB.class_exists("IOSFiles"):
+		return
+	for folder in folders:
+		var r: Dictionary = Callable(ClassDB, "class_call_static").callv(["IOSFiles", "exclude_from_backup", str(folder)])
+		print(info.redact("RELEASE excluded from backups: %s%s" % [folder, "" if r.ok else " FAILED: " + str(r.error)]))
 
 
 # lane MODS-1: the -mod operands in command-line order: "-mod PATH" (retail's spelling), "--mod=PATH", and OPENBFME_MOD before them. A relative

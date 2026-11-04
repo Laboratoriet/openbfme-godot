@@ -4,9 +4,7 @@
 extends RefCounted
 
 const SIZE := 256
-## the base64 text as a list of lines, joined at run time: a chain of ~800 "+" makes Godot's analyzer recurse once per "+", which overflows
-## the 1 MB main-thread stack of iOS at start (lane IOS-17)
-const PNG_BASE64 := [
+const PNG_BASE64: PackedStringArray = [
 	"iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAEfOElEQVR42uT9B5gk2XUeCv43In1mZXnb3k3P9PgZDAYYAIQHCFCkQCPRiNwVRa0o86jlvk9P",
 	"2qd9cmuenvaJWmplV7uSKIoGdKAFQZgBBnaAmcF4zExPu2lf3qU3Efedc++NiBuZkVlV3dUQtRqw2N1VWWki7jnnP+f85z/i+F33SJj/pAz/uuv/hBCxf/c+",
 	"R+/Pd/ov+P3w9yT9KeSOj7+d97yX5xn2eW7lvez9vav/n/jat3qtb/Ve7cd1UK+pHi7V/5I+m+DvCf2YpJ/f7vtI/NzBSyWcv0HPG73P/fsvtAf1xMNtYVef",
@@ -828,7 +826,7 @@ const PNG_BASE64 := [
 ]
 
 
-const MAC_PNG_BASE64 := [
+const MAC_PNG_BASE64: PackedStringArray = [
 	"iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAAAAXNSR0IArs4c6QAAIABJREFUeJzsvXm0Z9l11/fZ59zf+OZ6NXd1V/WkllqD1W3J1mTLspFH",
 	"wCCbgHFYi0BW4rASAiuwAoSQwSusJHaYQjABYsCB4NjYMhBsy2BsWRKyLbnl1tzd6rlrrnqv3vgb7j1n549z9rn3lVpSt9TVatnvrPWqfu/97j333HPP3vu7",
 	"v3vvc+Gw/U5q8tUewGE7bIftsB22w3bYDtthO2yH7bAdtlvZviK3z71Uozhsv6vbzYtQnudvh+3WtS97rg8VwGH7Spt0/n8+RfDFznshC/dQkXzxpl/JyYeT",
@@ -1680,7 +1678,7 @@ const MAC_PNG_BASE64 := [
 ## the icon's image; null when the text does not decode to the 256 x 256 PNG (a damaged script)
 static func image(macos: bool = false) -> Image:
 	var img := Image.new()
-	if img.load_png_from_buffer(Marshalls.base64_to_raw("".join(PackedStringArray(MAC_PNG_BASE64 if macos else PNG_BASE64)))) != OK or img.get_width() != SIZE or img.get_height() != SIZE:
+	if img.load_png_from_buffer(Marshalls.base64_to_raw("".join(MAC_PNG_BASE64 if macos else PNG_BASE64))) != OK or img.get_width() != SIZE or img.get_height() != SIZE:
 		return null
 	return img
 

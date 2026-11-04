@@ -137,6 +137,17 @@ func _synthetic() -> void:
 	check(rows[2].value_text == "SHOW FILE" and rows[3].value_text.begins_with("Done") and rows.size() == 7 and FileAccess.file_exists(out),
 		"done: SHOW FILE, %s, the three ways to send it" % rows[3].value_text)
 	check(tab.note().begins_with("Now send it to your iPhone or iPad"), "done: the note says what is next")
+	# lane IOS-36: a file picked where it is (Files' document picker): read in place from outside the app's folder, and kept afterwards
+	var picked := Import.new()
+	picked.root = base.path_join("Picked")
+	picked.keep_file = true
+	DirAccess.make_dir_recursive_absolute(picked.root)
+	check(picked.open(out) and not picked.resuming and picked.remaining == pack.total, "picked in place: the importer opens it: " + picked.error)
+	check(await picked.run(), "picked in place: the importer installs it: " + picked.error)
+	for item in pack.files:
+		check(FileAccess.get_file_as_bytes(picked.root.path_join(item.path)) == made[item.path], "picked in place: %s arrives byte-identical" % item.path)
+	check(FileAccess.file_exists(out) and FileAccess.get_file_as_bytes(out).size() == picked.archive_size, "picked in place: the picked file is kept")
+	check(not FileAccess.file_exists(picked.root.path_join(Import.JOURNAL)) and not Import.pending(picked.root), "picked in place: the list is gone")
 	DirAccess.remove_absolute(out)
 	var broken := Tab.new()
 	broken.output = rotwk.path_join(Pack.FILE_NAME)

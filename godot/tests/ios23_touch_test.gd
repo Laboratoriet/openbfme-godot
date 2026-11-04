@@ -10,7 +10,9 @@
 ##    until it is back; a second finger that comes down before the first one moved puts the ghost back;
 ##  * the buttons stay inside the view and off the HUD (beside the side bar both go left); a tap on the HUD, a hold or a mouse's motion (IOS-14)
 ##    ends the wait; a mouse click passes the touch layer untouched; the top-edge clamp; a lift whose ghost point is on the HUD offers nothing;
-##  * without a placement a one-finger drag is still the selection box (the left press at the drag's start).
+##  * without a placement a one-finger drag is still the selection box (the left press at the drag's start);
+##  * IOS-36 (after daisyhasacat/openbfme-godot facef81b): an accepted ✓ (the placement ends, the HUD's "builds" count went up) asks the HUD to deselect
+##    the builders once; a refused ✓ and ✕ ask nothing; with deselect_builders_after_build off an accepted ✓ asks nothing.
 ## The game's own check is the touch self-test (touch_selftest.gd: a real building and a wall span, built by ✓).
 ##
 ##   godot --headless --path godot --script res://tests/ios23_touch_test.gd
@@ -38,12 +40,18 @@ class StubHud:
 	var cam := Vector2.ZERO
 	var placed := 0
 	var icons: Array = []  # a wall span's ghost segments (ground points)
+	var deselects := 0     # lane IOS-36: deselect_builders calls made while the placement was off
+
+	func deselect_builders() -> bool:
+		if not placing:
+			deselects += 1
+		return true
 
 	func on_hud(p: Vector2) -> bool:
 		return p.y >= view.y - HUD_BAND or (p.y < TOP_HUD and absf(p.x - view.x * 0.5) < view.x * 0.1) or (p.x >= view.x - SIDE_BAR and p.y >= 200.0)
 
 	func touch_placement_at(p: Vector2) -> Dictionary:
-		return {"placing": placing, "line_build": line, "world": not on_hud(p)}
+		return {"placing": placing, "line_build": line, "world": not on_hud(p), "builds": placed}
 
 	func get_placement() -> Dictionary:
 		return {"placing": placing, "legal": legal}
@@ -245,6 +253,7 @@ func _run() -> int:
 	await _wait(0.6)
 	_check(_rec.buttons == _click_at(MOUSE_BUTTON_LEFT, t), "✓ on a red ghost is the left click at the ghost's point %s: %s" % [t, _rec.buttons])
 	_check(_hud.placing and _state().shown and _hud.placed == 0, "refused: the placement and ✓ / ✕ stay")
+	_check(_hud.deselects == 0 and int(_controls.stats.builder_deselects) == 0, "IOS-36: a refused ✓ deselects nothing")
 	# a wall span's ✓ is never dimmed (its release skips the legality test)
 	_hud.line = true
 	await _tap(t)
@@ -276,6 +285,8 @@ func _run() -> int:
 	_check(_hud.placed == 1 and not _state().shown, "the game placed; ✓ / ✕ are gone")
 	await _wait(0.2)
 	_check(not _controls._confirming and int(_controls.stats.place_confirms) == 2, "the wait has ended (the placement is off)")
+	_check(_hud.deselects == 1 and int(_controls.stats.place_accepted) == 1 and int(_controls.stats.builder_deselects) == 1,
+		"IOS-36: the accepted ✓ deselected the builders once, after the placement ended: %d call(s), %s" % [_hud.deselects, _controls.stats])
 
 	# ✕: one right click at the ghost's point; the placement ends
 	_hud.placing = true
@@ -286,6 +297,18 @@ func _run() -> int:
 	await _wait(0.05)
 	_check(_rec.buttons == _click_at(MOUSE_BUTTON_RIGHT, t + Vector2(40, 30)), "✕ is one right click at the ghost's point: %s" % [_rec.buttons])
 	_check(not _hud.placing and not _state().shown and int(_controls.stats.place_cancels) == 1, "✕ cancelled the placement; the buttons are gone")
+	await _wait(0.5)
+	_check(_hud.deselects == 1 and int(_controls.stats.builder_deselects) == 1, "IOS-36: ✕ deselects nothing")
+	# IOS-36 off: an accepted ✓ leaves the selection
+	_controls.deselect_builders_after_build = false
+	_hud.placing = true
+	await _tap(t)
+	await _wait(0.25)
+	await _tap(_state().build)
+	await _wait(0.3)
+	_check(_hud.placed == 2 and _hud.deselects == 1 and int(_controls.stats.place_accepted) == 2 and int(_controls.stats.builder_deselects) == 1,
+		"IOS-36 off: the accepted ✓ deselects nothing: %d call(s), %s" % [_hud.deselects, _controls.stats])
+	_controls.deselect_builders_after_build = true
 	await _wait(0.5)
 
 	# two fingers pan while the ghost waits: it keeps its ground point; the buttons hide, then come back beside it
@@ -418,8 +441,9 @@ func _run() -> int:
 		click.global_position = click.position
 		Input.parse_input_event(click)
 	await _wait(0.1)
-	_check(_rec.buttons == _click_at(MOUSE_BUTTON_LEFT, t + Vector2(100, 0)) and _hud.placed == 2 and not _state().shown,
+	_check(_rec.buttons == _click_at(MOUSE_BUTTON_LEFT, t + Vector2(100, 0)) and _hud.placed == 3 and not _state().shown,
 		"a mouse click places at once, no ✓ / ✕: %s" % [_rec.buttons])
+	_check(_hud.deselects == 1 and int(_controls.stats.builder_deselects) == 1, "IOS-36: a mouse's placement keeps the selection")
 	return 0 if _failures == 0 else 1
 
 

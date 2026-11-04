@@ -24,6 +24,7 @@
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/camera3d.hpp>
 #include <godot_cpp/classes/geometry_instance3d.hpp>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/aabb.hpp>
@@ -56,6 +57,22 @@ namespace
 // and an animated model's buffers are rewritten every frame; one MultiMesh holds a model's instances across the whole battlefield, so its own
 // box culled nothing anyway
 const AABB kMultiMeshBounds(Vector3(-200000.0f, -50000.0f, -200000.0f), Vector3(400000.0f, 100000.0f, 400000.0f));
+
+// lane IOS-36, after daisyhasacat/openbfme-godot b37b14c7 ("protect GLES animation palettes", Hailey Tribble, GPL-3): the palette image the
+// Compatibility (GLES) path uploads. iOS GLES (the simulator) has no RGBAF texture, and Godot converts the image handed to it to RGBAH: the
+// next ImageTexture::update then fails ("The new image format must match the texture's image format", seen in the simulator's menus: the
+// shell's units stop animating) while the pose writers keep writing RGBAF texels. The upload gets its own RGBAH copy; the CPU palette stays
+// RGBAF. Other platforms (and the RenderingDevice path) upload as before
+Ref<Image> paletteUploadImage(const Ref<Image> &image)
+{
+	if (!OS::get_singleton()->has_feature("ios"))
+	{
+		return image;
+	}
+	Ref<Image> upload = image->duplicate();
+	upload->convert(Image::FORMAT_RGBAH);
+	return upload;
+}
 
 String toGodot(const std::string &s)
 {
@@ -1437,7 +1454,7 @@ void W3DInstancer::bind_palette_gpu()
 	// Compatibility has no RenderingDevice. ImageTexture::update stays on this thread.
 	release_palette_rd();
 	PaletteRD.unref();
-	PaletteTexture = ImageTexture::create_from_image(PaletteImage);
+	PaletteTexture = ImageTexture::create_from_image(paletteUploadImage(PaletteImage));
 	PaletteFullUpload = true;
 }
 
@@ -1453,7 +1470,7 @@ void W3DInstancer::upload_palette()
 		PaletteRD.unref();
 		if (PaletteImage.is_valid())
 		{
-			PaletteTexture = ImageTexture::create_from_image(PaletteImage);
+			PaletteTexture = ImageTexture::create_from_image(paletteUploadImage(PaletteImage));
 		}
 		LayoutDirty = true;
 	}
@@ -1585,7 +1602,7 @@ void W3DInstancer::upload_palette()
 	if (PaletteTexture.is_valid())
 	{
 		// Compatibility has no partial texture update. The image still holds every pose; this copies all of it.
-		PaletteTexture->update(PaletteImage);
+		PaletteTexture->update(paletteUploadImage(PaletteImage));
 		PaletteUploadFull = true;
 		PaletteRowsUploaded = PaletteHeight;
 	}

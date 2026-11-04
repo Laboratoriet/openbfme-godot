@@ -28,6 +28,9 @@
 #if defined(OPENBFME_IOS_AUDIO_SESSION)
 #include "GodotDevice/GodotIOSAudioSession.h" // IOS-20: iOS builds only (engine/CMakeLists.txt)
 #endif
+#if defined(OPENBFME_IOS_FILES)
+#include "GodotDevice/GodotIOSFiles.h" // IOS-36: iOS builds only (engine/CMakeLists.txt)
+#endif
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -70,6 +73,9 @@ static void initialize_openbfme(ModuleInitializationLevel p_level)
 #endif
 #if defined(OPENBFME_IOS_AUDIO_SESSION)
 	GDREGISTER_CLASS(IOSAudioSession); // IOS-20: the audio session's category (Play sound in silent mode)
+#endif
+#if defined(OPENBFME_IOS_FILES)
+	GDREGISTER_CLASS(IOSFiles); // IOS-36: Files' document picker (Choose game file…), backup exclusion
 #endif
 }
 

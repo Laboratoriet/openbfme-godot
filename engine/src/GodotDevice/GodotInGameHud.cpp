@@ -1286,6 +1286,7 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("hud_scale_audit"), &InGameHudNode::hud_scale_audit);              // lane IOS-29
 	ClassDB::bind_method(D_METHOD("touch_button_at", "pixel"), &InGameHudNode::touch_button_at);      // lane IOS-21
 	ClassDB::bind_method(D_METHOD("touch_placement_at", "pixel"), &InGameHudNode::touch_placement_at); // lane IOS-23
+	ClassDB::bind_method(D_METHOD("deselect_builders"), &InGameHudNode::deselect_builders);            // lane IOS-36
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
 	ClassDB::bind_method(D_METHOD("world_to_radar_pixel", "world_xy"), &InGameHudNode::world_to_radar_pixel);
 	ClassDB::bind_method(D_METHOD("create_radar_event", "world_xy", "type", "jump_to"), &InGameHudNode::create_radar_event, DEFVAL(false));
@@ -4662,10 +4663,37 @@ Dictionary InGameHudNode::touch_placement_at(const Vector2 &pixel)
 	r["line_build"] = ui.isLineBuildStarted();
 	const bool menu = !d->ownsPlayer && d->player && d->player->modal_menu(); // the quit menu, Options, the save screen over the game
 	r["world"] = !menu && !d->hud->isOverGui((int)pixel.x, (int)pixel.y);
+	const auto &stats = d->hud->input().placeTranslator().stats(); // lane IOS-36: the accepted construction orders (a refusal counts as refused)
+	r["builds"] = (int64_t)(stats.placed + stats.wallSpans);
 	return r;
 }
 
-// lane CHEAT-1 ------------------------------------------------------------------------------------------------------------------------------------------
+// lane IOS-36 (GodotInGameHud.h), after daisyhasacat/openbfme-godot facef81b (GPL-3, "Deselect iOS builders after issuing construction orders"):
+// Daisy's check, run when the touch layer asks after an accepted ✓ instead of after every placement, so a mouse keeps retail's selection
+bool InGameHudNode::deselect_builders()
+{
+	waitLogic(d.get());
+	if (!d->ready || !d->hud)
+	{
+		return false;
+	}
+	const auto worldContext = d->hud->enterContext();
+	HudContext &ctx = d->hud->input().context();
+	bool buildersOnly = !ctx.ui.selected().empty();
+	for (::ObjectID id : ctx.ui.selected())
+	{
+		const ::Object *object = ctx.logic.findObjectByID(id);
+		buildersOnly = buildersOnly && object && object->isKindOfName("DOZER");
+	}
+	// the construct order is already in the message stream: the deselection follows it, so the logic still sees the issuing builder
+	if (buildersOnly)
+	{
+		ctx.ui.deselectAll(true);
+	}
+	return buildersOnly;
+}
+
+// lane CHEAT-1------------------------------------------------------------------------------------------------------------------------------------------
 
 void InGameHudNode::add_player_message(const String &text)
 {

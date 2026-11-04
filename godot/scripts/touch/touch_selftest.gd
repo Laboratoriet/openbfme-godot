@@ -16,6 +16,7 @@ extends Node
 ## Lane IOS-35: with Options' One finger drag on "Move the view" (OpenBFMETouchDrag = pan, from the --options-file) step 3 checks that mode: a one-finger
 ## drag moves the camera (and is no box), a hold then a drag is the box; the taps and the hold as before. The placement steps then run in pan mode too
 ## (a ghost's drag moves the ghost, not the camera).
+## Lane IOS-36 (after daisyhasacat/openbfme-godot facef81b): the refused ✓ on the fortress keeps the builder selected; the accepted ✓ deselects it.
 
 var _out := ""
 var _controls: Node
@@ -503,6 +504,8 @@ func _placement_check(hud: Node) -> PackedStringArray:
 				out.append("placement: ✓ on the fortress ended the placement")
 			if not after.get("shown", false):
 				out.append("placement: ✓ / ✕ went after a refused ✓")
+			if hud.get_selection().is_empty():
+				out.append("placement: a refused ✓ deselected the builder (IOS-36 deselects after an accepted one only)")
 			# ✕ cancels the placement; the build button starts it again
 			await _tap(after.get("cancel", waiting.cancel))
 			await _wait(0.8)
@@ -590,6 +593,11 @@ func _placement_check(hud: Node) -> PackedStringArray:
 	# tolerance: the site is the terrain point of the click's pixel; the logic may move a structure a little onto its footprint's cell grid
 	if made.is_empty() or best > 12.0:
 		out.append("placement: no new structure at the ghost's point %s (nearest %.1f away)" % [want, best])
+	# lane IOS-36 (after daisyhasacat/openbfme-godot facef81b): the accepted ✓ deselected the builder
+	var selection: Array = hud.get_selection()
+	print("TOUCH SELFTEST IOS-36 after the accepted ✓: selection %s, builder deselects %d" % [selection, int(_controls.stats.builder_deselects)])
+	if hud.has_method("deselect_builders") and (not selection.is_empty() or int(_controls.stats.builder_deselects) != 1):
+		out.append("placement: the builder is still selected after an accepted ✓ (IOS-36): %s" % [selection])
 	return out
 
 
