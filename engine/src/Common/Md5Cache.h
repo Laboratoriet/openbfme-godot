@@ -1,12 +1,14 @@
 // OpenBFME. GPL-3.0.
 //
 // The md5 cache of mounted files (lane INI-1's RetailArchivePolicy mount; shared with the -mod mount, Common/ModMount.h, lane MODS-1):
-// md5 by "size, last-write time, absolute path". A missing or damaged cache only costs a rehash.
+// md5 by "size, last-write time, path" (the path absolute, or relative to the cache's folder for a file inside it: portable()).
+// A missing or damaged cache only costs a rehash.
 
 #pragma once
 
 #include "Common/PathIO.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -15,7 +17,7 @@
 #include <system_error>
 
 // Threat model: the md5 check (and this cache) detects wrong or modified game files, such as a
-// mod, a patch or a damaged copy. A cache hit trusts "same absolute path + size + last-write time",
+// mod, a patch or a damaged copy. A cache hit trusts "same path + size + last-write time" (portable()),
 // so it does not stop deliberate tampering by someone who edits a file and then restores its
 // timestamp (or who edits the cache). That is accepted: cross-play integrity comes from the
 // retail INI/logic CRCs exchanged between players, not from this cache.
@@ -28,6 +30,35 @@ struct Md5Cache
 	static std::string key(const std::string &file, std::uint64_t size, long long mtime)
 	{
 		return std::to_string(size) + "\t" + std::to_string(mtime) + "\t" + file;
+	}
+
+	// The key as the cache stores it. A file inside the cache's own folder keeps its path relative to that folder ("./RotWK/..."),
+	// so the cache still hits after the whole folder moved: iOS moves an app's data container (.../Data/Application/<UUID>) on every
+	// update or reinstall, and absolute keys then missed every archive. A file anywhere else (a desktop install) keeps its absolute
+	// path, as before. /private/var and /var are one folder on iOS, and the two spellings both occur.
+	std::string portable(const std::string &key) const
+	{
+		const size_t t1 = key.find('\t');
+		const size_t t2 = t1 == std::string::npos ? std::string::npos : key.find('\t', t1 + 1);
+		if (t2 == std::string::npos || path.empty())
+		{
+			return key;
+		}
+		auto strip = [](std::string s) {
+			std::replace(s.begin(), s.end(), '\\', '/');
+			if (s.rfind("/private/var/", 0) == 0)
+			{
+				s.erase(0, 8);
+			}
+			return s;
+		};
+		const std::string root = strip(std::filesystem::path(PathIO::native(path)).parent_path().u8string()) + "/";
+		const std::string file = strip(key.substr(t2 + 1));
+		if (root.size() < 2 || file.compare(0, root.size(), root) != 0)
+		{
+			return key;
+		}
+		return key.substr(0, t2 + 1) + "./" + file.substr(root.size());
 	}
 
 	static bool isMd5Hex(const std::string &s)

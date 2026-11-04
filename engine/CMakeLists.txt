@@ -857,6 +857,7 @@ add_executable(openbfme_tests
     tests/test_archive_order.cpp
     tests/test_any_language.cpp
     tests/test_mods1_mount.cpp
+    tests/test_md5cache_portable.cpp
     tests/test_mods1_retail.cpp
     tests/test_logic_clock.cpp
     tests/test_chunkio.cpp
