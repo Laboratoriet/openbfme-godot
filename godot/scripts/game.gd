@@ -111,7 +111,8 @@
 ##     --quit                Esc opens the quit menu (the game pauses), Resume closes it, Esc and Exit with its confirmation leave to the score screen (its tabs
 ##                           and statistics page), Continue returns to the Skirmish lobby and a second game starts; --screens writes end2-*.png
 ##     --quit-restart        Esc, Restart and its confirmation start the same game again
-##     --perf                (lane SMOOTH-1) while playing, print GAME PERF every 5 s: render fps, frame time mean / p95 / p99 / max and the C++ parts of the frame
+##     --perf                (lane SMOOTH-1) while playing, print GAME PERF every 5 s: render fps, frame time mean / p95 / p99 / max and the C++ parts of the frame;
+##                           lane IOS-25: also shows the frame-rate counter for the run, as --fps does
 ##     --perf-stat=<prefix>  (lane PERF-3, with --perf; Linux with perf) `perf stat` counts the main thread's user instructions and cycles in each GAME PERF window
 ##                           (<prefix>-<n>.txt) and GAME PERF STAT prints them per render frame one window later: the work per frame, which other load on the
 ##                           machine does not change (unlike the frame time)
@@ -815,6 +816,7 @@ func _ready() -> void:
 			_wotr_battle_save = true
 		elif arg == "--perf":
 			_perf = true
+			_display_overlay.session_fps = true # lane IOS-25: --perf shows the frame-rate readout too (GOAL 2026-11-03 item 4)
 		elif arg == "--fps":
 			_display_overlay.session_fps = true
 		elif arg == "--display-check":
@@ -1291,6 +1293,7 @@ func _display_setup() -> void:
 	_display_overlay.name = "OpenBFMEDisplay"
 	_display_overlay.settings = _display
 	_display_overlay.settings_path = _display_path
+	_display_overlay.layout_changed.connect(_style_menu_texts) # lane IOS-25: the menus' top-left lines stay under the touch readout
 	get_tree().root.add_child.call_deferred(_display_overlay)
 
 
@@ -5831,6 +5834,15 @@ func _online_test_note() -> void:
 	label.set_meta("game_text", true) # the game's own text (not a developer overlay)
 	_online_note.add_child(label)
 	add_child(_online_note)
+	if OS.has_feature("mobile"):
+		# lane IOS-25: inside the safe area like the online count and the frame-rate readout (scripts/fps_overlay.gd), whose layer it shares the
+		# coordinates of (_style_menu_texts puts it under the readout)
+		var fit := func() -> void:
+			var safe := DisplayServer.get_display_safe_area()
+			if safe.size.x > 0 and safe.size.y > 0:
+				_online_note.offset = Vector2(safe.position)
+		get_viewport().size_changed.connect(fit)
+		fit.call()
 	_style_menu_texts() # lane MENUFIX-1: the menus' look, in the top left corner under the fps counter's line
 
 
@@ -5845,6 +5857,8 @@ func _style_menu_texts() -> void:
 	Release.style_corner(_shell, size, _menu_text_errors)
 	var left := roundf(MenuText.MARGIN_PX * k)
 	_menu_text_top = maxf(30.0, left)
+	if _display_overlay != null and is_instance_valid(_display_overlay):
+		_menu_text_top = maxf(_menu_text_top, _display_overlay.reserved_bottom()) # lane IOS-25: under the touch readout (0 on a desktop)
 	var y := _menu_text_top
 	if _online_note != null:
 		var note: Label = _online_note.get_node("Note")

@@ -50,6 +50,7 @@ const HELP := {
 	"vsync": "Waits for the monitor's refresh: no tearing, a little more input delay.",
 	"max_fps": "The most frames drawn a second. The game itself always runs at its own pace.",
 	"show_fps": "The frame counter in the top left corner.",
+	"show_fps_touch": "Frames per second, the frame time and the slowest 1% of frames (p99), in the top left corner.", # lane IOS-25
 	"render_scale": "The 3D view is drawn at this share of the window's pixels, then scaled up; the menus and the interface stay sharp.",
 	"scaler_full": "How a render scale below 100% is scaled up. At 100% the scaler does nothing (FSR 2 still smooths edges).",
 	"scaler_scaled": "How a render scale below 100% is scaled up. FSR keeps more detail than bilinear.",
@@ -550,7 +551,9 @@ func _display_rows() -> Array:
 	var limits := _frame_limits()
 	rows.append(_choice("max_fps", "Frame rate limit", limits.map(func(f): return "Off" if f == 0 else ("%d fps" % f if DisplaySettings.FRAME_LIMITS.has(f) else "%d fps (custom)" % f)),
 		limits.find(p.max_fps), HELP.max_fps))
-	rows.append(_check("show_fps", "Show the frame rate (F11)", p.show_fps, HELP.show_fps))
+	# lane IOS-25: on touch the readout adds the p99 and there is no F11 to name
+	var touch: bool = overlay != null and overlay.touch
+	rows.append(_check("show_fps", "Show the frame rate" if touch else "Show the frame rate (F11)", p.show_fps, HELP.show_fps_touch if touch else HELP.show_fps))
 	var pct := roundi(p.render_scale * 100.0)
 	# the slider's positions are the 5% steps (10 .. 20): the gadget's thumb lands on what is applied
 	rows.append(_slider("render_scale", "Render scale", roundi(DisplaySettings.SCALE_MIN * 100.0) / SCALE_STEP, roundi(DisplaySettings.SCALE_MAX * 100.0) / SCALE_STEP,

@@ -469,6 +469,21 @@ func _fit_watermark_to_safe_area() -> void:
 	print("RELEASE safe area %s in a %s window (screen %s): corner offset %s" % [str(safe), str(size), str(DisplayServer.screen_get_size()), str(_watermark.offset)])
 
 
+## lane IOS-25: the version corner's visible lines on screen (window pixels, the safe-area offset included; Rect2() while it is hidden), which the
+## touch frame-rate readout (scripts/fps_overlay.gd) keeps clear of: in a portrait window the version line reaches far to the left
+func corner_rect() -> Rect2:
+	if _watermark == null or not _watermark.visible or not _watermark.is_inside_tree():
+		return Rect2()
+	var out := Rect2()
+	for line: Control in [_watermark.get_node("Version"), _watermark.get_node("OpenLogs"), _update_note]:
+		if not line.visible:
+			continue
+		# the line's box, not its text's minimum size: a label keeps the larger box of an earlier size (a resize), and its text starts at that box's left
+		var r := line.get_global_transform_with_canvas() * Rect2(Vector2.ZERO, line.size)
+		out = r if not out.has_area() else out.merge(r)
+	return out
+
+
 ## game.gd: true while a game is on screen (the version corner is shown in the menus only).
 func set_in_game(in_game: bool) -> void:
 	if in_game == _in_game:

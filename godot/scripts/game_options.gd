@@ -308,9 +308,7 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 		wheel.configure(values.OpenBFMEPingWheel == "yes", values.OpenBFMEPingKey)
 	_clock.add_theme_font_size_override("font_size", roundi(16 * values.OpenBFMEUIScale.to_int() / 100.0))
 	if game != null and game.get("_display_overlay") != null:
-		var counter = game._display_overlay.get_node_or_null("FpsCounter")
-		if counter != null:
-			counter.add_theme_font_size_override("font_size", roundi(16 * values.OpenBFMEUIScale.to_int() / 100.0))
+		game._display_overlay.set_ui_scale(values.OpenBFMEUIScale.to_int() / 100.0) # scripts/fps_overlay.gd (lane IOS-25: on touch at least 11 pt)
 	return done
 
 
