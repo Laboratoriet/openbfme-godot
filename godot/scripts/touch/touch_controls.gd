@@ -40,6 +40,22 @@ extends Node
 ##   (production cancel ........ was the hold on a bubble (its right press); now a two-finger tap whose middle is on the bubble, the one right click
 ##                                left on a HUD button: an open question for the owner)
 ##
+## Lane IOS-23 (the owner's decisions, 2026-11-03), a building's placement for fingers. While a build button waits for its site (InGameHudNode
+## touch_placement_at: placing, and the finger came down on the world), a finger would hide the ghost under it, so:
+##   finger down ................ the pointer, and with it the ghost (PlaceEventTranslator follows the live pointer), goes GHOST_OFFSET_PT above the
+##                                fingertip (clamped into the view); valid / invalid colouring as with a mouse
+##   drag ....................... the ghost follows the finger at that offset (no selection box, no rotation: the left button is not held)
+##   lift after a drag .......... a left click at the ghost's point: the mouse's own placement (press anchors, release places). An invalid site gets
+##                                retail's refusal (the message and BadBuildingPlacementSound) and the placement stays, as a click there does.
+##                                A lift whose ghost point is on the HUD places nothing (a click there would press the HUD) and the placement stays
+##   tap ........................ places at once at the tap point (as before)
+##   hold (still finger) ........ the right click: cancels the placement; once the finger has moved, holding still no longer cancels (it can rest)
+##   two-finger tap ............. the right click: cancels; a second finger during the drag ends it without placing (pan / zoom / twist the camera)
+##   walls ...................... Begin Wall Span: the same gesture; the span's ghost segments (PlacementIcons::updateWall, the span planner's tiles) run
+##                                from the hub to the ghost's point, and lifting builds the span to it (MSG_WALL_HUB_CONSTRUCT_SPAN)
+## Rotation: retail turns the ghost with a drag after the press; on touch the drag is the position, so a placement keeps its PlacementViewAngle (an
+## open question for the owner: a second finger's twist, or a rotate button). A mouse (IOS-14) keeps the desktop's placement.
+##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
 ## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
 ## with no hover, no right button and no wheel. The extension's IOSPointer (engine/src/GodotDevice/IOSPointerBridge.mm, iOS builds only; on a
@@ -74,8 +90,11 @@ const KEY_UP_GRACE_MS := 30      # lane IOS-14: a keyboard release waits this lo
 const KEY_UP_WAIT_MS := 250      # ... and this long for a press Godot delivers late
 const BRIDGE_DEVICE := 0x14      # lane IOS-14: the device id of the key releases made here (Godot's own keys are device 0)
 const LEAVE_INSET_PX := 8.0      # lane IOS-14: on the Mac host a pointer that left the window over an edge is put this far inside it
+const GHOST_OFFSET_PT := 60.0    # lane IOS-23 (the owner's decision): a placement's ghost sits this far above the fingertip (points)
+const GHOST_INSET_PX := 2.0      # lane IOS-23: an offset point above the view's top edge is put this far inside it
 
-enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO }  # INFO: lane IOS-21, a finger held on a HUD button shows its help
+enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE }  # INFO: lane IOS-21, a finger held on a HUD button shows its help
+                                                                      # PLACE: lane IOS-23, a finger drags a building's ghost
 
 var active := false
 var _gesture := Gesture.NONE
@@ -99,7 +118,8 @@ var _scroll_anchor := 0.0        # the finger's stage y at the last notch
 var _scroll_row := 0.0           # stage pixels of finger travel per notch (the list's row height)
 var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "twists": 0, "assisted_taps": 0,
 	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
-	"waited_taps": 0}
+	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0}
+var _placing := false            # lane IOS-23: the one-finger gesture began on the world while a placement waited for its site (the ghost is offset)
 var _waiting := {}               # lane IOS-21: a tap on an autocast ability waiting for a second one: {"at": the press point, "due": msec, "second":
                                  # a finger came down on it in time (its tap is the second, however long it stays)}
 var _touch_help := -1            # lane IOS-21: the touch help the HUD was last given (-1: none yet)
@@ -232,7 +252,9 @@ func _touch(e: InputEventScreenTouch) -> void:
 			1:
 				_gesture = Gesture.PENDING
 				_first = e.index
-				_move(e.position)  # the pointer goes where the finger is (the game's hover, the cursor's picture)
+				_placing = _placement_drag_at(e.position)
+				# the pointer goes where the finger is (the game's hover, the cursor's picture); lane IOS-23: a placement's ghost above it
+				_move(ghost_point(e.position) if _placing else e.position)
 			2:
 				_end_info()
 				if _gesture == Gesture.DRAG:
@@ -254,6 +276,8 @@ func _touch(e: InputEventScreenTouch) -> void:
 			_tap(e.position, now)  # up before the hold fired and without moving: a tap
 		Gesture.DRAG:
 			_button(MOUSE_BUTTON_LEFT, false, e.position)
+		Gesture.PLACE:
+			_place(ghost_point(e.position))  # lane IOS-23: lifting places at the ghost
 		Gesture.INFO:
 			_end_info()  # lane IOS-21: lifting ends the preview; nothing is pressed
 		Gesture.TWO:
@@ -264,6 +288,7 @@ func _touch(e: InputEventScreenTouch) -> void:
 	if _fingers.is_empty():
 		_gesture = Gesture.NONE
 		_first = -1
+		_placing = false
 	elif _gesture == Gesture.TWO:
 		_gesture = Gesture.HELD  # one finger of two lifted: nothing more until both are up (no surprise click or box)
 
@@ -274,7 +299,14 @@ func _drag(e: InputEventScreenDrag) -> void:
 	_fingers[e.index].pos = e.position
 	match _gesture:
 		Gesture.PENDING:
-			if e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
+			if e.index == _first and _placing:
+				# lane IOS-23: the ghost follows the finger at its offset from the first move; past the slop it is a placement drag (no tap, no hold)
+				_move(ghost_point(e.position))
+				if e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
+					_press_waiting()
+					_gesture = Gesture.PLACE
+					stats.place_drags += 1
+			elif e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
 				_press_waiting()
 				if _begin_list_scroll(_fingers[e.index].start):
 					_gesture = Gesture.SCROLL
@@ -288,6 +320,9 @@ func _drag(e: InputEventScreenDrag) -> void:
 		Gesture.DRAG:
 			if e.index == _first:
 				_move(e.position)
+		Gesture.PLACE:
+			if e.index == _first:
+				_move(ghost_point(e.position))
 		Gesture.INFO:
 			if e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
 				_end_info()  # lane IOS-21: sliding off ends the help; the finger does nothing more until it lifts
@@ -344,6 +379,35 @@ func _hud_button(at: Vector2, assisted := Vector2.INF) -> Dictionary:
 		return {}
 	r["position"] = point
 	return r
+
+
+## lane IOS-23: a finger coming down at `at` drags a placement's ghost: a build button waits for its site and the finger is on the world (not on the
+## HUD, the radar or a menu over the game). An extension without the query (built before lane IOS-23) keeps the old gestures
+func _placement_drag_at(at: Vector2) -> bool:
+	var hud := _game_hud()
+	if hud == null or not hud.has_method("touch_placement_at"):
+		return false
+	var r: Dictionary = hud.touch_placement_at(at)
+	return bool(r.get("placing", false)) and bool(r.get("world", false))
+
+
+## lane IOS-23: where a finger at `at` puts a placement's ghost: GHOST_OFFSET_PT above it, kept inside the view (a finger near the top edge holds
+## the ghost at the edge; the sides and the bottom cannot be left, as the offset is straight up)
+func ghost_point(at: Vector2) -> Vector2:
+	var p := at - Vector2(0.0, GHOST_OFFSET_PT * _scale)
+	var size := get_viewport().get_visible_rect().size
+	return p.clamp(Vector2(GHOST_INSET_PX, GHOST_INSET_PX), size - Vector2(GHOST_INSET_PX, GHOST_INSET_PX))
+
+
+## lane IOS-23: the lift of a placement drag: a left click at the ghost's point `at` (PlaceEventTranslator: the press anchors there, the release places
+## or refuses as for a mouse). A point on the HUD (the ghost dragged over the Palantir) clicks nothing: the placement stays for another try
+func _place(at: Vector2) -> void:
+	var hud := _game_hud()
+	if hud != null and hud.has_method("touch_placement_at") and not bool(hud.touch_placement_at(at).get("world", false)):
+		stats.place_lifts_on_hud += 1
+		return
+	_click(MOUSE_BUTTON_LEFT, at)
+	stats.place_lifts += 1
 
 
 ## lane IOS-21: the waiting tap's press, now (a second tap did not come, or another gesture began)
