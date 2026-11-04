@@ -7,6 +7,10 @@
 ##   sidebar  a builder selected: the build list in the side bar's carved frame (retail-3.png)
 ##   queue    (lane OWNERFIX-3) a Men barracks of the player's: three presses of its soldiers' bubble, the bubble and the Palantir show "3" (RW 0x4A4CD3 / 0x9D7054)
 ##   enemy    (lane OWNERFIX-3) the enemy's barracks and hero, selected by a click: the Palantir shows their command set, every button disabled (RW 0x94397F)
+##   hudsize  (lane IOS-27, OpenBFME presentation; with --faction=FactionDwarves, --touch and an Options file's OpenBFMEHudScale) Rebuild bought in the
+##            spell book (store button 1 of the Dwarves' set), a builder selected: the side bar as a block of one or two columns (hud6-hudsize-sidebar),
+##            a held finger on the spell book's power and on the first and last button of each side bar column shows its help and presses nothing
+##            (hud6-hudsize-hold-*); the tap assist takes a press 6 px off to the same button
 extends "res://scripts/scenario_player.gd"
 
 var game: Node
@@ -386,3 +390,92 @@ func _scenario_enemy() -> String:
 		world.destroy_object(id)
 		await game._step(5)
 	return ""
+
+
+# lane IOS-27: the side bar's columns and the spell book under the HUD size; a held finger (IOS-21's hold_help with the pointer under it) shows the help
+func _scenario_hudsize() -> String:
+	if str(game._faction) != "FactionDwarves":
+		return "hudsize needs --faction=FactionDwarves (its store button 1 is Rebuild)"
+	var me: int = game._local_index
+	world.debug_add_science_points(me, 5)
+	print("HUD6 TEST HOOK: player %d given 5 power points" % me)
+	if not hud.open_spell_store():
+		return "the spell store did not open"
+	await game._step(60)
+	hud.spell_store_click(1)
+	await game._step(4)
+	hud.close_spell_store()
+	await game._step(90)
+	var book: Dictionary = hud.get_spellbook_state()
+	var book_path := str(book.get("path", ""))
+	var spell_slot := -1
+	var slots: Array = book.get("slots", [])
+	for i in slots.size():
+		if str(slots[i]) != "_unused":
+			spell_slot = i + 1
+			break
+	if spell_slot < 0:
+		return "no power in the spell book: " + JSON.stringify(slots)
+	var b := find_own(func(o): return str(o.template).find("Worker") >= 0 or str(o.template).find("Porter") >= 0 or str(o.template).find("Builder") >= 0)
+	if b.is_empty():
+		return "no own builder"
+	if not await select_object(b):
+		return "the builder could not be selected"
+	hud.inject_mouse_move(Vector2(get_viewport_size().x * 0.5, 60))
+	await game._step(60)
+	var side: Dictionary = hud.get_hud6_state().get("side_bar", {})
+	var n := int(side.get("count", 0))
+	print("HUD6 hudsize: side bar %s, spell book slot %d" % [JSON.stringify(side), spell_slot])
+	shot("hudsize-sidebar")
+	if not bool(side.get("shown", false)) or n < 1:
+		return "the side bar shows no framed buttons"
+	# name -> the button's path: the power, then the first and last button of each column (column-major, at most six rows: AptPalantir::kSideBarMaxRows)
+	var targets := {"spell": "%s.Spell%d" % [book_path, spell_slot]}
+	var rows := n if n <= 6 else (n + 1) / 2
+	for i in [0, rows - 1, rows, n - 1]:
+		if i >= 0 and i < n:
+			targets["side%d" % i] = "SideCommandBar.ButtonSet.Button%d.Button" % i
+	hud.set_touch_help(true) # a phone's help: only while a finger is held (IOS-21; the touch layer turns it on at its first touch)
+	for name in targets:
+		var t: String = targets[name]
+		var w: Dictionary = hud.find_button_window(t)
+		if not w.get("found", false):
+			return "no button at " + t
+		var p := Vector2(w.x, w.y)
+		var under: Dictionary = hud.touch_button_at(p)
+		var snap: Dictionary = hud.nearest_button(p + Vector2(6, 6), 30.0)
+		# the finger stays on the button: the pointer and the hold are set again each step (a desktop's own mouse over the window, and the touch layer
+		# turning its help off for a mouse, would otherwise move or end them)
+		var h := {}
+		var since := 0
+		for i in 70:
+			hud.inject_mouse_move(p)
+			hud.hold_help(true)
+			hud.set_touch_help(true)
+			await game._step(2)
+			if h.is_empty() and bool(help().get("shown", false)) and int(help().get("draws", 0)) > 0:
+				h = help()
+			elif not h.is_empty():
+				since += 1
+				if since >= 5:
+					break # the box's text draws a few frames after its frame
+		var shown := not h.is_empty()
+		print("HUD6 hudsize hold %s (%s) at %s: under %s, tap assist %s, help %s" % [name, t, str(p), JSON.stringify(under), JSON.stringify(snap), JSON.stringify(h)])
+		shot("hudsize-hold-" + name)
+		hud.hold_help(false)
+		hud.inject_mouse_move(Vector2(get_viewport_size().x * 0.5, 60))
+		await game._step(10)
+		if str(under.get("kind", "")) != "movie":
+			return "the finger at %s is on no HUD button (%s)" % [t, JSON.stringify(under)]
+		if str(snap.get("target", "")) != str(under.get("target", "")):
+			return "the tap assist 6 px off %s went to %s" % [t, JSON.stringify(snap)]
+		if not shown or str(h.get("name", "")) == "":
+			return "a held finger on %s showed no help: %s" % [t, JSON.stringify(h)]
+		if bool(hud.get_spellbook_state().get("targeting", false)) or bool(hud.get_placement().get("placing", false)):
+			return "holding %s pressed it" % t
+	hud.set_touch_help(false)
+	return ""
+
+
+func get_viewport_size() -> Vector2:
+	return Vector2(game.get_viewport().get_visible_rect().size)
