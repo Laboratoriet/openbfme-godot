@@ -95,6 +95,7 @@ struct KindBits
 	int cavalry = ObjectTemplateInfoBuilder::kindOfIndex("CAVALRY");
 	int horde = ObjectTemplateInfoBuilder::kindOfIndex("HORDE");
 	int siegeTower = ObjectTemplateInfoBuilder::kindOfIndex("SIEGE_TOWER");
+	int projectile = ObjectTemplateInfoBuilder::kindOfIndex("PROJECTILE"); // RW template + 0x10B bit 1 (lane LOCODIST-1)
 };
 const KindBits &kindBits()
 {
@@ -241,6 +242,7 @@ public:
 	bool containerAllowsBackingUp() const override { return false; }
 	// RW 0x5E774A: TheTerrainLogic vslot 0x1C at the object's layer (lane WALL-1: a wall top's or a ramp's height, Pathfinder::getLayerHeight)
 	float groundHeightAt(float x, float y) const override { return m_ai.layerHeightAt(x, y); }
+	bool isOnRampOrRaisedLayer() const override { return m_ai.isOnRampOrRaisedLayer(); }
 	LocomotorPath *getPath() override { return m_ai.m_mover->path(); }
 	bool testObjectStatus(int bit) const override { return bit >= 0 && obj().testStatus((unsigned)bit); }
 	bool testModelCondition(int bit) const override { return obj().testModelCondition(bit); }
@@ -465,6 +467,9 @@ std::unique_ptr<AIStateMachine> AIUpdateInterface::makeStateMachine()
 	m->defineState(AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS, std::make_unique<AIFollowWaypointPathState>(*m, false, false), AI_IDLE, AI_IDLE);
 	m->defineState(AI_FOLLOW_WAYPOINT_PATH_EXACT_AS_TEAM, std::make_unique<AIFollowWaypointPathState>(*m, true, true), AI_IDLE, AI_IDLE);
 	m->defineState(AI_FOLLOW_WAYPOINT_PATH_EXACT_AS_INDIVIDUALS, std::make_unique<AIFollowWaypointPathState>(*m, false, true), AI_IDLE, AI_IDLE);
+	// lane WARG-1 (RW 0x753755): the attack-follow states, 0x23 (RW 0x750AE7(machine, 1)) then 0x22 (asTeam 0), both ending in idle
+	m->defineState(AI_ATTACK_FOLLOW_WAYPOINT_PATH_AS_TEAM, std::make_unique<AIAttackFollowWaypointPathState>(*m, true), AI_IDLE, AI_IDLE);
+	m->defineState(AI_ATTACK_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS, std::make_unique<AIAttackFollowWaypointPathState>(*m, false), AI_IDLE, AI_IDLE);
 	// lane LUMBER1 (RW 0x753755): AIDockState 14 (RW 0x740F01) and AIHarvestState 47 (RW 0x740F2C), both ending in idle
 	m->defineState(AI_DOCK, std::make_unique<AIDockState>(*m), AI_IDLE, AI_IDLE);
 	m->defineState(AI_HARVEST, std::make_unique<AIHarvestState>(*m), AI_IDLE, AI_IDLE);
@@ -1294,6 +1299,38 @@ bool AIUpdateInterface::isAircraftThatAdjustsDestination() const
 	return a == LOCO_HOVER || a == LOCO_WINGS;
 }
 
+// AI vslot 0x25C getTreatAsAircraftForLocoDistToGoal, RW 0x6629D3 (lane LOCODIST-1; every RotWK AI vtable holds it, GiantBirdAIUpdate through the thunk
+// RW 0x769F9F): not doing ground movement (vslot 0x224), or a path extra distance (AI + 0x168) above 1.0 (RW 0xBD1908, comiss), or a HOVER locomotor
+// (template + 0x74 == 2)
+bool AIUpdateInterface::treatAsAircraftForLocoDistToGoal() const
+{
+	bool r = !isDoingGroundMovement();
+	if (m_mover->pathExtraDistance() > 1.0f)
+	{
+		r = true;
+	}
+	if (m_curLocomotor && m_curLocomotor->getTemplate().m_appearance == LOCO_HOVER)
+	{
+		r = true;
+	}
+	return r;
+}
+
+bool AIUpdateInterface::isProjectile() const
+{
+	return hasKind(*getObject(), kindBits().projectile);
+}
+
+Coord3D AIUpdateInterface::machineGoalPosition() const
+{
+	// RW 0x6642CB: AI + 0x30, machine + 0x24 (RW dereferences the machine unchecked)
+	if (!m_machine)
+	{
+		throw std::logic_error("AIUpdateInterface::machineGoalPosition: no state machine");
+	}
+	return m_machine->goalPosition();
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 // locomotors (B1 AIUpdate.cpp:2326-2430)
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -1444,6 +1481,15 @@ PathfindLocomotorInfo AIUpdateInterface::locomotorInfo() const
 		}
 		info.downhillOnly = t.m_downhillOnly;
 		info.crusher = t.m_scalesWalls; // S-222 inference (RW loco+0x15)
+		// lane PATH-REBUILD: Path::rebuild's reads of the current locomotor (RW 0x767B0E)
+		info.present = true;
+		info.fastTurnRadius = t.m_fastTurnRadius;
+		info.slowTurnRadius = t.m_slowTurnRadius;
+		info.fasterThanQuarterSpeed = m_curLocomotor->isFasterThanQuarterSpeed(*m_locoHost); // the host is made with the module (the constructor)
+		info.canReverse = t.m_appearance == LOCO_WHEELS_FOUR && t.m_canMoveBackwards != 0;
+		info.maxTurnWithoutReform = t.m_maxTurnWithoutReform;
+		info.turnThresholdHS = t.m_turnThresholdHighSpeed;
+		info.floatingZ = t.m_zAxisBehavior == Z_FLOATING_Z;
 	}
 	return info;
 }
@@ -1482,6 +1528,16 @@ float AIUpdateInterface::layerHeightAt(float x, float y) const
 	return getObject()->logic().getGroundHeight(x, y);
 }
 
+bool AIUpdateInterface::isOnRampOrRaisedLayer() const
+{
+	if (!m_adapter)
+	{
+		return false;
+	}
+	const PathfindLayerEnum l = m_adapter->getLayer();
+	return l == LAYER_RAMP || isRaisedLayer(l);
+}
+
 void AIUpdateInterface::settleOnLayer()
 {
 	if (!m_world || !m_adapter || !m_world->mapReady())
@@ -1489,7 +1545,7 @@ void AIUpdateInterface::settleOnLayer()
 		return;
 	}
 	const PathfindLayerEnum before = m_adapter->getLayer();
-	const PathfindLayerEnum layer = m_world->pathfinder().settleLayer(*m_adapter);
+	const PathfindLayerEnum layer = m_world->pathfinder().adjustLayer(*m_adapter, before);
 	if (layer != before)
 	{
 		m_adapter->setLayer(layer);
@@ -1767,6 +1823,47 @@ bool AIUpdateInterface::setModelCondition(const char *name, bool on)
 	}
 	getObject()->setModelConditionState(modelConditionIndex(name), on);
 	return true;
+}
+
+// lane SAILS-1: RW 0x666FA3 (BFME2 0x66717B), the sails of a SHIP from its facing. The decomp misnames the body: its row sits in
+// AIUpdateInterface_computeAttackPath.cpp (lines 251-264) as rva0026717B, it is not computeAttackPath. Called from doLocomotor (RW 0x66A4B7).
+// The wind is a function static (0.5, 0.5, 0) that the retail Vector3::Normalize (BFME2 0x405A70, length BFME2 0x405A26) scales IN PLACE on every
+// call, with no zero test: the first call of the process leaves (0x3F3504F3, 0x3F3504F3, 0), every later one (0x3F3504F4, 0x3F3504F4, 0), as retail.
+void AIUpdateInterface::updateSailModelConditions()
+{
+	static const int kShip = ObjectTemplateInfoBuilder::kindOfIndex("SHIP"); // KindOf 191 (BFME2 0x667185: template byte 0x17, mask 0x80)
+	Object &obj = *getObject();
+	if (!hasKind(obj, kShip))
+	{
+		return;
+	}
+	static Coord3D wind{ 0.5f, 0.5f, 0.0f };
+	// the length: fld x, y, z; z*z + y*y, + x*x under PC24, fstp qword, the CRT sqrt, fst dword; then 1 / len (divss) and the three mulss
+	const double sq = SimMath::pc24AddW(SimMath::pc24AddW(SimMath::pc24MulW((double)wind.z, (double)wind.z), SimMath::pc24MulW((double)wind.y, (double)wind.y)),
+		SimMath::pc24MulW((double)wind.x, (double)wind.x));
+	const float len = SimMath::fstpDword(SimMath::sqrtPC24(sq));
+	const float inv = SimMath::divf32(1.0f, len);
+	wind.x = SimMath::mulf32(wind.x, inv);
+	wind.y = SimMath::mulf32(inv, wind.y);
+	wind.z = SimMath::mulf32(inv, wind.z);
+	// the clear (BFME2 0x665254 builds the flags, 0x5E42F2 clears them) of SAIL_FLAPPING / SAIL_BLOWN_RIGHT / SAIL_BLOWN_LEFT (0x151 .. 0x153)
+	static const int kFlapping = modelConditionIndex("SAIL_FLAPPING");
+	static const int kRight = modelConditionIndex("SAIL_BLOWN_RIGHT");
+	static const int kLeft = modelConditionIndex("SAIL_BLOWN_LEFT");
+	Object::ModelConditionBits clear{};
+	for (const int bit : { kFlapping, kRight, kLeft })
+	{
+		clear[(size_t)bit >> 5] |= 1u << (bit & 31);
+	}
+	obj.clearAndSetModelConditionFlags(clear, Object::ModelConditionBits{});
+	// the X axis of the transform (Object +0x0C, +0x1C, +0x2C: the basis's first column) dotted with the wind: z, then y, then x (mulss / addss)
+	const float *b = obj.getBasis();
+	const float dot = SimMath::addf32(SimMath::addf32(SimMath::mulf32(wind.z, b[6]), SimMath::mulf32(wind.y, b[3])), SimMath::mulf32(wind.x, b[0]));
+	const int bit = dot > 0.0f ? kLeft : kRight;
+	if (!obj.testModelCondition(bit))
+	{
+		obj.setModelConditionState(bit, true);
+	}
 }
 
 // RW relAngle2D(obj, p): the angle to the point relative to the object's facing, in [-pi, pi]

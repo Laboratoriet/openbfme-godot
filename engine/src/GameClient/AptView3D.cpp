@@ -60,6 +60,17 @@ float AptView3DBackdropWidth(float rectW, float rectH)
 	return std::max(rectW, rectH * 4.0f / 3.0f);
 }
 
+void AptView3DPixelBudget(int &width, int &height, int budget)
+{
+	if (width <= 0 || height <= 0 || budget <= 0 || (double)width * (double)height <= (double)budget)
+	{
+		return;
+	}
+	const double k = std::sqrt((double)budget / ((double)width * (double)height));
+	width = std::max(1, (int)std::floor(width * k));
+	height = std::max(1, (int)std::floor(height * k));
+}
+
 bool AptView3DOnMenuLevel(const std::string &path, const std::vector<int> &menuLevels)
 {
 	static const char kPrefix[] = "_level";

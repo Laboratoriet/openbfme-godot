@@ -62,6 +62,10 @@ void AptView3DImageSize(float rectW, float rectH, float scaleX, float scaleY, bo
 // phone in portrait) would show the game un-dimmed above and below the plane, so the clip is drawn as a 4:3 window of its height would draw it,
 // centred, its sides past the window's: the plane covers the window, the rune ring stays round. A 4:3 or wider clip: its own width.
 float AptView3DBackdropWidth(float rectW, float rectH);
+// lane PERF-2 (not retail): a View3D viewer renders its scene twice (black and white clears) into images the clip's size every frame, then draws them
+// stretched over the clip. More pixels than `budget` (1920x1080's count for the menus) cost an integrated GPU a large share of the frame and show no
+// more: the size is scaled down to at most `budget` pixels with its aspect kept (both sides at least 1).
+void AptView3DPixelBudget(int &width, int &height, int budget);
 // Sol r1 (ONLINE-5): does the View3D clip at `path` ("_level<N>.<...>", its target path) belong to one of `menuLevels` (the levels of the shell's menu
 // screens)? Those clips stretch with the stage (AptView3DImageSize); any other level's (GuiFX's end screen, an in-game movie) keeps retail's aspect
 bool AptView3DOnMenuLevel(const std::string &path, const std::vector<int> &menuLevels);

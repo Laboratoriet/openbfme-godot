@@ -26,6 +26,7 @@
 #include "GameLogic/AI/AIGroup.h"
 #include "GameLogic/Combat/CombatLineOfSight.h"
 #include "GameLogic/Combat/ObjectWeapons.h"
+#include "GameLogic/AI/AIStateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/SlavedUpdate.h"
 #include "GameLogic/Object/Contain/HordeContainRuntime.h"
@@ -452,6 +453,13 @@ PathfindObjectID ObjectPathfindAdapter::getID() const { return m_object->getID()
 const Coord3D &ObjectPathfindAdapter::getPosition() const { return *m_object->getPosition(); }
 float ObjectPathfindAdapter::getOrientation() const { return m_object->getOrientation(); }
 
+// lane PATH-REBUILD: RW 0x70B9E0's vector is the object's facing; the port's transform basis holds the same cosine and sine (AIUpdateInterface::unitDirectionOf)
+Coord2D ObjectPathfindAdapter::getUnitDirection2D() const
+{
+	// RW 0x70B9E0: the cosine and sine of the orientation (a unit vector); the transform's basis is the same for a yaw-only unit up to its rounding
+	return PathfindObject::getUnitDirection2D();
+}
+
 float ObjectPathfindAdapter::getHeightAboveTerrain() const
 {
 	const Coord3D &p = *m_object->getPosition();
@@ -640,6 +648,25 @@ bool ObjectPathfindAdapter::isParked() const
 
 bool ObjectPathfindAdapter::hasAI() const { return m_object->getAIUpdateInterface() != nullptr; }
 
+bool ObjectPathfindAdapter::isStatusImmobile() const
+{
+	// lane QPATH-1: RW 0x6F5C30 .. 0x6F5C35, Object::testStatus(49) (RW 0x44DDEC); 49 = IMMOBILE (BitFlagNames.cpp:162)
+	static const int immobile = CombatNames::status("IMMOBILE");
+	return m_object->testStatus((unsigned)immobile);
+}
+
+bool ObjectPathfindAdapter::getAILocomotorInfo(PathfindLocomotorInfo &out) const
+{
+	// lane QPATH-1: RW 0x6F5C90 .. 0x6F5CCE: the AI (Object + 0x260) and its locomotor set (AI + 0x1CC)
+	const AIUpdateInterface *a = m_object->getAIUpdateInterface();
+	if (!a)
+	{
+		return false;
+	}
+	out = a->locomotorInfo();
+	return true;
+}
+
 bool ObjectPathfindAdapter::inMoveAwaySearch() const
 {
 	// lane WALL-2: RW AI + 0x3CF, set only around the two getMoveAwayFromPath calls (RW 0x66DBFB / 0x66DC4B)
@@ -741,9 +768,29 @@ bool ObjectPathfindAdapter::cannotWalkOn() const
 	return cannot >= 0 && m_object->testStatus((unsigned)cannot);
 }
 
-bool ObjectPathfindAdapter::ignoresAsTarget(const PathfindObject &) const
+// RW checkForMovement (0x6EBAA0), the enemy branch (BFME2 decomp PathfinderCheckForMovement.cpp): an enemy does not refuse the cell when it is the unit's
+// target: the AI state machine's goal object (RW 0x8DBACE) or the current victim (RW 0x668303), or contained in one (a horde's member), or the target's own
+// container (and its members). A unit without an AI, or with neither target, is refused
+bool ObjectPathfindAdapter::ignoresAsTarget(const PathfindObject &other) const
 {
-	return false; // the attack machine's target (RW 0x8DBACE, 0x668303) belongs to the combat milestone
+	const ObjectPathfindAdapter *o = dynamic_cast<const ObjectPathfindAdapter *>(&other);
+	AIUpdateInterface *ai = m_object->getAIUpdateInterface();
+	if (!o || !ai)
+	{
+		return false;
+	}
+	const Object *unit = &o->object();
+	const auto targets = [unit](const Object *t) { return t && (unit == t || unit->getContainedBy() == t); };
+	const AIStateMachine *machine = ai->stateMachineOrNull(); // null before onObjectCreated or for a machineless loaded AI: no goal object
+	if (const Object *goal = machine ? machine->goalObject() : nullptr)
+	{
+		if (targets(goal) || targets(goal->getContainedBy()))
+		{
+			return true;
+		}
+	}
+	const Object *victim = ai->currentVictim();
+	return victim && (targets(victim) || targets(victim->getContainedBy()));
 }
 
 bool ObjectPathfindAdapter::pathsThroughEachOther() const
@@ -1208,6 +1255,14 @@ void AIWorld::removeObjectFromPathfindMap(Object &obj)
 	if (m_mapReady)
 	{
 		m_pathfinder->removeObjectFromPathfindMap(adapterFor(obj));
+	}
+}
+
+void AIWorld::removeObjectFromPathfindMapKeepGateFlag(Object &obj)
+{
+	if (m_mapReady)
+	{
+		m_pathfinder->removeObjectFromPathfindMapKeepGateFlag(adapterFor(obj));
 	}
 }
 

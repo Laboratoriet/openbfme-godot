@@ -112,6 +112,7 @@ ALLOWLIST = {
     "online_list_client_test.gd": "the native list client against synthetic responses",
     "online_war_phase_test.gd": "battle relay tickets name only human original seats while tactical seats retain AI",
     "timeline_markers_test.gd": "score timeline markers against a stub shell",
+    "wotr_preview_visibility_test.gd": "hidden War of the Ring preview rendering and reveal; synthetic shell, no retail assets or readback",
     "save_failure_menu_test.gd": "late save refusals resume the shell and replace the loading canvas; synthetic world and shell",
     "weatherfx_test.gd": "the Enhanced weather's effects against a stub GameWorld and synthetic images",
 }
@@ -138,7 +139,7 @@ DENYLIST = {
                     "manual: needs a private BFME1 installation"),
     **dict.fromkeys(scripts("""
         audio_stress backlog3_focus bfme2camp1 buildperf cah_awards_display camp2 campsave1 floating_money_text
-        hero_radius_cursor hudredraw menustyle_native menustyle net_uber netlag1 occlude1 opts4 opts5
+        hero_radius_cursor hudredraw hud_globe_visibility menustyle_native menustyle net_uber netlag1 occlude1 opts4 opts5
         packed_model_texture pathperf1_render perf3_cull perfclient_views play3 player_house_color player_message_log
         pose_buffer pose_buffer_cull_query pose_buffer_query_trigger
         renderwait1_teardown road_shading selperf shellfix1 spellbook_reload terrain_lighting uberjoin1 ui4_resize
