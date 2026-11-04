@@ -252,6 +252,15 @@ jobs:
           New-Item -ItemType Junction -Path "$target\$env:REPO" -Target "$PWD" | Out-Null
       - name: Unit tests (the tests that need the game skip)
         run: build/windows/build/openbfme_tests.exe
+      - name: Flake probe
+        if: always()
+        continue-on-error: true
+        run: |
+          for i in 1 2 3 4 5 6; do
+            build/windows/build/openbfme_tests.exe > /tmp/flake.txt 2>&1
+            echo "round $i exit $?"
+            grep -E 'ERROR|test cases' /tmp/flake.txt | grep -v SKIP | cut -c1-200
+          done
       - name: Download Godot 4.7.2 (its SHA512-SUMS.txt hash)
         run: |
           mkdir -p "$RUNNER_TEMP/godot"
@@ -313,6 +322,15 @@ jobs:
       - name: Unit tests (the tests that need the game skip)
         # includes the console filter tests: the real macOS /dev/null sink, privacy filtering and bounded shutdown
         run: engine/build-macos/openbfme_tests
+      - name: Flake probe
+        if: always()
+        continue-on-error: true
+        run: |
+          for i in 1 2 3 4 5 6; do
+            engine/build-macos/openbfme_tests > /tmp/flake.txt 2>&1
+            echo "round $i exit $?"
+            grep -E 'ERROR|test cases' /tmp/flake.txt | grep -v SKIP | cut -c1-200
+          done
 
   ci:
     name: CI

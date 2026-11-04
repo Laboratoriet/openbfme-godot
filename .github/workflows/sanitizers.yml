@@ -31,7 +31,7 @@ jobs:
         include:
           - name: address and undefined
             key: asan
-            flags: -fsanitize=address,undefined -fno-omit-frame-pointer -g1
+            flags: -fsanitize=address,undefined -fsanitize-recover=address -fno-omit-frame-pointer -g1
           - name: thread
             key: tsan
             flags: -fsanitize=thread -fno-omit-frame-pointer -g1
@@ -78,7 +78,7 @@ jobs:
       - name: Unit tests (the tests that need the game skip, and those that need the MP3 fixtures)
         # die_after_fork=0: the console filter tests start a thread in a forked child, which this sanitizer refuses by default
         env:
-          ASAN_OPTIONS: detect_leaks=0
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=0
           UBSAN_OPTIONS: print_stacktrace=1
           TSAN_OPTIONS: die_after_fork=0
         run: |
