@@ -429,6 +429,10 @@ void InGameHud::updateHud6(ObjectID context, const std::string &faction, double 
 	const bool allowed = ctx && (ctx->getControllingPlayer() == local || !ControlBar::localPlayerActive(local));
 	m_radial.setImageSize(imageSizeOf, (void *)m_hud6Images);
 	m_radial.setFontMetrics(m_hud6Metrics); // lane OWNERFIX-3: the count's measure (the device's fonts)
+	// lane IOS-27: a HUD layout other than retail's (the HUD size above 100 %, a phone's safe area) has square radial buttons at the HUD size
+	const AptPalantir::HudLayout &hl = m_hudLayout;
+	const bool retailHud = hl.scale == 1.0f && hl.safeInsets[0] == 0.0f && hl.safeInsets[1] == 0.0f && hl.safeInsets[2] == 0.0f && hl.safeInsets[3] == 0.0f;
+	m_radial.setSquareScale(retailHud ? 0.0f : hl.scale);
 	m_radial.update(logic, &m_config.game.drawables(), m_config.view, m_windowW, m_windowH, context, m_bar->sideButtons(), allowed);
 	// the help box: the control bar's test of the last frame, the hover of this one, the movie clip's update
 	m_helpBox.setEndGameTimer(m_config.endGameTimer ? m_config.endGameTimer() : -1);

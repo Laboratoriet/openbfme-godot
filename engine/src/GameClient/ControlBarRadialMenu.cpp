@@ -14,6 +14,7 @@
 #include "GameLogic/Object/Object.h"
 #include "GameLogic/Object/ObjectGeometry.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -66,13 +67,23 @@ bool RadialMenuLayout::updateCenter(int x, int y)
 
 void RadialMenuLayout::update(int displayW, int displayH)
 {
-	if (m_count < 1 || m_radius != 0)
+	const bool square = m_squareScale > 0.0f;
+	const bool remeasure = square && (displayW != m_measuredW || displayH != m_measuredH || m_squareScale != m_measuredScale);
+	if (m_count < 1 || (m_radius != 0 && !remeasure))
 	{
 		return; // RW 0x9D6335 (no buttons) / RW 0x9D634B (measured since the restart)
 	}
+	m_measuredW = displayW;
+	m_measuredH = displayH;
+	m_measuredScale = m_squareScale;
 	// RW 0x9D6356 .. 0x9D63A0: fild width; fmul 0.046875f; __ftol2 (truncation) - the same for the height with 0.0625f
 	m_w = (int)((float)displayW * kButtonWidthScale);
 	m_h = (int)((float)displayH * kButtonHeightScale);
+	if (square)
+	{
+		// lane IOS-27 (OpenBFME presentation, ControlBarRadialMenu.h): square at the 4:3-fit size times the HUD size
+		m_w = m_h = (int)((float)std::min(m_w, m_h) * m_squareScale);
+	}
 	if (m_count > 2)
 	{
 		// RW 0x9D63B6 .. 0x9D641D: (w * 0.5f * 1.175f stored as float) / sin(pi / n) (the quotient under the 24-bit FPU precision), truncated; at least

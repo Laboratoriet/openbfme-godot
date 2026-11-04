@@ -72,6 +72,10 @@ public:
 	bool updateCenter(int x, int y);
 	// RW 0x9D6320's first update: the button size and the radius from the display size (window pixels)
 	void update(int displayW, int displayH);
+	// lane IOS-27 (OpenBFME presentation, not retail): 0 (the default, a desktop at 100 %) keeps retail's size, w = 0.046875 of the display's width and
+	// h = 0.0625 of its height (round only on a 4:3 display: ovals on a phone). Above 0 the buttons are square at the 4:3-fit size
+	// min(w, h) times `k` (the HUD size), measured again when the display or `k` changes; the radius follows the size as retail's does
+	void setSquareScale(float k) { m_squareScale = k; }
 	// RW 0x9D5CCE: the window rectangle of each button (window pixels)
 	void place(std::vector<Rect> &out) const;
 
@@ -88,6 +92,9 @@ private:
 	int m_w = 0, m_h = 0;          ///< + 0x14 / + 0x18
 	int m_radius = 0;              ///< + 0x1C (0: the next update measures)
 	float m_step = 0.0f;           ///< + 0x2C
+	float m_squareScale = 0.0f;    ///< lane IOS-27
+	int m_measuredW = 0, m_measuredH = 0;
+	float m_measuredScale = 0.0f;
 };
 
 // One thing to draw for the ring, in order (window pixels).
@@ -138,6 +145,8 @@ public:
 	void setImageSize(ImageSizeFn fn, void *ctx) { m_imageSize = fn; m_imageCtx = ctx; }
 	// lane OWNERFIX-3: the count's font and colours and the text measure (the device's fonts); without either a count to draw is an error (errors())
 	void setCountLook(const CommandWindowLook &look) { m_countLook = look; }
+	// lane IOS-27: RadialMenuLayout::setSquareScale (the HUD sets it from its layout)
+	void setSquareScale(float k) { m_layout.setSquareScale(k); }
 	void setFontMetrics(FontMetricsSource *metrics) { m_metrics = metrics; }
 
 	// ---- input (window pixels) ----

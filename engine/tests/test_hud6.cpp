@@ -145,6 +145,58 @@ TEST_CASE("hud6 radial layout: RotWK's button size, radius and ring (RW 0x9D6320
 	CHECK(c.centerX() == 102);
 }
 
+// lane IOS-27 (OpenBFME presentation, not retail): above a retail HUD layout (InGameHud: the HUD size above 100 %, a phone's safe area) the buttons are square
+// at the 4:3-fit size times the HUD size, measured again when the display or the size changes; 0 keeps retail's ovals (a desktop at 100 %)
+TEST_CASE("hud6 radial layout: square buttons at the HUD size off the retail layout; retail's size on a desktop")
+{
+	// retail on the Duo's half-size inner screen: 62 x 58 (landscape), 44 x 83 (portrait): ovals
+	RadialMenuLayout l;
+	l.setCount(3);
+	l.update(1335, 939);
+	CHECK(l.buttonW() == 62);
+	CHECK(l.buttonH() == 58);
+	l.setCount(3);
+	l.update(939, 1335);
+	CHECK(l.buttonW() == 44);
+	CHECK(l.buttonH() == 83);
+	// square: ftol(min(w, h) * k): landscape min 58, portrait min 44
+	l.setSquareScale(1.25f);
+	l.setCount(3);
+	l.update(1335, 939);
+	CHECK(l.buttonW() == 72);
+	CHECK(l.buttonH() == 72);
+	// radius max(ftol(72 * 0.5 * 1.175 / sin(pi / 3)) = 48, ftol(72 * 0.6666667) = 48)
+	CHECK(l.radius() == 48);
+	std::vector<RadialMenuLayout::Rect> r;
+	l.updateCenter(600, 400);
+	l.place(r);
+	REQUIRE(r.size() == 3);
+	for (const RadialMenuLayout::Rect &b : r)
+	{
+		CHECK(b.w == 72);
+		CHECK(b.h == 72);
+	}
+	// a turn of the phone and a new HUD size measure again (retail measures once per restart)
+	l.update(939, 1335);
+	CHECK(l.buttonW() == 55);
+	CHECK(l.buttonH() == 55);
+	l.setSquareScale(1.5f);
+	l.update(939, 1335);
+	CHECK(l.buttonW() == 66);
+	CHECK(l.buttonH() == 66);
+	// a desktop at 100 % (scale 0): retail's 48 x 48 at 1024 x 768 and its 75 x 56 at 1600 x 900, unchanged
+	RadialMenuLayout desk;
+	desk.setCount(3);
+	desk.update(1024, 768);
+	CHECK(desk.buttonW() == 48);
+	CHECK(desk.buttonH() == 48);
+	CHECK(desk.radius() == 32);
+	desk.setCount(4);
+	desk.update(1600, 900);
+	CHECK(desk.buttonW() == 75);
+	CHECK(desk.buttonH() == 56);
+}
+
 TEST_CASE("hud6 help: the name's '&' key, the shortcut line, the measured height and the drawn lines (RW 0x97434E / 0x9744E4 / 0x974795)")
 {
 	MapText text;
