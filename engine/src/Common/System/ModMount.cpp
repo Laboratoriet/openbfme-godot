@@ -121,7 +121,7 @@ bool statJob(const fs::path &p, HashJob &j, ModMountReport &report)
 
 // PLAN rule 7 under -mod: RW 0xA149A2's lookups 2 and 3 ("lang\<language>\<file>", "<file>" in the game folder) come before the archives.
 // Every loose file of the RotWK install that one of them would return for a name the archives hold is contamination: one error each.
-void checkInstallShadows(const ArchiveFileSystem &fileSystem, const std::string &installRoot, const fs::path &modFolder, ModMountReport &report)
+void checkInstallShadows(const ArchiveFileSystem &fileSystem, const std::string &installRoot, const std::vector<fs::path> &modFolders, ModMountReport &report)
 {
 	if (installRoot.empty())
 	{
@@ -131,8 +131,12 @@ void checkInstallShadows(const ArchiveFileSystem &fileSystem, const std::string 
 	std::error_code ec;
 	const fs::path root = fs::u8path(installRoot);
 	const std::string langPrefix = std::string("lang\\") + AsciiStringUtil::lowered(kRetailInstallLanguage) + "\\";
-	std::error_code modEc;
-	const fs::path modCanonical = modFolder.empty() ? fs::path() : fs::weakly_canonical(modFolder, modEc);
+	std::vector<fs::path> modCanonical; // lane IOS-28: every mod folder of the mount
+	for (const fs::path &f : modFolders)
+	{
+		std::error_code modEc;
+		modCanonical.push_back(fs::weakly_canonical(f, modEc));
+	}
 	std::vector<std::string> found;
 	for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec))
 	{
@@ -142,10 +146,10 @@ void checkInstallShadows(const ArchiveFileSystem &fileSystem, const std::string 
 			it.disable_recursion_pending(); // never followed (a loop would never end); the retail mount reads no links either
 			continue;
 		}
-		if (it->is_directory(typeEc) && !modCanonical.empty())
+		if (it->is_directory(typeEc))
 		{
 			std::error_code c;
-			if (fs::weakly_canonical(it->path(), c) == modCanonical)
+			if (!modCanonical.empty() && std::find(modCanonical.begin(), modCanonical.end(), fs::weakly_canonical(it->path(), c)) != modCanonical.end())
 			{
 				it.disable_recursion_pending(); // a mod folder inside the install is the mod, not the install's loose files
 			}
@@ -398,8 +402,13 @@ bool ParseModArgument(const std::string &path, const std::string &userDataDir, M
 
 ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &mod, const ModMountOptions &options)
 {
+	return MountRetailMods(fileSystem, std::vector<ModOperand>{ mod }, options);
+}
+
+ModMountReport MountRetailMods(Win32BIGFileSystem &fileSystem, const std::vector<ModOperand> &mods, const ModMountOptions &options)
+{
 	ModMountReport report;
-	if (mod.empty())
+	if (mods.empty() || std::any_of(mods.begin(), mods.end(), [](const ModOperand &m) { return m.empty(); }))
 	{
 		report.errors.push_back("-mod: no mod given (a folder or an archive file is required)");
 		return report;
@@ -413,40 +422,47 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 		fs::path disk;
 		std::string name; // the archive's name (identity and report)
 		HashJob hash;
+		size_t mod = 0;   // lane IOS-28: the operand it belongs to
 	};
-	std::vector<Planned> archives; // mount order (RW 0x7BAA44): m_modBIG first, then the folder's archives; with overwrite the last wins
-	std::vector<HashJob> loose;    // the folder's loose files, by virtual path
+	std::vector<Planned> archives; // mount order (RW 0x7BAA44 per operand): m_modBIG first, then the folder's archives; with overwrite the last wins
+	std::vector<HashJob> loose;    // the folders' loose files, by virtual path
 	std::vector<std::string> looseVirtual;
+	std::vector<size_t> looseMod;  // lane IOS-28: the operand of each loose file
+	std::vector<fs::path> folders;
+	std::vector<std::string> archiveNames(mods.size()), folderNames(mods.size());
 
-	if (!mod.archive.empty())
+	for (size_t m = 0; m < mods.size(); ++m)
 	{
-		const fs::path p = fs::u8path(mod.archive);
-		std::error_code ec;
-		if (!fs::is_regular_file(p, ec))
+		const ModOperand &mod = mods[m];
+		if (!mod.archive.empty())
 		{
-			report.errors.push_back("-mod archive is not a file: '" + mod.archive + "'");
-		}
-		else
-		{
-			Planned a{ p, p.filename().u8string(), HashJob() };
-			if (statJob(p, a.hash, report))
+			const fs::path p = fs::u8path(mod.archive);
+			std::error_code ec;
+			if (!fs::is_regular_file(p, ec))
 			{
-				archives.push_back(a);
+				report.errors.push_back("-mod archive is not a file: '" + mod.archive + "'");
+			}
+			else
+			{
+				Planned a{ p, p.filename().u8string(), HashJob(), m };
+				archiveNames[m] = a.name;
+				if (statJob(p, a.hash, report))
+				{
+					archives.push_back(a);
+				}
 			}
 		}
-	}
 
-	fs::path folder;
-	if (!mod.dir.empty())
-	{
-		folder = fs::u8path(mod.dir);
-		std::error_code ec;
-		if (!fs::is_directory(folder, ec))
+		if (!mod.dir.empty())
 		{
-			report.errors.push_back("-mod folder does not exist: '" + mod.dir + "'");
-		}
-		else
-		{
+			const fs::path folder = fs::u8path(mod.dir);
+			std::error_code ec;
+			if (!fs::is_directory(folder, ec))
+			{
+				report.errors.push_back("-mod folder does not exist: '" + mod.dir + "'");
+				continue;
+			}
+			folders.push_back(folder);
 			// RW 0xA17FB0: the folder's direct "*.BIG" children (searchSubdirectories 0; Windows matches the mask without case)
 			std::vector<std::string> names;
 			for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
@@ -468,7 +484,7 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 			}
 			for (const std::string &n : ordered)
 			{
-				Planned a{ folder / fs::u8path(n), n, HashJob() };
+				Planned a{ folder / fs::u8path(n), n, HashJob(), m };
 				if (statJob(a.disk, a.hash, report))
 				{
 					archives.push_back(a);
@@ -496,6 +512,7 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 				{
 					loose.push_back(j);
 					looseVirtual.push_back(rel);
+					looseMod.push_back(m);
 				}
 			}
 			if (ec)
@@ -507,7 +524,8 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 			{
 				name = folder.parent_path().filename().u8string(); // "<dir>/" has an empty filename
 			}
-			report.folderName = name;
+			folderNames[m] = name;
+			report.folderName = name; // the highest-priority folder mod's (the movies' "Mod Path")
 		}
 	}
 	if (!report.errors.empty())
@@ -536,9 +554,16 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 		loose[i] = all[archives.size() + i];
 	}
 
-	// the loose index (byte order of the virtual path); two names that differ only in case cannot both be in a Windows folder
+	// the loose index (byte order of the virtual path); two names of one folder that differ only in case cannot both be in a Windows folder.
+	// Lane IOS-28: several folder mods make ONE loose layer; a path two of them hold is the later (higher-priority) mod's, noted by name
 	ModLooseIndex index;
-	index.root = mod.dir;
+	for (size_t m = 0; m < mods.size(); ++m)
+	{
+		if (!mods[m].dir.empty())
+		{
+			index.root = mods[m].dir; // the highest-priority folder (RW 0xDEC498 holds one)
+		}
+	}
 	{
 		std::vector<size_t> order(loose.size());
 		for (size_t i = 0; i < order.size(); ++i)
@@ -546,7 +571,37 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 			order[i] = i;
 		}
 		std::sort(order.begin(), order.end(), [&looseVirtual](size_t a, size_t b) { return looseVirtual[a] < looseVirtual[b]; });
+		std::map<std::string, size_t> chosen; // key -> loose index
+		std::map<std::pair<size_t, std::string>, std::string> seen; // (operand, key) -> the first virtual path (the case check)
 		for (size_t i : order)
+		{
+			const std::string key = ModLooseIndex::key(looseVirtual[i]);
+			const auto own = std::make_pair(looseMod[i], key);
+			if (seen.count(own))
+			{
+				report.errors.push_back("-mod: two files of the mod folder differ only in case (Windows cannot hold both): " + seen[own] + " and " + looseVirtual[i]);
+				continue;
+			}
+			seen[own] = looseVirtual[i];
+			auto it = chosen.find(key);
+			if (it == chosen.end())
+			{
+				chosen[key] = i;
+			}
+			else
+			{
+				const size_t low = looseMod[it->second] < looseMod[i] ? it->second : i, high = low == i ? it->second : i;
+				report.notes.push_back("mods: " + folderNames[looseMod[high]] + "'s " + looseVirtual[high] + " replaces " + folderNames[looseMod[low]] + "'s");
+				it->second = high;
+			}
+		}
+		std::vector<size_t> kept;
+		for (const auto &kv : chosen)
+		{
+			kept.push_back(kv.second);
+		}
+		std::sort(kept.begin(), kept.end(), [&looseVirtual](size_t a, size_t b) { return looseVirtual[a] < looseVirtual[b]; });
+		for (size_t i : kept)
 		{
 			ModLooseFile f;
 			f.virtualPath = looseVirtual[i];
@@ -554,14 +609,7 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 			f.size = loose[i].size;
 			f.mtime = loose[i].mtime;
 			f.md5 = loose[i].md5;
-			const std::string key = ModLooseIndex::key(f.virtualPath);
-			if (index.byKey.count(key))
-			{
-				report.errors.push_back("-mod: two files of the mod folder differ only in case (Windows cannot hold both): " + index.files[index.byKey[key]].virtualPath +
-					" and " + f.virtualPath);
-				continue;
-			}
-			index.byKey[key] = index.files.size();
+			index.byKey[ModLooseIndex::key(f.virtualPath)] = index.files.size();
 			index.files.push_back(std::move(f));
 		}
 	}
@@ -589,7 +637,7 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 	}
 
 	// PLAN rule 7 (before anything of the mod is mounted, against the retail tree only)
-	checkInstallShadows(fileSystem, options.rotwkInstallRoot, folder, report);
+	checkInstallShadows(fileSystem, options.rotwkInstallRoot, folders, report);
 	if (!report.errors.empty())
 	{
 		return report;
@@ -603,7 +651,7 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 
 	// lane SDK-2: the mod's Luau scripts (GameLogic/Sdk/SdkManifest.h): a broken manifest stops the mount; the sim scripts' fingerprint is an
 	// identity line of its own, and the presentation scripts are left out of the content digest (cosmetic, like asset packs)
-	if (!mod.dir.empty())
+	if (!folders.empty())
 	{
 		SdkModFiles sdk(index);
 		if (sdk.has(SdkManifest::path()))
@@ -621,14 +669,29 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 		}
 	}
 
-	// identity lines (ProfileIdentity): the mount order and every byte the mod contributes; no absolute path (privacy: only names below the mod)
-	if (!mod.archive.empty())
+	// identity lines (ProfileIdentity): the mount order and every byte the mods contribute; no absolute path (privacy: only names below the mod).
+	// Lane IOS-28: one "mod archive" / "mod folder" line per operand in mount order (one operand: the lines of a single -mod, unchanged)
+	for (size_t m = 0; m < mods.size(); ++m)
 	{
-		report.identity.push_back("mod archive " + archives.front().name);
-	}
-	if (!mod.dir.empty())
-	{
-		report.identity.push_back("mod folder " + report.folderName);
+		if (!mods[m].archive.empty())
+		{
+			report.identity.push_back("mod archive " + archiveNames[m]);
+		}
+		if (!mods[m].dir.empty())
+		{
+			report.identity.push_back("mod folder " + folderNames[m]);
+		}
+		// lane IOS-28: the log's line of this operand (RetailFileSystem prints them): its place, its name, what it brings
+		size_t n = 0;
+		for (const Planned &a : archives)
+		{
+			n += a.mod == m ? 1 : 0;
+		}
+		const size_t files = (size_t)std::count(looseMod.begin(), looseMod.end(), m);
+		const std::string name = !folderNames[m].empty() ? folderNames[m] : archiveNames[m];
+		report.order.push_back(std::to_string(m + 1) + " of " + std::to_string(mods.size()) + ": " + name + " (" +
+			(!mods[m].dir.empty() ? "folder, " + std::to_string(n) + (n == 1 ? " archive, " : " archives, ") + std::to_string(files) + (files == 1 ? " file" : " files")
+								  : "archive") + ")");
 	}
 	// Sol r1: one bounded line for the whole content. A line per file made a big folder mod's identity too long for the save header and the
 	// LAN JOIN datagram. The manifest (every archive in mount order, every loose file in byte order) is the report's (ModMountReport::manifest)
@@ -659,7 +722,7 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 		report.identity.push_back("sdk sim " + report.sdkSimFingerprint); // lane SDK-2 (format agreed with PROFILE-2): the sim scripts peers must share
 	}
 
-	if (!mod.dir.empty())
+	if (!folders.empty())
 	{
 		report.loose = index;
 		fileSystem.setModLooseLayer(std::move(index)); // RW 0xA14313: the folder and the flag
@@ -680,6 +743,62 @@ ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &
 	}
 	report.ok = true;
 	return report;
+}
+
+bool ModsFolderOperands(const std::string &modsFolder, const std::vector<std::string> &names, std::vector<ModOperand> &out,
+	std::vector<std::string> &missing, std::string *error)
+{
+	out.clear();
+	missing.clear();
+	std::set<std::string> seen;
+	for (const std::string &name : names)
+	{
+		const bool bad = name.empty() || name == "." || name == ".." || name.find('/') != std::string::npos || name.find('\\') != std::string::npos ||
+			name.find(':') != std::string::npos;
+		if (bad)
+		{
+			if (error)
+			{
+				*error = "mods: '" + name + "' is not the name of a mod in the Mods folder (a folder or a .big file directly in it)";
+			}
+			return false;
+		}
+		if (!seen.insert(AsciiStringUtil::lowered(name)).second)
+		{
+			if (error)
+			{
+				*error = "mods: '" + name + "' is enabled twice";
+			}
+			return false;
+		}
+		const fs::path p = fs::u8path(modsFolder) / fs::u8path(name);
+		std::error_code ec;
+		const fs::file_status st = fs::symlink_status(p, ec);
+		if (ec || !fs::exists(st))
+		{
+			missing.push_back(name);
+			continue;
+		}
+		ModOperand op;
+		if (fs::is_directory(st))
+		{
+			op.dir = p.u8string() + "/";
+		}
+		else if (fs::is_regular_file(st) && lowerExtension(p) == ".big")
+		{
+			op.archive = p.u8string();
+		}
+		else
+		{
+			if (error)
+			{
+				*error = "mods: '" + name + "' in " + modsFolder + " is neither a folder nor a .big file";
+			}
+			return false;
+		}
+		out.push_back(op);
+	}
+	return true;
 }
 
 ModMountReport MountInstallOverlay(Win32BIGFileSystem &out, const RetailMountReport &retail, const std::string &overlay, const ModMountOptions &options)

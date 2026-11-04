@@ -85,6 +85,8 @@ void RetailFileSystem::_bind_methods()
 	ClassDB::bind_method(D_METHOD("get_loose_files"), &RetailFileSystem::get_loose_files);
 	ClassDB::bind_method(D_METHOD("get_user_map_folder"), &RetailFileSystem::get_user_map_folder); // lane MOD-5
 	ClassDB::bind_method(D_METHOD("set_mods", "paths"), &RetailFileSystem::set_mods); // MODS-1
+	ClassDB::bind_method(D_METHOD("set_mod_list", "names"), &RetailFileSystem::set_mod_list); // IOS-28
+	ClassDB::bind_method(D_METHOD("get_mods_folder"), &RetailFileSystem::get_mods_folder); // IOS-28
 	ClassDB::bind_method(D_METHOD("get_mods"), &RetailFileSystem::get_mods);
 	ClassDB::bind_method(D_METHOD("get_mod_report"), &RetailFileSystem::get_mod_report);
 	ClassDB::bind_method(D_METHOD("get_file_sources", "path"), &RetailFileSystem::get_file_sources);
@@ -146,6 +148,24 @@ std::unique_ptr<W3DFileSource> RetailFileSystem::renderW3DSource()
 void RetailFileSystem::set_mods(const PackedStringArray &paths)
 {
 	m_modArgs = paths;
+}
+
+void RetailFileSystem::set_mod_list(const PackedStringArray &names)
+{
+	m_modList = names;
+}
+
+std::string RetailFileSystem::modsFolderOf(const std::string &userDataFolder)
+{
+	if (OS::get_singleton()->has_feature("ios"))
+	{
+		return applicationDataFolder() + "/Mods"; // the app's Documents folder: its top level is what the Files app shows
+	}
+	if (userDataFolder.empty())
+	{
+		return std::string();
+	}
+	return userDataFolder + (userDataFolder.back() == '/' || userDataFolder.back() == '\\' ? "" : "/") + "Mods";
 }
 
 void RetailFileSystem::set_install_mod(const String &folder)
@@ -262,6 +282,26 @@ Dictionary RetailFileSystem::get_mod_report() const
 	d["install_mod_archives"] = (int64_t)m_installModReport.archives.size();
 	d["files_hashed"] = m_modReport.filesHashed;
 	d["md5_cache_hits"] = m_modReport.md5CacheHits;
+	// lane IOS-28: the Mods folder, where the mounted mods came from, their order (lowest priority first) and the enabled ones not found
+	PackedStringArray order, notes, missing, list;
+	for (const std::string &l : m_modReport.order)
+	{
+		order.push_back(toGodot(l));
+	}
+	for (const std::string &l : m_modReport.notes)
+	{
+		notes.push_back(toGodot(l));
+	}
+	for (const std::string &l : m_modsMissing)
+	{
+		missing.push_back(toGodot(l));
+	}
+	d["order"] = order;
+	d["notes"] = notes;
+	d["missing"] = missing;
+	d["list"] = m_modSource == "mods folder" ? m_modList : PackedStringArray();
+	d["source"] = toGodot(m_modSource);
+	d["mods_folder"] = toGodot(m_modsFolder);
 	return d;
 }
 
@@ -521,6 +561,9 @@ Dictionary RetailFileSystem::mountFrom(const std::string &rotwkRoot, const std::
 	m_installRoot.clear();
 	m_modReport = ModMountReport();
 	m_installModReport = ModMountReport();
+	m_modsFolder.clear(); // lane IOS-28
+	m_modSource.clear();
+	m_modsMissing.clear();
 	{
 		// lane MODS-3: the mod's engine features, before anything is parsed (Common/ModEngineFeatures.h); an unknown game binary fails the mount
 		std::vector<std::string> engines;
@@ -714,9 +757,9 @@ Dictionary RetailFileSystem::mountFrom(const std::string &rotwkRoot, const std::
 			}
 		}
 		// lane MODS-1: the -mod operands over the verified retail set (RW 0x7BAA44 runs after the archives are mounted)
-		if (m_mounted && !m_modArgs.is_empty())
+		if (m_mounted)
 		{
-			mountMods(rotwkRoot, errors);
+			mountMods(rotwkRoot, errors); // lane IOS-28: also the Mods folder (made here) and its enabled mods
 		}
 		// lane SDK-1: the asset packs' models against the files they replace in the mounted set (game and mods): a model that does not keep
 		// the original's skeleton is left out with a note; a pack model that is not a W3D file stops the start (AssetPacks::checkModels)
@@ -779,15 +822,73 @@ void RetailFileSystem::mountMods(const std::string &rotwkRoot, PackedStringArray
 			}
 		}
 	}
-	ModOperand operand;
-	bool ok = true;
-	for (int64_t i = 0; i < m_modArgs.size(); ++i)
+	// lane IOS-28: the Mods folder (made at every mount, so the player finds it to drop mods in)
+	m_modsFolder = modsFolderOf(userData);
+	if (!m_modsFolder.empty())
 	{
+		std::error_code ec;
+		std::filesystem::create_directories(std::filesystem::u8path(m_modsFolder), ec);
+		if (ec)
+		{
+			UtilityFunctions::push_warning("RetailFileSystem: mods: could not make the Mods folder ", toGodot(m_modsFolder), ": ", toGodot(ec.message()));
+		}
+	}
+	if (m_modArgs.is_empty() && m_modList.is_empty())
+	{
+		return;
+	}
+	std::vector<ModOperand> operands;
+	bool ok = true;
+	if (!m_modArgs.is_empty())
+	{
+		// lane MODS-1: retail's -mod (one folder and one archive, a second of a kind replaces the first)
+		m_modSource = "command line";
+		ModOperand operand;
+		for (int64_t i = 0; i < m_modArgs.size(); ++i)
+		{
+			std::string error;
+			if (!ParseModArgument(toNative(m_modArgs[i]), userData, operand, &error))
+			{
+				errors.push_back(toGodot(error));
+				ok = false;
+			}
+		}
+		operands.push_back(operand);
+		if (!m_modList.is_empty())
+		{
+			UtilityFunctions::print("RetailFileSystem: mods: -mod is given on the command line, so the ", (int64_t)m_modList.size(),
+				" mod(s) enabled in the Mods menu are not mounted this time");
+		}
+	}
+	else
+	{
+		// lane IOS-28: the Mods folder's enabled mods, lowest priority first
+		m_modSource = "mods folder";
+		std::vector<std::string> names;
+		for (int64_t i = 0; i < m_modList.size(); ++i)
+		{
+			names.push_back(toNative(m_modList[i]));
+		}
 		std::string error;
-		if (!ParseModArgument(toNative(m_modArgs[i]), userData, operand, &error))
+		if (m_modsFolder.empty())
+		{
+			errors.push_back(toGodot("mods: the Mods folder is not known (the RotWK install's gi.dat names no user data folder)"));
+			ok = false;
+		}
+		else if (!ModsFolderOperands(m_modsFolder, names, operands, m_modsMissing, &error))
 		{
 			errors.push_back(toGodot(error));
 			ok = false;
+		}
+		for (const std::string &n : m_modsMissing)
+		{
+			UtilityFunctions::push_warning("RetailFileSystem: mods: '", toGodot(n), "' is enabled in the Mods menu but is not in ", toGodot(m_modsFolder),
+				" any more; it is not mounted");
+		}
+		if (ok && operands.empty())
+		{
+			UtilityFunctions::print("RetailFileSystem: mods: none of the enabled mods is in the Mods folder; the game runs without mods");
+			return;
 		}
 	}
 	if (ok)
@@ -795,7 +896,22 @@ void RetailFileSystem::mountMods(const std::string &rotwkRoot, PackedStringArray
 		ModMountOptions options;
 		options.md5CachePath = toNative(ProjectSettings::get_singleton()->globalize_path("user://mod-md5-cache.tsv"));
 		options.rotwkInstallRoot = rotwkRoot;
-		m_modReport = MountRetailMod(*m_fs, operand, options);
+		m_modReport = MountRetailMods(*m_fs, operands, options);
+		if (m_modReport.ok)
+		{
+			// lane IOS-28 (PLAN rule 6: never silent): which mods, in what order, and the precedence
+			UtilityFunctions::print("RetailFileSystem: mods (", toGodot(m_modSource), "): ", (int64_t)m_modReport.order.size(),
+				" mounted over the game files, lowest priority first; a later mod wins a file over an earlier one, and the loose files of mod folders "
+				"come before every archive");
+			for (const std::string &l : m_modReport.order)
+			{
+				UtilityFunctions::print("RetailFileSystem: mods: ", toGodot(l));
+			}
+			for (const std::string &l : m_modReport.notes)
+			{
+				UtilityFunctions::print("RetailFileSystem: ", toGodot(l));
+			}
+		}
 		for (const std::string &e : m_modReport.errors)
 		{
 			errors.push_back(toGodot(e));
@@ -813,6 +929,12 @@ void RetailFileSystem::mountMods(const std::string &rotwkRoot, PackedStringArray
 	if (!ok)
 	{
 		// a mod that cannot be mounted fails the whole mount: playing retail data instead would be a silent fallback
+		if (m_modSource == "mods folder")
+		{
+			// lane IOS-28: the way out the player has without the menus (on a phone, the Files app)
+			errors.push_back(toGodot("mods: an enabled mod in " + m_modsFolder + " stops the game from starting. Take it out of the Mods folder (on an "
+				"iPhone or iPad: Files > On My iPhone > OpenBFME > Mods) and start again; a mod that is not there any more is left out."));
+		}
 		m_fs.reset();
 		m_mounted = false;
 		m_mountedArchives.clear();

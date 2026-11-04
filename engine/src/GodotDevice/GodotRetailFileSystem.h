@@ -65,6 +65,15 @@ public:
 	// when one is unknown. Empty = retail engine.
 	void set_mod_engines(const PackedStringArray &md5s);
 	PackedStringArray get_mods() const { return m_modArgs; }
+	// lane IOS-28 (NOT RETAIL: Common/ModMount.h MountRetailMods): the Mods folder's enabled mods for the next mount, by name, lowest priority first
+	// (Options.ini OpenBFMEMods, scripts/release/mods.gd). Mounted over the verified retail archives when no -mod is given; a -mod on the command
+	// line wins and the list is not mounted (said in the log). A name no longer in the folder is left out and reported (get_mod_report "missing").
+	void set_mod_list(const PackedStringArray &names);
+	// lane IOS-28: the Mods folder of the last RotWK mount ("" before one): on iOS the app's Documents/Mods (the Files app shows it under On My
+	// iPhone > OpenBFME); on a desktop "Mods" in the user data folder the install's gi.dat names, where a relative "-mod Mods/<name>" resolves too.
+	// The mount creates it.
+	String get_mods_folder() const { return String::utf8(m_modsFolder.c_str()); }
+	static std::string modsFolderOf(const std::string &userDataFolder);
 	// GDScript view of the mounted mod: {mounted, archives: [{path, size}], loose_files, identity: [...], stops: [...]}
 	Dictionary get_mod_report() const;
 	// the source list of one virtual path, the winner first (ArchiveFileSystem::sourcesOf; "mod-folder:<path>" for a loose mod file)
@@ -148,6 +157,10 @@ private:
 	std::string m_userMapFolder; // lane MOD-5
 	std::string m_userMapError;
 	PackedStringArray m_modArgs;    // lane MODS-1
+	PackedStringArray m_modList;    // lane IOS-28: the Mods folder's enabled mods (names), lowest priority first
+	std::string m_modsFolder;       // lane IOS-28
+	std::string m_modSource;        // lane IOS-28: "command line" (-mod), "mods folder" (the list) or "" (none)
+	std::vector<std::string> m_modsMissing; // lane IOS-28: enabled names not in the Mods folder
 	ModMountReport m_modReport;     // the mounted mod (ok == false without one)
 	PackedStringArray m_installModArgs; // lane MODS-2: highest priority first
 	PackedStringArray m_modEngines;     // lane MODS-3

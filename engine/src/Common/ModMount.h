@@ -80,11 +80,29 @@ struct ModMountReport
 	int filesHashed = 0, md5CacheHits = 0;
 	std::string sdkName;                  // lane SDK-2: the mod's openbfme/sdk/mod.json "name" ("" = the mod has no scripts manifest)
 	std::string sdkSimFingerprint;        // lane SDK-2: SdkSimFingerprint ("" = no sim scripts); the identity line "sdk sim <hex>"
+	std::vector<std::string> order;       // lane IOS-28: one line per operand, lowest priority first ("1 of 2: <name> (folder, 1 archive, 2 files)")
 };
 
 // The -mod tail RW 0x7BAA44 over an already-mounted retail file system: m_modBIG, then m_modDir's direct *.big archives, both with
 // overwrite, then the mod folder's loose layer and the flag. Transactional: on any error nothing of the mod is mounted.
 ModMountReport MountRetailMod(Win32BIGFileSystem &fileSystem, const ModOperand &mod, const ModMountOptions &options);
+
+// Lane IOS-28 (NOT RETAIL: an OpenBFME extension of the single -mod, PLAN rule 6: documented, never silent): several mods, each an operand as retail
+// mounts one (its archive, then its folder's direct *.big children in RW 0xA17FB0's order), mounted one after another over the retail set with
+// overwrite, so a LATER operand wins a name over an earlier one (the list is lowest priority first). Their folders' loose files make one loose layer
+// (retail has one mod folder, RW 0xDEC498): a path two folders hold is the later folder's (a note names both), and, as retail's prefer-local-files
+// flag does for its one folder, every loose mod file answers before every archive, whichever mod the archive belongs to. The identity has a
+// "mod archive" / "mod folder" line per operand in mount order, then one "modcontent" line over everything; `order` names the operands for the log;
+// the movies' "Mod Path" is the highest-priority folder's. One operand mounts and identifies exactly as MountRetailMod. Transactional: on any error nothing of
+// any mod is mounted.
+ModMountReport MountRetailMods(Win32BIGFileSystem &fileSystem, const std::vector<ModOperand> &mods, const ModMountOptions &options);
+
+// Lane IOS-28: the operands of the Mods folder's enabled mods (`names`, lowest priority first: Options.ini OpenBFMEMods). A name is a folder (a folder
+// mod: m_modDir's semantics) or a .big file (m_modBIG's) directly in `modsFolder`. A name that is not there any more goes to `missing` and is left out
+// (the player removed it: on a phone that is how a mod that stops the start is turned off); a name with a path in it, a name given twice or something
+// that is neither a folder nor a .big is an error (false + *error).
+bool ModsFolderOperands(const std::string &modsFolder, const std::vector<std::string> &names, std::vector<ModOperand> &out,
+	std::vector<std::string> &missing, std::string *error);
 
 // The order RW 0xA17FB0 mounts a mod folder's archives in: the FilenameList set's order (case-insensitive ascending), each with
 // overwrite, so the last one wins. Exposed for tests.
