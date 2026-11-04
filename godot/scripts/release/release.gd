@@ -36,6 +36,7 @@ const CrashClient := preload("res://scripts/crash/crash_client.gd")
 const GameOptions := preload("res://scripts/game_options.gd")
 const LanguageWarning := preload("res://scripts/release/language_warning.gd")
 const GameFileImport := preload("res://scripts/release/game_file_import.gd") # lane IOS-9
+const BootLogo := preload("res://scripts/release/boot_logo.gd") # lane IOS-32
 const UPDATE_POLL_SECONDS := 1.0
 const UPDATE_NOTE_SECONDS := 15.0   # how long "Up to date" stays in the corner
 const UPDATE_WATCH_SECONDS := 3 * 3600.0
@@ -68,6 +69,8 @@ var _update_note: Label
 var _update_timer: Timer
 var _update_watched := 0.0
 var last_mount := {}        # lane IOS-24: the mount report of this start (mount_retail): the Options page's "iPhone / iPad" tab packs its archives
+var _boot_logo: CanvasLayer # lane IOS-32: the game's logo while a phone or tablet starts (scripts/release/boot_logo.gd; null: none)
+var _boot_logo_shown := false # lane IOS-32: it was up in this start (once gone, it does not come back)
 
 
 func _init() -> void:
@@ -78,6 +81,7 @@ func _init() -> void:
 	_find_previous_crash()
 	_open_log()
 	print(info.version_line())
+	boot_mark("first script (engine, openbfme extension, project loaded)")
 	if not log_path.is_empty():
 		print("RELEASE session log: ", info.redact(ProjectSettings.globalize_path(log_path)))
 	if not previous_crash_log.is_empty():
@@ -98,6 +102,7 @@ func _ready() -> void:
 	_set_window_title.call_deferred() # after the engine's own start-up titling
 	if info == null:
 		return
+	_show_boot_logo() # lane IOS-32: over the black start, where Godot's boot splash drew it
 	_add_watermark()
 	if OS.get_name() == "Windows":
 		# Autoload ready runs after Godot's native initialization.
@@ -509,6 +514,13 @@ func mount_retail(fs: RefCounted) -> Dictionary:
 		mount["quit"] = true # --language-warning-shot: the capture is saved, the game quits (game.gd)
 	if mount.get("ok", false):
 		last_mount = mount
+		# lane IOS-32: the logo of these game files for the next starts' boot splash; the first start after they came in shows it from now on
+		if BootLogo.enabled() and not fs.is_bfme1():
+			var why := BootLogo.save_from(fs)
+			if not why.is_empty():
+				print("BOOT logo not saved: ", why)
+			elif not _boot_logo_shown and _show_boot_logo():
+				await get_tree().process_frame # drawn once before the object world's load holds the frames
 	return mount
 
 
@@ -531,6 +543,7 @@ func language_warning(mount: Dictionary) -> bool:
 	if shot.is_empty() and LanguageWarning.dismissed(mount):
 		print("LANGUAGE the player chose not to see the warning again for this install")
 		return false
+	boot_logo_end(false) # lane IOS-32
 	var box: AcceptDialog = LanguageWarning.make_dialog(mount)
 	if not shot.is_empty():
 		# the capture renders the box at the menus' size in a viewport of its own (the window may not have its size yet this early)
@@ -619,6 +632,7 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 	if _headless() and test_pick.is_empty():
 		var why := problem if not problem.is_empty() else "no game folders chosen yet"
 		return {"ok": false, "errors": [why + " (start OpenBFME with a window once to choose them, or set ROTWK_INSTALL and BFME2_INSTALL)"]}
+	boot_logo_end(false) # lane IOS-32: the first-run screen needs the screen
 	var screen: CanvasLayer = preload("res://scripts/release/first_run.gd").new()
 	add_child(screen)
 	var result: Dictionary = await screen.run(fs, setup, problem, test_pick)
@@ -796,6 +810,7 @@ func join_refused(message: String, details: String) -> void:
 ## exit code 1 (fatal). It works while the tree is paused.
 ## lane CRASHACT-1: `offer` (a CrashClient report): a "Send report" button queues and sends it (once), and says how that went.
 func _message(text: String, title: String, log_file: String, quit_after: bool, offer := {}) -> void:
+	boot_logo_end(false) # lane IOS-32: the box needs the screen
 	var box := AcceptDialog.new()
 	box.name = "LogMessage"
 	box.title = title
@@ -982,6 +997,34 @@ func _prune_logs() -> void:
 		var old: String = logs.pop_front()
 		if LOG_DIR + "/" + old != previous_crash_log:
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(LOG_DIR + "/" + old))
+
+
+## lane IOS-32: one start-up step's time, ms since the engine started (Time.get_ticks_msec), as "BOOT t=<ms> ms <what>" in the log
+func boot_mark(what: String) -> void:
+	print("BOOT t=%d ms %s" % [Time.get_ticks_msec(), what])
+
+
+## lane IOS-32: the boot logo's layer, when its image is saved and this is a phone or tablet (true: shown)
+func _show_boot_logo() -> bool:
+	_boot_logo = BootLogo.make()
+	if _boot_logo == null:
+		return false
+	_boot_logo_shown = true
+	add_child(_boot_logo)
+	return true
+
+
+## lane IOS-32: the start-up is done (the main menu comes in a few frames): the boot logo waits for it (boot_logo_end) or goes after a while
+func boot_logo_arm() -> void:
+	if is_instance_valid(_boot_logo):
+		_boot_logo.arm()
+
+
+## lane IOS-32: the boot logo goes, faded (the main menu is shown) or at once (something else needs the screen)
+func boot_logo_end(fade: bool) -> void:
+	if is_instance_valid(_boot_logo):
+		_boot_logo.end(fade)
+	_boot_logo = null
 
 
 func _add_watermark() -> void:

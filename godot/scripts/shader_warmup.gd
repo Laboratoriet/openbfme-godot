@@ -48,6 +48,7 @@ func _warm() -> void:
 	var learned_only := ids.filter(func(id: String) -> bool: return not shipped.has(id)).size()
 	print("SHADERS warmed %d of %d W3D variants (%d shipped, %d more learned on this device; driver %s) in %.1f s" % [created, ids.size(),
 		ids.size() - learned_only, learned_only, driver, (Time.get_ticks_msec() - t0) / 1000.0])
+	Release.boot_mark("shader warm-up done") # lane IOS-32
 
 
 func _process(delta: float) -> void:

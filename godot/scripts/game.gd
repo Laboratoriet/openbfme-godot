@@ -466,6 +466,7 @@ var _capture_next := 0  ## recording of a networked game: Movie Maker's --write-
 var _online_note: CanvasLayer = null ## "Online play is a test feature", shown while OnlineShell.apt is up
 var _stats: Node = null              ## lane ONLINECOUNT-1: scripts/online_stats.gd (null: not asked for: off, or not made yet)
 var _stats_off := ""                 ## why the count is not asked for ("" = it is); set once, when the menu first shows
+var _boot_menu_marked := false       ## lane IOS-32: "BOOT ... main menu shown" logged (the first reveal only)
 var _stats_label: Label = null       ## the main menu's / the online menu's "N players online" line
 var _menu_text_errors: Array = []    ## lane MENUFIX-1: faces scripts/menu_text.gd did not find (reported once each)
 var _menu_text_reported := {}        ## lane MENUFIX-1: the faces of _menu_text_errors already reported
@@ -763,6 +764,7 @@ func _ready() -> void:
 		var code: int = await preload("res://tests/smoke_checks.gd").new().run(get_tree())
 		get_tree().quit(code)
 		return
+	Release.boot_mark("main scene ready") # lane IOS-32: the start-up's times in the log
 	_display_setup() # lane OPTS-1: the player's display settings first; the command line below wins for the run
 	print("FRAME PACING ", preload("res://scripts/frame_pacing.gd").apply_from_args(OS.get_cmdline_user_args())) # lane SMOOTH-1
 	# lane OWNERFIX-3: the window / taskbar / dock icon is the OpenBFME ring (the project sets none, so Godot's logo showed); a failure is reported
@@ -1410,6 +1412,7 @@ func _on_online_build_refused(message: String, details: String) -> void:
 
 
 func _fail(message: String) -> void:
+	Release.boot_logo_end(false) # lane IOS-32
 	_cah_cleanup() # lane CAH-2 r2: a failed --cah run leaves no hero behind either
 	_failed = message
 	_state = State.FAILED
@@ -1453,6 +1456,7 @@ func _boot() -> void:
 	if not mount.ok:
 		_fail("mount failed:\n" + "\n".join(mount.errors))
 		return
+	Release.boot_mark("game folders mounted")
 	if _fs.is_bfme1():
 		DisplayServer.window_set_title("OpenBFME — BFME1")
 		if _options_file.is_empty(): _options_file = "user://bfme1-Options.ini"
@@ -1464,8 +1468,10 @@ func _boot() -> void:
 	if not setup.ok:
 		_fail("object world: " + "\n".join(setup.errors))
 		return
+	Release.boot_mark("object world")
 	if not _boot_audio():
 		return
+	Release.boot_mark("audio")
 	await _play_intro_movies() # lane CAMP-2
 	_shell = ClassDB.instantiate("AptMenuPlayer")
 	_shell.name = "Shell"
@@ -1518,6 +1524,7 @@ func _boot() -> void:
 		return
 	_sync_shell_volumes()
 	print("GAME shell booted in %.0f ms: %d strings, lobby seed %d" % [boot.load_ms, boot.strings, boot.seed])
+	Release.boot_mark("shell booted")
 	get_viewport().size_changed.connect(_style_menu_texts) # lane MENUFIX-1
 	_style_menu_texts()
 	# lane CAH-1: the Create-a-Hero builder's and the lobby's heroes: the system heroes of the archives and the profile's MyHero*.cah (RW 0x61EEB6: <user data>\\Save\\)
@@ -1540,6 +1547,8 @@ func _boot() -> void:
 	_audio.play_shell_music(false) # no shell map yet (View3D is a stop): the low-LOD shell music, as menu_viewer
 	add_child(load("res://scripts/shader_warmup.gd").new()) # lane IOS-11: the W3D shaders compile in the menus, not at a unit's first sight
 	_state = State.MENU
+	Release.boot_mark("main menu loaded")
+	Release.boot_logo_arm() # lane IOS-32: the logo goes when the main menu is shown (or shortly, when a scripted start skips it)
 	set_process(true)
 	_campaign_flow = load("res://scripts/campaign_flow.gd").new() # lane CAMP-1
 	_campaign_flow.name = "CampaignFlow"
@@ -1732,6 +1741,10 @@ func _process(delta: float) -> void:
 			_platform_setup() # lane ONLINEHUB-1
 			var shown: Dictionary = _shell.shell_invoke(_shell.shell_top_level(), "ShowMainMenu", PackedStringArray())
 			_menu_revealed = shown.ok
+			if not _boot_menu_marked:
+				_boot_menu_marked = true
+				Release.boot_mark("main menu shown")
+				Release.boot_logo_end(true) # lane IOS-32: the logo fades into the menu
 			if not shown.ok:
 				printerr("GAME ShowMainMenu: ", shown.error)
 			if not _shell_pictures_start_done:
@@ -2562,6 +2575,7 @@ func _play_intro_movies() -> void:
 		"" if gate.get("from_ini", false) else ", the default", _intro_movies_option()])
 	if not play or not gate.get("play_intro", true):
 		return
+	Release.boot_logo_end(false) # lane IOS-32: the movies need the screen
 	var player: Node = load("res://scripts/movie_player.gd").new()
 	player.skip_after_ms = _movie_skip_after
 	player.path_overrides = _movie_files

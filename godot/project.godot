@@ -14,6 +14,9 @@ config/name="OpenBFME"
 run/main_scene="res://scenes/game.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 run/max_fps=0
+; lane IOS-32: a phone or tablet shows the game's logo from the player's own files once they were mounted (scripts/release/boot_logo.gd writes
+; user://boot-logo.png and this override file, which turns the boot splash on for it); without them the start stays black (no game art ships)
+config/project_settings_override.mobile="user://boot-splash.cfg"
 boot_splash/show_image.mobile=false
 boot_splash/bg_color.mobile=Color(0, 0, 0, 1)
 
