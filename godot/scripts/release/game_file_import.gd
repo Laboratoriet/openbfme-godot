@@ -18,7 +18,7 @@
 ## problem ends the run with `error` set to what happened and what to do.
 ##
 ## Lane IOS-36: open() takes any absolute path, so the welcome screen also hands it a file the player picked where it is with Files' document
-## picker (iCloud Drive, Downloads, a drive: engine IOSDocumentPickerBridge.mm holds the item's security scope while this reads it). Such a file
+## picker (iCloud Drive, Downloads, a drive: engine IOSFilesBridge.mm holds the item's security scope while this reads it). Such a file
 ## is read in place, with no copy into the app first, and keep_file leaves it there afterwards: it is the player's, maybe in iCloud for another
 ## device, and the screen says it can be deleted.
 ##

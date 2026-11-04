@@ -718,11 +718,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set_source_files_properties(src/GodotDevice/IOSAudioSessionBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_AUDIO_SESSION=1)
     target_link_libraries(openbfme PRIVATE "-framework AVFoundation")
-    # IOS-36: Files' document picker ("Choose game file…" on the welcome screen), the IOSDocumentPicker class (registered under
-    # OPENBFME_IOS_DOCUMENT_PICKER only), after daisyhasacat/openbfme-godot's GodotIOSAssets.mm. Objective-C++ with ARC, as the bridges above.
-    target_sources(openbfme PRIVATE src/GodotDevice/IOSDocumentPickerBridge.mm src/GodotDevice/GodotIOSDocumentPicker.cpp)
-    set_source_files_properties(src/GodotDevice/IOSDocumentPickerBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
-    target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_DOCUMENT_PICKER=1)
+    # IOS-36: Files' document picker ("Choose game file…" on the welcome screen) and backup exclusion, the IOSFiles class (registered under
+    # OPENBFME_IOS_FILES only), after daisyhasacat/openbfme-godot's GodotIOSAssets.mm. Objective-C++ with ARC, as the bridges above.
+    target_sources(openbfme PRIVATE src/GodotDevice/IOSFilesBridge.mm src/GodotDevice/GodotIOSFiles.cpp)
+    set_source_files_properties(src/GodotDevice/IOSFilesBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_FILES=1)
     target_link_libraries(openbfme PRIVATE "-framework UniformTypeIdentifiers")
     # IOS-22: MetalFX, for Godot's Metal driver. Its MetalFX check (MTLFX::SpatialScalerDescriptor::supportsDevice, metal-cpp: an Objective-C class
     # looked up at run time) reads false when no image in the process links MetalFX.framework, and Godot 4.7.2's iOS export never links it (its

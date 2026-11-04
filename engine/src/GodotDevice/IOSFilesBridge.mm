@@ -1,31 +1,31 @@
 // OpenBFME. GPL-3.0.
 //
-// Lane IOS-36: the Files app's document picker (IOSDocumentPickerBridge.h says what and why). Built for iOS only, with ARC.
+// Lane IOS-36: the Files app's document picker (IOSFilesBridge.h says what and why). Built for iOS only, with ARC.
 // The picker's presentation, the in-place open and the bookmark follow daisyhasacat/openbfme-godot's GodotIOSAssets.mm (GPL-3.0, Hailey Tribble).
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-#include "GodotDevice/IOSDocumentPickerBridge.h"
+#include "GodotDevice/IOSFilesBridge.h"
 
 #include <mutex>
 
 #if !__has_feature(objc_arc)
-#error "IOSDocumentPickerBridge.mm needs ARC (-fobjc-arc, engine/CMakeLists.txt)"
+#error "IOSFilesBridge.mm needs ARC (-fobjc-arc, engine/CMakeLists.txt)"
 #endif
 
-@interface OpenBFMEDocumentPickerDelegate : NSObject <UIDocumentPickerDelegate>
+@interface OpenBFMEFilesPickerDelegate : NSObject <UIDocumentPickerDelegate>
 @end
 
 namespace
 {
 
 std::mutex gLock;                         // gStatus: the coordinated read's queue writes it too
-IOSDocumentPickerBridge::Status gStatus;
+IOSFilesBridge::Status gStatus;
 std::string gBookmarkFile;                // where the open pick keeps its bookmark ("" none)
 NSMutableDictionary<NSString *, NSURL *> *gScoped = nil; // path -> the URL whose security scope was started (stopped by release)
-OpenBFMEDocumentPickerDelegate *gDelegate = nil;         // the open picker's delegate (UIKit holds it weakly)
+OpenBFMEFilesPickerDelegate *gDelegate = nil;         // the open picker's delegate (UIKit holds it weakly)
 
 std::string Text(NSString *s)
 {
@@ -162,7 +162,7 @@ void Accept(NSURL *url, const std::string &kind, const std::string &bookmarkFile
 
 } // namespace
 
-@implementation OpenBFMEDocumentPickerDelegate
+@implementation OpenBFMEFilesPickerDelegate
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 {
 	gDelegate = nil;
@@ -190,7 +190,7 @@ void Accept(NSURL *url, const std::string &kind, const std::string &bookmarkFile
 }
 @end
 
-namespace IOSDocumentPickerBridge
+namespace IOSFilesBridge
 {
 
 bool pick(const std::string &kind, const std::string &extension, const std::string &bookmarkFile)
@@ -220,7 +220,7 @@ bool pick(const std::string &kind, const std::string &extension, const std::stri
 				type = UTTypeData;
 		}
 		UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ type ] asCopy:NO];
-		gDelegate = [OpenBFMEDocumentPickerDelegate new];
+		gDelegate = [OpenBFMEFilesPickerDelegate new];
 		picker.delegate = gDelegate;
 		picker.allowsMultipleSelection = NO;
 		picker.shouldShowFileExtensions = YES;
@@ -287,4 +287,16 @@ void release(const std::string &path, const std::string &bookmarkFile)
 	}
 }
 
-} // namespace IOSDocumentPickerBridge
+bool excludeFromBackup(const std::string &path, std::string &error)
+{
+	NSURL *url = [NSURL fileURLWithPath:NS(path) isDirectory:YES];
+	NSError *err = nil;
+	if (![url setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&err])
+	{
+		error = err != nil ? Text(err.localizedDescription) : "the folder could not be marked";
+		return false;
+	}
+	return true;
+}
+
+} // namespace IOSFilesBridge

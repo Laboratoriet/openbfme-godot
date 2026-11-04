@@ -38,7 +38,7 @@
 ## FEATURE_NATIVE_DIALOG_FILE commented out, file_dialog_show not implemented) and its own FileDialog sees only the app's folder.
 ##
 ## Lane IOS-36 ("Choose game file…", after daisyhasacat/openbfme-godot's folder picker, GodotIOSAssets.mm, GPL-3.0): the extension's
-## IOSDocumentPicker (engine IOSDocumentPickerBridge.mm, iOS builds only) opens Files' document picker in place (UIDocumentPickerViewController,
+## IOSFiles (engine IOSFilesBridge.mm, iOS builds only) opens Files' document picker in place (UIDocumentPickerViewController,
 ## asCopy NO). The player picks OpenBFME-GameData.obfme wherever it is (iCloud Drive, Downloads, a drive); its security scope stays open while
 ## game_file_import.gd streams from its path (no 6.5 GB copy into the app first), and the file is kept there afterwards (keep_file). A file that
 ## is not on the device yet (iCloud) is brought down first by a coordinated read: the card says "Downloading from iCloud Drive…" meanwhile. A
@@ -118,7 +118,7 @@ const MAKE_COMMAND := "python3 tools/ios/make_game_file.py --rotwk <RotWK folder
 const MAKE_COMMAND_SHOWN := "python3 tools/ios/make_game_file.py \\\n  --rotwk <RotWK folder> \\\n  --bfme2 <BFME2 folder>"
 
 # lane IOS-36: the picker (the extension's class, iOS builds only) and where the picked game file's bookmark is kept (a dotfile: Files hides it)
-const PICKER_CLASS := "IOSDocumentPicker"
+const PICKER_CLASS := "IOSFiles"
 const PICK_BOOKMARK := "user://.openbfme-picked-game-file.bookmark"
 
 signal finished(result: Dictionary)
@@ -177,7 +177,7 @@ var _previewing := false       # a dev preview state is shown (--first-run-state
 var _files_link: Button        # Open in Files as a link beside Look again (the picker is the card's action then)
 var _watching_pick := false    # a pick (or a restored bookmark) is under way: _process reads its status
 var _pick_state := ""          # the status state last shown
-var _picked := {}              # the picked game file once it can be read: IOSDocumentPicker's status (path, name, place, size, ...)
+var _picked := {}              # the picked game file once it can be read: IOSFiles's status (path, name, place, size, ...)
 var _again_picks := false      # the link under the action is "Choose another file" (a picked file is offered), not Look again
 
 func run(fs: RefCounted, setup: RefCounted, problem: String, test_pick: Dictionary) -> Dictionary:
@@ -251,6 +251,7 @@ func _mount_and_remember(rotwk: String, bfme2: String) -> Dictionary:
 	if _ios:
 		# lane IOS-4: found again on every start instead (iOS may move the app's container, which would break a remembered path)
 		print("FIRST RUN not remembered: on iOS the folders in the app's Documents folder are found on every start")
+		Release.exclude_from_backup([rotwk, bfme2]) # lane IOS-36: 8.5 GB the player can send again stays out of backups
 		return mount
 	var saved: Dictionary = _setup.remember(rotwk, bfme2)
 	print("FIRST RUN remembered: %s %s" % [str(saved.ok), saved.error])
@@ -911,7 +912,7 @@ func _card_picking(name: String, place: String) -> void:
 	_set_step(3)
 
 
-# iCloud Drive brings the file down before it can be read (the coordinated read in IOSDocumentPickerBridge.mm); no percentage: the provider
+# iCloud Drive brings the file down before it can be read (the coordinated read in IOSFilesBridge.mm); no percentage: the provider
 # does not give one to an app outside its container
 func _card_downloading(name: String, place: String) -> void:
 	_import_bar.visible = true

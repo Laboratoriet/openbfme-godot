@@ -11,7 +11,7 @@
 // each); and a coordinated read after the pick, which makes a file provider (iCloud Drive, a cloud app) bring a file that is not on the device
 // yet down before it is opened (the state says "downloading" meanwhile).
 //
-// Plain C++ on purpose, as IOSPointerBridge.h: IOSDocumentPickerBridge.mm includes no godot-cpp header. The pick and its delegate run on the
+// Plain C++ on purpose, as IOSPointerBridge.h: IOSFilesBridge.mm includes no godot-cpp header. The pick and its delegate run on the
 // main thread (Godot's iOS main loop runs there; a call from another thread is sent to the main queue); the coordinated read runs on a background
 // queue and only changes the state under a lock.
 
@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <string>
 
-namespace IOSDocumentPickerBridge
+namespace IOSFilesBridge
 {
 
 struct Status
@@ -48,4 +48,9 @@ bool restore(const std::string &bookmarkFile, Status &out);
 // Stops the scope of the item at `path` (the import finished, or another item was picked) and deletes `bookmarkFile` when given.
 void release(const std::string &path, const std::string &bookmarkFile);
 
-} // namespace IOSDocumentPickerBridge
+// Lane IOS-36, after daisyhasacat/openbfme-godot GodotIOSAssets.mm exclude_from_backup: the folder at `path` and everything in it are left out
+// of iCloud and computer backups (NSURLIsExcludedFromBackupKey). The game folders are 8.5 GB the player can send again, which Apple's data
+// storage guidelines say must not be backed up. False: `error` says why
+bool excludeFromBackup(const std::string &path, std::string &error);
+
+} // namespace IOSFilesBridge
