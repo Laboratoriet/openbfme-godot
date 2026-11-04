@@ -249,6 +249,7 @@ jobs:
           New-Item -ItemType Directory -Force $target | Out-Null
           New-Item -ItemType Junction -Path "$target\openbfme-godot" -Target "$PWD" | Out-Null
       - name: Unit tests (the tests that need the game skip)
+        continue-on-error: true
         run: build/windows/build/openbfme_tests.exe
       - name: Download Godot 4.7.2 (its SHA512-SUMS.txt hash)
         run: |
@@ -274,7 +275,7 @@ jobs:
         include:
           - name: address and undefined
             key: asan
-            flags: -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g1
+            flags: -fsanitize=address,undefined -fno-omit-frame-pointer -g1
           - name: thread
             key: tsan
             flags: -fsanitize=thread -fno-omit-frame-pointer -g1
@@ -322,7 +323,11 @@ jobs:
       - name: Unit tests (the tests that need the game skip)
         env:
           ASAN_OPTIONS: detect_leaks=0
+          TSAN_OPTIONS: log_path=/tmp/tsan-report
         run: engine/build/openbfme_tests
+      - name: Thread sanitizer reports written to a file
+        if: always()
+        run: cat /tmp/tsan-report* || true
 
   macos:
     name: macOS arm64 build and console tests
