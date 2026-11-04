@@ -127,6 +127,7 @@ disables its Graphics list there; the online rows are enabled only when the onli
 | Show All Health Bars | Interface | retail | `AllHealthBars` |
 | Health bars, Show the game clock, Interface scale, HUD size | Interface | OpenBFME | `OpenBFMEHealthBars`, `OpenBFMEGameClock`, `OpenBFMEUIScale`, `OpenBFMEHudScale` |
 | Alternate mouse setup | Interface | retail key, OpenBFME row (RotWK 2.01's screen has no box for it) | `AlternateMouseSetup` |
+| One finger drag (touch only) | Interface | OpenBFME (IOS-35) | `OpenBFMETouchDrag` |
 | Online IP, Port Number, Send Delay | Online | retail (enabled from the online screens) | `GameSpyIPAddress`, `FirewallPortOverride`, `SendDelay` |
 | Refresh NAT | Online | retail (refused by name: S-1913) | |
 | Share my game results for statistics, Show my ping in the online menus | Online | OpenBFME | `OpenBFMEShareResults`, `OpenBFMEShowPing` (both yes by default) |
@@ -231,6 +232,7 @@ another profile). Tabs:
 | Interface | Health bars: selected (retail) / selected and damaged / always (all players: every unit and building, infantry and cavalry included) | `OpenBFMEHealthBars` | retail |
 | | Health bars on infantry and cavalry too | `AllHealthBars` (retail) | no |
 | | Alternate mouse setup | `AlternateMouseSetup` (retail) | no |
+| | One finger drag (touch only: a phone, a tablet or `--touch`; IOS-35, the scheme of daisyhasacat/openbfme-godot 607d6406): Selection box = a one-finger drag on the battlefield draws a selection box (IOS-2). Move the view = it moves the camera, the ground under the finger staying under it (Invert drag scrolling does not apply: that is the right-button drag's); a hold (0.45 s, a short vibration) then a drag is the selection box, a hold lifted without a drag the right click; a tap stays the left click. Either way a drag on the HUD or the radar, a building's ghost drag (IOS-23 / IOS-26), the menus' list scrolling and the two-finger gestures are unchanged, and an Apple Pencil (iOS: the IOS-14 bridge's claim_pencil) always draws a box. `scripts/touch/touch_controls.gd` | `OpenBFMETouchDrag` | select |
 | | Game clock | `OpenBFMEGameClock` | no |
 | | Ping wheel: hold the ping key for the wheel of pings (skirmish; not retail, see [Ping wheel](PLAYING.md#ping-wheel)) | `OpenBFMEPingWheel` | yes |
 | | Ping key: G held (a tap stays the game's G) / Alt+G / J / mouse back button / mouse forward button | `OpenBFMEPingKey` | g |

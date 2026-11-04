@@ -13,6 +13,9 @@ extends Node
 ## Lane IOS-26: a lift no longer places: it shows ✓ / ✕ beside the ghost (off the HUD), and ✓ builds. On the fortress ✓ is dimmed and a tap on it is
 ## refused (the placement and the buttons stay); ✕ there cancels the placement (the build button starts it again). Pictures of the waiting ghost:
 ## touch-confirm-*.png.
+## Lane IOS-35: with Options' One finger drag on "Move the view" (OpenBFMETouchDrag = pan, from the --options-file) step 3 checks that mode: a one-finger
+## drag moves the camera (and is no box), a hold then a drag is the box; the taps and the hold as before. The placement steps then run in pan mode too
+## (a ghost's drag moves the ghost, not the camera).
 
 var _out := ""
 var _controls: Node
@@ -79,7 +82,34 @@ func _run() -> void:
 	await _shot("3b-after-twist")
 
 	# 3. one-finger box drag, a tap, a double tap and a hold: they must reach the game as the mouse actions (counted by the controls)
-	await _one_finger_drag(mid + Vector2(-200, -120), mid + Vector2(200, 120))
+	print("TOUCH SELFTEST one finger drag: %s" % _controls.drag_mode)
+	if _controls.drag_mode == "pan":
+		# lane IOS-35: the drag moves the camera (no box); a hold, then a drag, is the box
+		var cam0: Vector2 = hud.get_camera().position
+		var drags0 := int(_controls.stats.drags)
+		var from := mid + Vector2(-150, -60)
+		var ground: Vector2 = hud.pixel_to_world(from)
+		await _one_finger_drag(from, mid + Vector2(150, 60))
+		var cam1: Vector2 = hud.get_camera().position
+		var under: Vector2 = hud.pixel_to_world(mid + Vector2(150, 60))
+		print("TOUCH SELFTEST finger pan: camera %s -> %s (moved %.1f); the ground under the finger %s, at the touch-down %s" % [cam0, cam1, cam0.distance_to(cam1), under, ground])
+		if cam0.distance_to(cam1) < 1.0:
+			failures.append("pan mode: a one-finger drag did not move the camera")
+		if under.distance_to(ground) > 5.0:  # tolerance: the ground point round trip through the drawn camera and the terrain's heights (world units)
+			failures.append("pan mode: the ground did not stay under the finger (%s, came down on %s)" % [under, ground])
+		if int(_controls.stats.drags) != drags0:
+			failures.append("pan mode: the one-finger drag was a box")
+		await _shot("3c-after-finger-pan")
+		await _hold_drag(mid + Vector2(-200, -120), mid + Vector2(200, 120))
+		var cam2: Vector2 = hud.get_camera().position
+		print("TOUCH SELFTEST hold-drag box: drags %d -> %d, camera moved %.1f" % [drags0, int(_controls.stats.drags), cam1.distance_to(cam2)])
+		if cam1.distance_to(cam2) > 0.01:
+			failures.append("pan mode: the hold-drag moved the camera")
+		# the camera back where the finger pan found it: the later steps (the builder's walk to a placement's site) see the select mode's view
+		hud.camera_look_at(cam0)
+		await _wait(0.3)
+	else:
+		await _one_finger_drag(mid + Vector2(-200, -120), mid + Vector2(200, 120))
 	await _tap(mid)
 	await _wait(0.5)
 	await _tap(mid + Vector2(40, 0))
@@ -90,7 +120,7 @@ func _run() -> void:
 	await _shot("4-after-taps")
 	var s: Dictionary = _controls.stats
 	print("TOUCH SELFTEST gestures: ", JSON.stringify(s))
-	for k in ["drags", "taps", "double_taps", "holds", "pans", "zoom_notches"]:
+	for k in ["drags", "taps", "double_taps", "holds", "pans", "zoom_notches"] + (["finger_pans", "box_arms"] if _controls.drag_mode == "pan" else []):
 		if int(s.get(k, 0)) < 1:
 			failures.append("no " + k)
 
@@ -819,6 +849,20 @@ func _twist(centre: Vector2, radius: float, turn: float) -> void:
 func _one_finger_drag(from: Vector2, to: Vector2) -> void:
 	_touch(0, from, true)
 	await get_tree().process_frame
+	var p := from
+	for i in range(1, 11):
+		var n := from.lerp(to, i / 10.0)
+		_drag(0, n, n - p)
+		p = n
+		await get_tree().process_frame
+	_touch(0, to, false)
+	await _wait(0.3)
+
+
+## lane IOS-35: a finger held still past the hold, then dragged from `from` to `to` (in pan mode the selection box)
+func _hold_drag(from: Vector2, to: Vector2) -> void:
+	_touch(0, from, true)
+	await _wait(0.7)
 	var p := from
 	for i in range(1, 11):
 		var n := from.lerp(to, i / 10.0)

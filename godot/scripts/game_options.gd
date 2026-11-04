@@ -67,6 +67,9 @@ const EXTRAS := {
 	# lane IOS-20 (the owner's decision 2026-11-03): iOS only (IOS_AUDIO_CLASS): "no" follows the ring / silent switch (the Ambient audio session), "yes"
 	# plays through it (Playback); both mix with other apps' audio. A desktop never shows or applies it
 	"OpenBFMEIOSSilentSound": {"default": "no", "choices": ["yes", "no"]},
+	# lane IOS-35 (the owner's request 2026-11-04, the scheme of daisyhasacat/openbfme-godot 607d6406): touch only (touch_available): what a one-finger drag
+	# on the battlefield does: "select" a selection box (IOS-2), "pan" moves the camera (a hold, then a drag, is the box). scripts/touch/touch_controls.gd
+	"OpenBFMETouchDrag": {"default": "select", "choices": ["select", "pan"]},
 }
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
@@ -295,6 +298,11 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 	if ios_audio_available():
 		_apply_ios_audio(values.OpenBFMEIOSSilentSound)
 		done.append("sound in silent mode " + values.OpenBFMEIOSSilentSound)
+	var touch := get_node_or_null("/root/TouchControls") if is_inside_tree() else null
+	if touch != null and touch.has_method("set_drag_mode"):
+		touch.set_drag_mode(values.OpenBFMETouchDrag) # lane IOS-35 (inert without touch: the touch layer is off)
+		if touch_available():
+			done.append("one finger drag " + values.OpenBFMETouchDrag)
 	apply_brightness()
 	apply_detail()
 	if _hud != null:
@@ -310,6 +318,11 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 	if game != null and game.get("_display_overlay") != null:
 		game._display_overlay.set_ui_scale(values.OpenBFMEUIScale.to_int() / 100.0) # scripts/fps_overlay.gd (lane IOS-25: on touch at least 11 pt)
 	return done
+
+
+## lane IOS-35: true where the touch controls are on (a phone or tablet, or --touch: scripts/touch/touch_controls.gd's rule), so "One finger drag" exists
+static func touch_available() -> bool:
+	return OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
 
 
 ## lane IOS-20: true where "Play sound in silent mode" exists (an iOS build: the extension registers IOS_AUDIO_CLASS there only)

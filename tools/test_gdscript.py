@@ -107,6 +107,7 @@ ALLOWLIST = {
     "mods_folder_test.gd": "the Mods folder's list, mod.txt and the Mods tab's states on a generated folder (IOS-28)",
     "ios21_touch_test.gd": "touch: hold on a HUD button shows its help, double tap toggles autocast, against a stand-in HUD (IOS-21)",
     "ios23_touch_test.gd": "touch: a placement's ghost above the fingertip, lift / tap wait for ✓ / ✕, hold / HUD lift / pan / mouse, against a stand-in HUD (IOS-23, IOS-26)",
+    "ios35_touch_test.gd": "touch: the One finger drag option's pan mode (pan, hold-drag box, hold-lift right click, HUD / placement / menus / Pencil unchanged), against a stand-in HUD (IOS-35)",
     "online_list_test.gd": "online list parsing and paging against synthetic responses",
     "online_list_client_test.gd": "the native list client against synthetic responses",
     "online_war_phase_test.gd": "battle relay tickets name only human original seats while tactical seats retain AI",

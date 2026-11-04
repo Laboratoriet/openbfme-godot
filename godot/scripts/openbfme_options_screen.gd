@@ -79,6 +79,7 @@ const HELP := {
 	"OpenBFMEMasterVolume": "Scales every sound of the game.",
 	"OpenBFMEMuteUnfocused": "No sound while another window has the focus.",
 	"OpenBFMEAudioDevice": "The speakers or headphones the game plays through.",
+	"OpenBFMETouchDrag": "Selection box: one finger draws a box, two fingers move the view. Move the view: one finger moves it; to draw a box, hold the finger still for a moment, then drag. An Apple Pencil always draws a box.", # lane IOS-35
 	"OpenBFMEIOSSilentSound": "Play the game's sound even when the phone is in silent mode. Music from other apps keeps playing either way.", # lane IOS-20
 	"note:Display": "Renderer: %s (%s). Point at a setting for what it does.",
 	"note:Graphics": "Left: the original game's detail settings (a level, or Custom). Right: OpenBFME's own.",
@@ -115,6 +116,8 @@ const MAX_ZOOM_ITEMS := [["1", "Original (1x)"], ["1.5", "1.5x"], ["2", "2x"], [
 ## lane UI-6: the Widescreen view (OpenBFMEWidescreen)
 const WIDESCREEN_ITEMS := [["original", "Original"], ["wider", "Wider"]]
 const PING_KEY_ITEMS := [["g", "G (hold)"], ["altg", "Alt+G"], ["j", "J"], ["mouse4", "Mouse back button"], ["mouse5", "Mouse forward button"]]
+## lane IOS-35: OpenBFMETouchDrag (touch only)
+const TOUCH_DRAG_ITEMS := [["select", "Selection box"], ["pan", "Move the view"]]
 const BARS_ITEMS := [["retail", "Selected (original)"], ["damaged", "Selected and damaged"], ["always", "Always (all players)"]]
 
 var shell: Node2D                  # the AptMenuPlayer
@@ -645,6 +648,7 @@ func _interface_rows() -> Array:
 		_retail_row("Retail.HealthBars"),
 		_extra_choice("OpenBFMEHealthBars", "Health bars", BARS_ITEMS, HELP.OpenBFMEHealthBars),
 		_extra_check("AlternateMouseSetup", "Alternate mouse setup", HELP.AlternateMouseSetup),
+		_touch_drag_row(), # lane IOS-35: touch only
 		_extra_check("OpenBFMEGameClock", "Show the game clock", HELP.OpenBFMEGameClock),
 		_extra_choice("OpenBFMEUIScale", "Interface scale", UI_SCALE_ITEMS, HELP.OpenBFMEUIScale),
 		_hud_size_row(), # lane IOS-18
@@ -653,6 +657,13 @@ func _interface_rows() -> Array:
 		# lane CRASHACT-1: here, not on Online (that tab's rows already fill the page above its footer)
 		_extra_check("OpenBFMECrashReports", "Send crash reports automatically", HELP.OpenBFMECrashReports),
 	])
+
+
+## lane IOS-35: "One finger drag" (OpenBFMETouchDrag) where the touch controls are on (game_options.gd touch_available); null elsewhere (_present drops it)
+func _touch_drag_row():
+	if not game_options.touch_available():
+		return null
+	return _extra_choice("OpenBFMETouchDrag", "One finger drag", TOUCH_DRAG_ITEMS, HELP.OpenBFMETouchDrag)
 
 
 ## lane IOS-18: OpenBFMEHudScale (game_options.gd EXTRAS: "100" .. "150") on a slider of HUD_STEP-percent steps

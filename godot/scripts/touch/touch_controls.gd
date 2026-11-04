@@ -72,6 +72,25 @@ extends Node
 ##   a mouse (IOS-14) ........... its first motion ends the wait: the mouse has the pointer, and a mouse click places as retail's does
 ## A finger on ✓ / ✕ presses it (the disc shrinks); lifting on it activates it, sliding off and lifting does nothing, a second finger cancels it.
 ##
+## Lane IOS-35 (the owner's request, 2026-11-04: the one-finger pan of daisyhasacat/openbfme-godot as an OPTION; scheme after daisyhasacat/openbfme-godot
+## 607d6406 "Add finger navigation and Pencil selection for touch devices", GPL-3.0; no code copied: Daisy's lives in the engine's InGameHudNode, ours
+## here): Options > Interface > "One finger drag" (game_options.gd OpenBFMETouchDrag, set_drag_mode). "select" (the default) keeps the gestures above.
+## "pan", for a finger that comes down on the battlefield (the world: not the HUD, the radar, a menu over the game) with no placement waiting:
+##   one finger, drag ........... moves the camera: the ground under the finger stays under it (the two-finger pan's rule, from the touch-down point).
+##                                OpenBFMEInvertDragScroll is not applied: it is the right-button drag's option, and the ground under the finger is the
+##                                one direction a direct drag can have (as the two-finger pan)
+##   one finger, hold, then drag  a selection box (the left press where the finger came down): held still LONG_PRESS_MS the finger is armed (a short
+##                                vibration), and a drag past SLOP_PT from there is the box
+##   one finger, hold, lift ..... the hold's right click, at the lift (a still hold cannot fire while held: it may still become a box)
+##   one finger, tap ............ unchanged (the left click: select, or with Alternate Mouse Setup's touch default the contextual order). Daisy's e732ac15
+##                                ("Prefer object selection for touch taps") makes a tap on any selectable object select it; not taken: the retail left
+##                                click already selects a unit or building, and keeps the contextual orders of a tap on one (garrison, enter, repair)
+##   an Apple Pencil ............ the select mode's gestures (a drag is a selection box), as in Daisy's scheme. The Pencil is told from a finger by
+##                                IOSPointerBridge.mm (UITouchTypePencil, claim_pencil), on iOS builds whose extension has it
+## Unchanged in either mode: a placement's ghost drag (IOS-23 / IOS-26), the menus' list scrolling (IOS-10), a drag that starts on the HUD or the radar,
+## a hold on a HUD button (its help, IOS-21), the two-finger gestures. The drag threshold stays SLOP_PT (10 pt: about Daisy's 12 px at a 720 px height on
+## a 1x screen, and the same physical size on every screen).
+##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
 ## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
 ## with no hover, no right button and no wheel. The extension's IOSPointer (engine/src/GodotDevice/IOSPointerBridge.mm, iOS builds only; on a
@@ -117,9 +136,11 @@ const CONFIRM_SIDE_MAX_PT := 140.0 # ... but never farther than this from the gh
 
 const PlacementConfirm := preload("res://scripts/touch/placement_confirm.gd")
 
-enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM }  # INFO: lane IOS-21, a finger held on a HUD button shows its help
-                                                                               # PLACE: lane IOS-23, a finger drags a building's ghost
-                                                                               # CONFIRM: lane IOS-26, a finger on ✓ / ✕
+enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM, PAN, ARMED }
+# INFO: lane IOS-21, a finger held on a HUD button shows its help; PLACE: lane IOS-23, a finger drags a building's ghost; CONFIRM: lane IOS-26, a finger
+# on ✓ / ✕; PAN: lane IOS-35, one finger moves the camera; ARMED: lane IOS-35, a held finger whose drag is a selection box (its lift the right click)
+const DRAG_SELECT := "select"    # lane IOS-35: OpenBFMETouchDrag's values
+const DRAG_PAN := "pan"
 
 var active := false
 var _gesture := Gesture.NONE
@@ -143,7 +164,12 @@ var _scroll_anchor := 0.0        # the finger's stage y at the last notch
 var _scroll_row := 0.0           # stage pixels of finger travel per notch (the list's row height)
 var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "twists": 0, "assisted_taps": 0,
 	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
-	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0, "place_taps": 0, "place_confirms": 0, "place_cancels": 0}
+	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0, "place_taps": 0, "place_confirms": 0, "place_cancels": 0,
+	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0}
+var drag_mode := DRAG_SELECT     # lane IOS-35: OpenBFMETouchDrag (set_drag_mode)
+var _pan_world := false          # lane IOS-35: in pan mode the one-finger gesture began on the battlefield (a drag pans, a hold arms the box)
+var _pan_last := Vector2.ZERO    # lane IOS-35: the finger's pixel at the last camera step
+var _pencil_touches := {}        # lane IOS-35: Godot's touch index -> true: an Apple Pencil's (IOSPointer.claim_pencil)
 var _placing := false            # lane IOS-23: the one-finger gesture began on the world while a placement waited for its site (the ghost is offset)
 var _confirm: CanvasLayer = null # lane IOS-26: placement_confirm.gd, made the first time it is needed
 var _confirming := false         # lane IOS-26: a placement's ghost waits for ✓ / ✕ at _ghost_px
@@ -199,6 +225,15 @@ func _ready() -> void:
 
 func is_active() -> bool:
 	return active
+
+
+## lane IOS-35: OpenBFMETouchDrag as game_options.gd applies it: "select" (a one-finger drag is a selection box) or "pan" (it moves the camera). Kept on a
+## desktop without touch too, where nothing reads it
+func set_drag_mode(mode: String) -> void:
+	var m := DRAG_PAN if mode == DRAG_PAN else DRAG_SELECT
+	if m != drag_mode and active:
+		print("TOUCH IOS-35 one finger drag: %s" % m)
+	drag_mode = m
 
 
 ## lane IOS-15: a mouse or trackpad is in use (a Mac running the iPhone build has one). IOS-17: only once its pointer showed itself (hovered,
@@ -270,6 +305,12 @@ func _process(_delta: float) -> void:
 			_gesture = Gesture.INFO
 			stats.infos += 1
 			return
+		if _pan_world:
+			# lane IOS-35: armed: a drag from here is a selection box, a lift the right click (it cannot fire now: the finger may still drag)
+			Input.vibrate_handheld(15)
+			_gesture = Gesture.ARMED
+			stats.box_arms += 1
+			return
 		_click(MOUSE_BUTTON_RIGHT, at)
 		Input.vibrate_handheld(15)
 		_gesture = Gesture.HELD
@@ -281,6 +322,9 @@ func _touch(e: InputEventScreenTouch) -> void:
 	var now := Time.get_ticks_msec()
 	if e.pressed:
 		_fingers[e.index] = {"start": e.position, "pos": e.position, "at": now}
+		if _pointer != null and _pointer.has_method("claim_pencil") and _pointer.claim_pencil(e.position):
+			_pencil_touches[e.index] = true  # lane IOS-35: an Apple Pencil keeps the select mode's gestures
+			stats.pencil_touches += 1
 		if not _waiting.is_empty() and (_fingers.size() > 1 or e.position.distance_to(_waiting.at) > DOUBLE_TAP_PT * _scale):
 			_press_waiting()  # lane IOS-21: a finger elsewhere is no second tap: the waiting press goes first
 		elif not _waiting.is_empty() and now <= int(_waiting.due):
@@ -297,6 +341,7 @@ func _touch(e: InputEventScreenTouch) -> void:
 					_confirm.set_pressed(on)
 					return
 				_placing = _placement_drag_at(e.position)
+				_pan_world = drag_mode == DRAG_PAN and not _placing and not _pencil_touches.has(e.index) and _on_battlefield(e.position)  # IOS-35
 				if _confirming:
 					if _placing:
 						_confirm.hide_now()  # the finger moves the ghost again; the buttons come back where it stops
@@ -354,16 +399,21 @@ func _touch(e: InputEventScreenTouch) -> void:
 			_pressed = ""
 		Gesture.INFO:
 			_end_info()  # lane IOS-21: lifting ends the preview; nothing is pressed
+		Gesture.ARMED:
+			_click(MOUSE_BUTTON_RIGHT, e.position)  # lane IOS-35: an armed finger lifted without a drag: the hold's right click
+			stats.holds += 1
 		Gesture.TWO:
 			if _fingers.size() == 2 and not _two_moved and now - _two_start_ms <= TAP_MAX_MS:
 				_click(MOUSE_BUTTON_RIGHT, _centroid())
 				stats.two_finger_taps += 1
 				_end_confirm()  # lane IOS-26: the two-finger tap cancelled the placement
 	_fingers.erase(e.index)
+	_pencil_touches.erase(e.index)
 	if _fingers.is_empty():
 		_gesture = Gesture.NONE
 		_first = -1
 		_placing = false
+		_pan_world = false
 		_pressed = ""
 		if camera_gesture and _confirming:
 			_track_until = now + CONFIRM_TRACK_MS  # lane IOS-26: the camera may still ease (a zoom); the buttons come back beside the ghost
@@ -387,7 +437,13 @@ func _drag(e: InputEventScreenDrag) -> void:
 					stats.place_drags += 1
 			elif e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
 				_press_waiting()
-				if _begin_list_scroll(_fingers[e.index].start):
+				if _pan_world:
+					# lane IOS-35: the camera follows the finger from where it came down (the ground there stays under it)
+					_gesture = Gesture.PAN
+					stats.finger_pans += 1
+					_pan_last = _fingers[e.index].start
+					_finger_pan(e.position)
+				elif _begin_list_scroll(_fingers[e.index].start):
 					_gesture = Gesture.SCROLL
 					stats.list_scrolls += 1
 					_scroll_list(e.position)
@@ -398,6 +454,16 @@ func _drag(e: InputEventScreenDrag) -> void:
 					_move(e.position)
 		Gesture.DRAG:
 			if e.index == _first:
+				_move(e.position)
+		Gesture.PAN:
+			if e.index == _first:
+				_finger_pan(e.position)
+		Gesture.ARMED:
+			if e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
+				# lane IOS-35: the armed finger's drag: the selection box, from where the finger came down
+				_gesture = Gesture.DRAG
+				stats.drags += 1
+				_button(MOUSE_BUTTON_LEFT, true, _fingers[e.index].start)
 				_move(e.position)
 		Gesture.PLACE:
 			if e.index == _first:
@@ -716,12 +782,9 @@ func _two_finger_move() -> void:
 	var hud := _game_hud()
 	if hud != null:
 		# pan: the world point under the fingers' middle stays under it
-		var was: Vector2 = hud.pixel_to_world(_last_centroid)
-		var now_at: Vector2 = hud.pixel_to_world(c)
-		var cam: Dictionary = hud.get_camera()
-		if cam.has("position") and was.is_finite() and now_at.is_finite():
-			hud.camera_look_at(Vector2(cam.position) + (was - now_at))
+		if _pan_camera(hud, _last_centroid, c):
 			stats.pans += 1
+		var cam: Dictionary = hud.get_camera()
 		# pinch: whole wheel notches, apart (zoom in) or together (zoom out)
 		if _pinch_base > 0.0:
 			var ratio := d / _pinch_base
@@ -749,6 +812,36 @@ func _two_finger_move() -> void:
 		if _confirming:
 			_follow_anchor(false)  # lane IOS-26: the ghost keeps its ground point under the moving camera
 	_last_centroid = c
+
+
+## the camera moved so that the ground under window pixel `from` is under `to` (true: moved). A pixel with no ground under it ((-1e9, -1e9): above the
+## horizon) moves nothing
+func _pan_camera(hud: Node, from: Vector2, to: Vector2) -> bool:
+	var was: Vector2 = hud.pixel_to_world(from)
+	var now_at: Vector2 = hud.pixel_to_world(to)
+	var cam: Dictionary = hud.get_camera()
+	if not cam.has("position") or not was.is_finite() or not now_at.is_finite() or was.x < -1e8 or now_at.x < -1e8:
+		return false
+	hud.camera_look_at(Vector2(cam.position) + (was - now_at))
+	return true
+
+
+## lane IOS-35: one finger's camera step to `at` (the pointer follows the finger: the game's hover under it)
+func _finger_pan(at: Vector2) -> void:
+	var hud := _game_hud()
+	if hud != null:
+		_pan_camera(hud, _pan_last, at)
+	_pan_last = at
+	_move(at)
+
+
+## lane IOS-35: a finger at `at` is on the battlefield: a game is on screen and the point is its world (not the HUD, the radar or a menu over the game:
+## the HUD's touch_placement_at, which answers with no placement too). An extension without the query keeps the select mode's gestures
+func _on_battlefield(at: Vector2) -> bool:
+	var hud := _game_hud()
+	if hud == null or not hud.has_method("touch_placement_at"):
+		return false
+	return bool(hud.touch_placement_at(at).get("world", false))
 
 
 ## lane IOS-15: the angle of the line from the first finger to the second (radians, screen axes)

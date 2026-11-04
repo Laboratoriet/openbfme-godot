@@ -42,6 +42,8 @@ const REQUIRED_ROWS := {
 }
 ## lane IOS-20: rows a tab shows on iOS only (the extension's IOSAudioSession class exists there only; game_options.gd ios_audio_available)
 const REQUIRED_ROWS_IOS := {"Audio": ["OpenBFMEIOSSilentSound"]}
+## lane IOS-35: rows a tab shows only where the touch controls are on (a phone or tablet, or --touch; game_options.gd touch_available)
+const REQUIRED_ROWS_TOUCH := {"Interface": ["OpenBFMETouchDrag"]}
 ## lane IOS-24: the tab a desktop shows last (prepare_mobile_tab.gd: the game file for the iPhone / iPad) and its rows before a file is made
 const DESKTOP_TAB := "iPhone / iPad"
 const DESKTOP_ROWS := ["Prepare.action", "Prepare.file", "Prepare.folders", "Prepare.state"]
@@ -640,7 +642,8 @@ func settings_hits() -> void:
 	for tab in screen.tabs():
 		await click_tab_named(tab)
 		var rows: Dictionary = page().get("rows", {})
-		var tab_rows: Array = REQUIRED_ROWS.get(tab, []) + (REQUIRED_ROWS_IOS.get(tab, []) if ClassDB.class_exists("IOSAudioSession") else [])
+		var tab_rows: Array = REQUIRED_ROWS.get(tab, []) + (REQUIRED_ROWS_IOS.get(tab, []) if ClassDB.class_exists("IOSAudioSession") else []) \
+			+ (REQUIRED_ROWS_TOUCH.get(tab, []) if OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch") else [])
 		if tab == DESKTOP_TAB:
 			tab_rows = DESKTOP_ROWS
 		elif tab == MODS_TAB:
