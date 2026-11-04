@@ -10,6 +10,11 @@
 ##   modhero  (lane IOS-28, with the Sauron test mod enabled: tools/mod/make_sauron_mod.py, Options.ini OpenBFMEMods) the fortress's hero ring offers
 ##            MordorSauron without the ring: his bubble is clicked with 10,000 given, the fortress builds him (fast forward), he is selected
 ##            (hud6-modhero-ring, hud6-modhero-recruiting, hud6-modhero-made)
+##   modbalrog, modcp, modbuild, modlevel, moddarklords, modall  (lane IOS-30, each with its mod of tools/mod/make_ini_mods.py enabled the same way)
+##            BalrogUnleashed (--faction=FactionWild): the Balrog recruited from the hero ring for 5,000 and alive after 120 s; DoubleArmy: the command
+##            point base / cap / bonus doubled (--expect-retail-cp: the baseline); RapidBuild: the frames a porter and a barracks take (FactionMen,
+##            compare a run without it); VeteranHeroes: a recruited hero comes at level 5 (--expect-retail-level: 1); DarkLordsForAll: the ring hero
+##            recruited without the One Ring, level 10; modall: every mod on at once (FactionWild)
 ##   hudsize  (lane IOS-27, OpenBFME presentation; with --faction=FactionDwarves, --touch and an Options file's OpenBFMEHudScale) Rebuild bought in the
 ##            spell book (store button 1 of the Dwarves' set), a builder selected: the side bar as a block of one or two columns (hud6-hudsize-sidebar),
 ##            a held finger on the spell book's power and on the first and last button of each side bar column shows its help and presses nothing
@@ -230,17 +235,29 @@ func _scenario_modhero() -> String:
 	var f := fortress()
 	if f.is_empty():
 		return "no own fortress"
+	var r := await recruit_from_ring(f, "MordorSauron", "Sauron", "modhero")
+	return str(r.get("error", ""))
+
+
+# lane IOS-28 / IOS-30: the hero `template` recruited by the player's hand: the fortress selected, its heroes bubble pressed, the hero's REVIVE bubble
+# (its portrait's image names `image_word`) hovered (its help) and clicked with its cost given; the fortress makes him (fast forward) and he is selected.
+# Shots <prefix>-ring, -help, -recruiting, -made. {"made": the object, "frames": queue to made} or {"error": why}
+func recruit_from_ring(f: Dictionary, template: String, image_word: String, prefix: String) -> Dictionary:
 	var heroes: Array = world.get_heroes(game._local_index, int(f.id))
-	var sauron := -1
+	var record := {}
 	for h in heroes:
-		if str(h.template) == "MordorSauron":
-			sauron = int(h.index)
-	print("HUD6 modhero: the fortress's heroes %s" % JSON.stringify(heroes))
-	if sauron < 0:
-		return "MordorSauron is not among the fortress's heroes (is the mod enabled and mounted?)"
-	world.give_money(game._local_index, 10000)
+		if str(h.template) == template:
+			record = h
+	print("HUD6 %s: the fortress's heroes %s" % [prefix, JSON.stringify(heroes)])
+	if record.is_empty():
+		return {"error": "%s is not among the fortress's heroes (is the mod enabled and mounted?)" % template}
+	world.give_money(game._local_index, int(record.cost))
+	if hud.get_selection().has(int(f.id)):
+		# a click on the selected fortress opens no ring: a click on open ground drops the selection first
+		await click_pixel(Vector2(1250, 120))
+		await game._step(10)
 	if not await select_object(f):
-		return "the fortress could not be selected"
+		return {"error": "the fortress could not be selected"}
 	hud.camera_set_height(330.0)
 	await look(f.x, f.y)
 	hud.inject_mouse_move(Vector2(60, 60))
@@ -253,45 +270,220 @@ func _scenario_modhero() -> String:
 			await game._step(30)
 			ring = radial()
 			break
-	print("HUD6 modhero ring: %s" % JSON.stringify(ring))
-	shot("modhero-ring")
-	# Sauron's bubble: the REVIVE button whose portrait is his (HISauron, sauron.ini ButtonImage)
+	print("HUD6 %s ring: %s" % [prefix, JSON.stringify(ring)])
+	shot(prefix + "-ring")
+	# the hero's REVIVE bubble: a ring hero's is the ring hero slot; another hero's is a generic slot whose portrait names him, the shortest such
+	# image when two do (Sauron's HISauron, not the Mouth of Sauron's)
 	var bubble: Dictionary = {}
+	var ring_hero := template.ends_with("_RingHero")
 	for b in ring.get("buttons", []):
-		if JSON.stringify(b).find("Sauron") >= 0 and str(b.command) == "REVIVE":
+		if str(b.command) != "REVIVE" or str(b.get("image", "")).find(image_word) < 0 or (str(b.name) == "Command_RingHeroReviveSlot") != ring_hero:
+			continue
+		if bubble.is_empty() or str(b.image).length() < str(bubble.image).length():
 			bubble = b
 	if bubble.is_empty():
-		return "no Sauron bubble in the hero ring: " + JSON.stringify(ring.get("buttons", []))
+		return {"error": "no %s bubble in the hero ring: %s" % [image_word, JSON.stringify(ring.get("buttons", []))]}
 	hud.inject_mouse_move(bubble_centre(bubble))
-	await game._step(40)
-	shot("modhero-help")
+	await wait_help_shown()
+	await game._step(20)
+	print("HUD6 %s help: %s" % [prefix, JSON.stringify(help())])
+	shot(prefix + "-help")
 	await click_pixel(bubble_centre(bubble))
+	var queued_at: int = world.get_frame()
 	hud.inject_mouse_move(Vector2(60, 60))
 	await game._step(20)
 	var queued := false
 	for h in world.get_heroes(game._local_index, int(f.id)):
-		if str(h.template) == "MordorSauron":
-			queued = bool(h.in_production)
+		if str(h.template) == template:
+			queued = queued or bool(h.in_production)
 	if not queued:
-		return "the Sauron bubble was clicked but he is not in production"
-	shot("modhero-recruiting")
+		return {"error": "the %s bubble was clicked but he is not in production" % image_word}
+	shot(prefix + "-recruiting")
 	world.set_time_scale(8.0)
 	var made := {}
-	for i in 200:
+	for i in 400:
 		await game._step(30)
-		made = find_own(func(o): return str(o.template) == "MordorSauron")
+		made = find_own(func(o): return str(o.template) == template)
 		if not made.is_empty():
 			break
+	var frames: int = world.get_frame() - queued_at
 	world.set_time_scale(1.0)
 	if made.is_empty():
-		return "Sauron was not made"
+		return {"error": "%s was not made" % template}
 	await look(made.x, made.y)
 	await select_object(made)
 	hud.inject_mouse_move(Vector2(60, 60))
 	await game._step(40)
-	shot("modhero-made")
-	print("HUD6 modhero made: %s" % JSON.stringify(made))
+	shot(prefix + "-made")
+	print("HUD6 %s made: %s after about %d frames" % [prefix, JSON.stringify(made), frames])
+	return {"made": made, "frames": frames, "record": record}
+
+
+# ---- lane IOS-30: the INI mods of tools/mod/make_ini_mods.py (each run with an Options file enabling the mod: OpenBFMEMods) ----------------------------
+
+func my_economy() -> Dictionary:
+	for p in world.get_economy().get("players", []):
+		if int(p.index) == game._local_index:
+			return p
+	return {}
+
+
+func level_of(id: int) -> int:
+	return int(world.get_ability_state(id).get("level", 0))
+
+
+# --faction=FactionWild, BalrogUnleashed: the Balrog (WildBalrog) in the fortress's hero ring for 5,000, recruited, still standing after the
+# spell book Balrog's 90 s (BALROG_LIFETIME: the mod removes his LifetimeUpdate), at the summoned Balrog's level 10
+func _scenario_modbalrog() -> String:
+	var f := fortress()
+	if f.is_empty():
+		return "no own fortress"
+	var r := await recruit_from_ring(f, "WildBalrog", "Balrog", "modbalrog")
+	if r.has("error"):
+		return str(r.error)
+	var id := int(r.made.id)
+	var born: int = world.get_frame()
+	world.set_time_scale(8.0)
+	while world.get_frame() < born + 5 * 120 and world.get_object(id).get("ok", false):
+		await game._step(30)
+	world.set_time_scale(1.0)
+	var alive: bool = world.get_object(id).get("ok", false) and not bool(world.get_object(id).get("destroyed", false))
+	print("HUD6 modbalrog: %d frames (%.0f s) after he came, alive %s, level %d" % [world.get_frame() - born, (world.get_frame() - born) / 5.0, str(alive), level_of(id)])
+	if not alive:
+		return "the Balrog was gone before 120 s (the spell book Balrog's 90 s lifetime?)"
+	if int(r.record.cost) != 5000:
+		return "the Balrog cost %d, not 5000" % int(r.record.cost)
+	# the spell book Balrog's own ExperienceLevel (rank 10), copied for WildBalrog
+	return "" if level_of(id) == 10 else "the Balrog is level %d, not the summoned Balrog's 10" % level_of(id)
+
+
+# DoubleArmy: the command point pool of a two-player skirmish (GameData {Good|Evil}CommandPointsMP2, retail 100 / 1000; the fortress's bonus
+# GENERIC_FORTRESS_COMMAND_POINT_BONUS, retail 100) and the HUD's readout. --expect-retail-cp runs it as the baseline (no mod)
+func _scenario_modcp() -> String:
+	var f := fortress()
+	if not f.is_empty():
+		await select_object(f)
+		hud.inject_mouse_move(Vector2(60, 60))
+		await game._step(30)
+	var p := my_economy()
+	var text := str(hud.get_state().get("control_bar", {}).get("command_points"))
+	print("HUD6 modcp: base %d cap %d bonus %d limit %d used %d (the HUD: %s)" % [int(p.cp_base), int(p.cp_cap), int(p.cp_bonus), int(p.cp_limit), int(p.cp_used), text])
+	shot("modcp")
+	var k := 1 if OS.get_cmdline_user_args().has("--expect-retail-cp") else 2
+	if int(p.cp_base) != 100 * k or int(p.cp_cap) != 1000 * k:
+		return "base %d cap %d, expected %d / %d" % [int(p.cp_base), int(p.cp_cap), 100 * k, 1000 * k]
+	if int(p.cp_bonus) % (100 * k) != 0:
+		return "the bonus %d is not a whole number of fortress bonuses (%d)" % [int(p.cp_bonus), 100 * k]
+	if int(p.cp_limit) != mini(int(p.cp_cap), int(p.cp_base) + int(p.cp_bonus)):
+		return "the limit %d is not min(cap, base + bonus)" % int(p.cp_limit)
 	return ""
+
+
+# RapidBuild: logic frames from the order to the result for a unit (the fortress's porter) and a structure (a barracks on a free castle plot) of
+# FactionMen; run once with the mod and once without and compare (retail BuildTime 30 s each: 150 frames)
+func _scenario_modbuild() -> String:
+	var f := fortress()
+	if f.is_empty():
+		return "no own fortress"
+	world.give_money(game._local_index, 5000)
+	var before := {}
+	for o in own():
+		before[int(o.id)] = true
+	world.queue_unit(game._local_index, int(f.id), "MenPorter")
+	var t0: int = world.get_frame()
+	world.set_time_scale(4.0)
+	var unit := {}
+	while unit.is_empty() and world.get_frame() < t0 + 1000:
+		await game._step(1)
+		unit = find_own(func(o): return str(o.template) == "MenPorter" and not before.has(int(o.id)))
+	var unit_frames: int = world.get_frame() - t0
+	var site: Dictionary = world.build2_construct_on_plot(game._local_name, "GondorBarracks")
+	if not bool(site.get("ok", false)):
+		world.set_time_scale(1.0)
+		return "no barracks site: " + str(site.get("error", ""))
+	var t1: int = world.get_frame()
+	while bool(world.get_object(int(site.id)).get("under_construction", true)) and world.get_frame() < t1 + 1500:
+		await game._step(1)
+	var structure_frames: int = world.get_frame() - t1
+	world.set_time_scale(1.0)
+	var b := find_own(func(o): return int(o.id) == int(site.id))
+	if not b.is_empty():
+		await select_object(b)
+		hud.inject_mouse_move(Vector2(60, 60))
+		await game._step(20)
+	shot("modbuild")
+	print("HUD6 modbuild: MenPorter %d frames, GondorBarracks %d frames (retail BuildTime 30 s = 150 frames each)" % [unit_frames, structure_frames])
+	if unit.is_empty():
+		return "no porter came within 1000 frames"
+	if bool(world.get_object(int(site.id)).get("under_construction", true)):
+		return "the barracks was not finished within 1500 frames"
+	return ""
+
+
+# VeteranHeroes: the fortress's cheapest hero (not Create-a-Hero, not the ring hero) recruited by hand: he comes at level 5
+func _scenario_modlevel() -> String:
+	var f := fortress()
+	if f.is_empty():
+		return "no own fortress"
+	var pick := {}
+	for h in world.get_heroes(game._local_index, int(f.id)):
+		var tn := str(h.template)
+		if tn.find("_RingHero") < 0 and tn.to_lower().find("createahero") < 0 and (pick.is_empty() or int(h.cost) < int(pick.cost)):
+			pick = h
+	if pick.is_empty():
+		return "no hero to recruit"
+	var t: String = str(pick.template)
+	# the bubble's portrait (the template's ButtonImage, HI<name>) carries the name without its faction prefix
+	var word := t.trim_prefix("Rohan").trim_prefix("Gondor").trim_prefix("Elven").trim_prefix("Dwarven").trim_prefix("Isengard").trim_prefix("Mordor").trim_prefix("Wild").trim_prefix("Angmar")
+	var r := await recruit_from_ring(f, t, word.substr(0, 4), "modlevel")
+	if r.has("error"):
+		return str(r.error)
+	var level := level_of(int(r.made.id))
+	print("HUD6 modlevel: %s level %d" % [t, level])
+	var want := 1 if OS.get_cmdline_user_args().has("--expect-retail-level") else 5
+	return "" if level == want else "%s came at level %d, not %d" % [t, level, want]
+
+
+# DarkLordsForAll: the faction's ring hero (Sauron for the evil factions, Galadriel for the good) in the ring hero slot without the One Ring,
+# recruited by hand for 10,000; he or she comes at level 10 (the ring hero's own ExperienceLevelCreate)
+func _scenario_moddarklords() -> String:
+	var f := fortress()
+	if f.is_empty():
+		return "no own fortress"
+	var ring := ""
+	for h in world.get_heroes(game._local_index, int(f.id)):
+		if str(h.template).ends_with("_RingHero"):
+			ring = str(h.template)
+	if ring == "":
+		return "no ring hero among the fortress's heroes (is the mod enabled?)"
+	var r := await recruit_from_ring(f, ring, "Sauron" if ring.begins_with("Mordor") else "Galadriel", "moddarklords")
+	if r.has("error"):
+		return str(r.error)
+	var level := level_of(int(r.made.id))
+	print("HUD6 moddarklords: %s level %d" % [ring, level])
+	return "" if level == 10 else "%s came at level %d" % [ring, level]
+
+
+# all six mods at once (Options.ini OpenBFMEMods in the order they were turned on), --faction=FactionWild: the hero ring lists the Balrog and
+# the ring hero, the command points are doubled, a hero comes at level 5 (the porter and barracks timing is modbuild's, FactionMen)
+func _scenario_modall() -> String:
+	var f := fortress()
+	if f.is_empty():
+		return "no own fortress"
+	var names := []
+	for h in world.get_heroes(game._local_index, int(f.id)):
+		names.append(str(h.template))
+	print("HUD6 modall: heroes %s" % str(names))
+	if not names.has("WildBalrog") or not names.has("MordorSauron_RingHero"):
+		return "the hero list lacks the Balrog or the ring hero: %s" % str(names)
+	var lv := await _scenario_modlevel()
+	if lv != "":
+		return "veteran hero: " + lv
+	var cp := await _scenario_modcp()
+	if cp != "":
+		return "command points: " + cp
+	var r := await recruit_from_ring(f, "WildBalrog", "Balrog", "modall")
+	return str(r.get("error", ""))
 
 
 func _scenario_sidebar() -> String:

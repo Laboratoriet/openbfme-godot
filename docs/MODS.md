@@ -52,6 +52,12 @@ Not retail: retail RotWK has one `-mod`. OpenBFME also keeps a **Mods folder** a
   Skirmish, the campaigns and saves work; the save records the mods like a `-mod`'s (the profile identity: a `mod folder` / `mod archive`
   line per mod in order). A `-mod` keeps its own rule (players with the same mod meet).
 - A test mod to try it: `tools/mod/make_sauron_mod.py` makes "Sauron at the fortress" from your own game files (`tools/mod/README.md`).
+  `tools/mod/make_ini_mods.py` makes five more (Balrog unleashed, Double army, Rapid build, Veteran heroes, Dark lords for all) that change
+  no file in common, so any of them can be on together.
+- A mod may add its own INI file under `data\ini\object\` instead of replacing a retail file: the game reads every file of that folder in
+  name order, and such a file may hold any block (a `ChildObject`, a `PlayerTemplate` that sets only the fields it names, a `GameData` block,
+  an `ExperienceLevel`). Two mods that add different files never replace each other's. A `CommandButton` defined twice keeps the first one
+  (retail discards the second), so changing a button still means replacing `commandbutton.ini`.
 
 ## Mods installed into the game folder (Edain)
 
