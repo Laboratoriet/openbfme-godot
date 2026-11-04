@@ -34,10 +34,21 @@
 ## 3 install), the steps behind the player ticked and the one at hand in gold. Each step's (i) opens a sheet with the detail: the ways to
 ## send the file, the command-line packer, the troubleshooting; "Other ways to add the game" (the two folders) is a sheet too. Dev switches
 ## for the screenshots: --first-run-state=<state> and --first-run-sheet=<n> (with --first-run-ios on a desktop, _preview).
-## "Choose game file..." (Files' document picker) is not offered: Godot 4.7.2's iOS display server has no native file dialog
-## (drivers/apple_embedded/display_server_apple_embedded.mm has_feature: FEATURE_NATIVE_DIALOG_FILE commented out, file_dialog_show not
-## implemented) and its own FileDialog sees only the app's folder. A picker needs native code in the extension: UIDocumentPickerViewController
-## (asCopy false), the picked URL's startAccessingSecurityScopedResource held while game_file_import.gd streams from its path, then stopped.
+## Godot 4.7.2's iOS display server has no native file dialog (drivers/apple_embedded/display_server_apple_embedded.mm has_feature:
+## FEATURE_NATIVE_DIALOG_FILE commented out, file_dialog_show not implemented) and its own FileDialog sees only the app's folder.
+##
+## Lane IOS-36 ("Choose game file…", after daisyhasacat/openbfme-godot's folder picker, GodotIOSAssets.mm, GPL-3.0): the extension's
+## IOSDocumentPicker (engine IOSDocumentPickerBridge.mm, iOS builds only) opens Files' document picker in place (UIDocumentPickerViewController,
+## asCopy NO). The player picks OpenBFME-GameData.obfme wherever it is (iCloud Drive, Downloads, a drive); its security scope stays open while
+## game_file_import.gd streams from its path (no 6.5 GB copy into the app first), and the file is kept there afterwards (keep_file). A file that
+## is not on the device yet (iCloud) is brought down first by a coordinated read: the card says "Downloading from iCloud Drive…" meanwhile. A
+## bookmark (PICK_BOOKMARK) gives the same file back on a later launch, so an install the system stopped carries on without picking again; it is
+## dropped once the install is done or the game is ready.
+## Layout (the owner's IOS-24 design kept; this choice documented in COMBINE / REPORT): "Choose game file…" is the status card's ONE action in
+## the "no game file yet" state, as the card's rule asks, and Open in Files steps down to a text link beside Look again (both flat, one row). The
+## steps card is unchanged. Without the class (the desktop, an extension built before IOS-36) the card is as before: Open in Files is its action.
+## Dev preview on a desktop: --first-run-ios --first-run-picker shows the picker's states (--first-run-state=none | picking | downloading |
+## picked | pickerror).
 extends CanvasLayer
 
 const GameFileImport := preload("res://scripts/release/game_file_import.gd")
@@ -106,6 +117,10 @@ const MAKE_COMMAND := "python3 tools/ios/make_game_file.py --rotwk <RotWK folder
 # shown one flag a line (a wrap must never split "--bfme2"), still a valid shell command when selected and pasted; Copy copies MAKE_COMMAND
 const MAKE_COMMAND_SHOWN := "python3 tools/ios/make_game_file.py \\\n  --rotwk <RotWK folder> \\\n  --bfme2 <BFME2 folder>"
 
+# lane IOS-36: the picker (the extension's class, iOS builds only) and where the picked game file's bookmark is kept (a dotfile: Files hides it)
+const PICKER_CLASS := "IOSDocumentPicker"
+const PICK_BOOKMARK := "user://.openbfme-picked-game-file.bookmark"
+
 signal finished(result: Dictionary)
 
 var _fs: RefCounted
@@ -158,6 +173,12 @@ var _opener: Control           # the button that opened it (the focus goes back 
 var _opener_keyboard := false  # it was opened from the keyboard (the focus ring stays visible)
 var _tween: Tween
 var _previewing := false       # a dev preview state is shown (--first-run-state): coming back to the window must not replace it
+# lane IOS-36: Files' document picker
+var _files_link: Button        # Open in Files as a link beside Look again (the picker is the card's action then)
+var _watching_pick := false    # a pick (or a restored bookmark) is under way: _process reads its status
+var _pick_state := ""          # the status state last shown
+var _picked := {}              # the picked game file once it can be read: IOSDocumentPicker's status (path, name, place, size, ...)
+var _again_picks := false      # the link under the action is "Choose another file" (a picked file is offered), not Look again
 
 func run(fs: RefCounted, setup: RefCounted, problem: String, test_pick: Dictionary) -> Dictionary:
 	_fs = fs
@@ -548,9 +569,19 @@ func _build_ios_ui(problem: String) -> void:
 	_import_button = _button("Install", "primary")
 	_import_button.pressed.connect(_on_card_button)
 	actions.add_child(_import_button)
+	# the links under the action, one row: Open in Files (lane IOS-36: only while the picker is the action) and Look again, sharing the width
+	var links := HBoxContainer.new()
+	links.add_theme_constant_override("separation", SPACE_XS)
+	_files_link = _button("Open in Files", "flat")
+	_files_link.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_link.pressed.connect(_open_files)
+	_files_link.visible = false
+	links.add_child(_files_link)
 	_again = _button("Look again", "flat")
-	_again.pressed.connect(_look_again.bind(true))
-	actions.add_child(_again)
+	_again.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_again.pressed.connect(_on_again)
+	links.add_child(_again)
+	actions.add_child(links)
 	live.add_child(actions)
 	_files_hint = _label("Open the Files app and go to %s › OpenBFME." % _ios_place(), TYPE_CAPTION, C_TEXT_3)
 	_files_hint.visible = false
@@ -592,6 +623,7 @@ func _build_ios_ui(problem: String) -> void:
 	# 5. the sheets, over everything; built once (the two-folder way's controls live in sheet 4 and are used while it is closed)
 	_build_sheets(device)
 	_recheck()
+	_restore_pick()
 	_refresh_import()
 	_fit_frame()
 	get_viewport().size_changed.connect(_fit_frame)
@@ -648,6 +680,9 @@ func _show_card(title: String, note: String, button := "", action := "", enabled
 	_import_button.disabled = not enabled
 	_card_action = action
 	_again.visible = look
+	_again.text = "Look again"
+	_again_picks = false
+	_files_link.visible = false # lane IOS-36: _card_none shows it
 	_files_hint.visible = false
 
 
@@ -663,11 +698,20 @@ func _card_none(looked := "") -> void:
 	var note := "Send OpenBFME-GameData.obfme to %s › OpenBFME (the three steps). OpenBFME looks again whenever you come back to it." % _ios_place()
 	if not looked.is_empty():
 		note = "Still nothing in %s › OpenBFME (looked at %s). If the file is in iCloud Drive or Downloads, move it there in Files." % [_ios_place(), looked]
-	_show_card("No game file yet", _bb(note, C_TEXT_3, TYPE_CAPTION), "Open in Files", "files", true, true)
+	if _can_pick():
+		# lane IOS-36: the picker is the action; Open in Files becomes the link beside Look again
+		note = "Choose OpenBFME-GameData.obfme where it is: iCloud Drive, Downloads or a drive. OpenBFME installs it from there, no copy needed."
+		if not looked.is_empty():
+			note = "Still nothing in %s › OpenBFME (looked at %s). Choose the file where it is instead." % [_ios_place(), looked]
+		_show_card("No game file yet", _bb(note, C_TEXT_3, TYPE_CAPTION), "Choose game file…", "pick", true, true)
+		_files_link.visible = true
+	else:
+		_show_card("No game file yet", _bb(note, C_TEXT_3, TYPE_CAPTION), "Open in Files", "files", true, true)
 	_set_step(1)
 
 
-func _card_found(name: String, archive: int, free: int, need: int, resuming: bool, others: String) -> void:
+# `kept_in`: lane IOS-36, the file was picked where it is (its place in Files' words): read from there and kept, not deleted afterwards
+func _card_found(name: String, archive: int, free: int, need: int, resuming: bool, others: String, kept_in := "") -> void:
 	_import_bar.visible = false
 	# no-break spaces and a word joiner after each hyphen: a wrap never splits the file name or leaves "GB" (or "· 6.5 GB") alone on a line
 	var title := "Found %s · %s" % [name.replace("-", "-⁠"), GameFileImport.gb(archive).replace(" ", " ")]
@@ -676,15 +720,21 @@ func _card_found(name: String, archive: int, free: int, need: int, resuming: boo
 	if free > 0 and free < need:
 		_show_card(title, _bb("Not enough space: installing needs %s free and this %s has %s. Free some space (Settings › General › %s Storage), then come back here." % [
 			GameFileImport.gb(need), _ios_device(), GameFileImport.gb(free), _ios_device()], C_ERROR) + others, button, "install", false, true)
-		return
-	var space := ("%s free, %s needed" % [GameFileImport.gb(free), GameFileImport.gb(need)]) if free > 0 else (
-		"needs %s free (OpenBFME could not read how much is free)" % GameFileImport.gb(need))
-	_show_card(title, _bb("%s · takes a few minutes · the file is deleted afterwards" % space, C_TEXT_3, TYPE_CAPTION) + others, button, "install")
+	else:
+		var space := ("%s free, %s needed" % [GameFileImport.gb(free), GameFileImport.gb(need)]) if free > 0 else (
+			"needs %s free (OpenBFME could not read how much is free)" % GameFileImport.gb(need))
+		var after := "the file is deleted afterwards" if kept_in.is_empty() else "read from %s, where it stays" % kept_in
+		_show_card(title, _bb("%s · takes a few minutes · %s" % [space, after], C_TEXT_3, TYPE_CAPTION) + others, button, "install")
+	if not kept_in.is_empty():
+		_again_picks = true # lane IOS-36: the link picks again (Look again would only find the same picked file)
+		_again.text = "Choose another file"
+		_again.visible = true
 
 
 func _card_installing(done_bytes: int, total_bytes: int, file_index: int, file_count: int, seconds_left: int) -> void:
 	var done := float(done_bytes) / maxf(1.0, float(total_bytes))
 	_import_bar.visible = true
+	_import_bar.indeterminate = false # lane IOS-36: the iCloud download's bar has no measure
 	_import_bar.value = done
 	var left := "working out the time" if seconds_left < 0 else ("less than a minute left" if seconds_left < 60 else "about %d min left" % ceili(seconds_left / 60.0))
 	_show_card("Installing… %d %%" % int(done * 100.0), _bb("%s of %s · file %d of %d · %s. Keep OpenBFME open." % [
@@ -731,6 +781,8 @@ func _on_card_button() -> void:
 			_on_start()
 		"files":
 			_open_files()
+		"pick":
+			_pick_file()
 		"other":
 			_open_sheet(4, _import_button)
 		"look":
@@ -761,6 +813,120 @@ func _copy_command() -> void:
 func _copy_reset() -> void:
 	if is_instance_valid(_copy):
 		_copy.text = "Copy command"
+
+
+# ---- lane IOS-36: Files' document picker ("Choose game file…") ------------------------------------------------------------------------------
+
+# The extension's picker is there (iOS builds from IOS-36 on), or a desktop preview asks for its states (--first-run-picker)
+func _can_pick() -> bool:
+	return ClassDB.class_exists(PICKER_CLASS) or (_previewing and OS.get_cmdline_user_args().has("--first-run-picker"))
+
+
+func _picker(method: String, args: Array = []) -> Variant:
+	# the class exists on iOS only, so it is called by name (ClassDB.class_call_static takes its arguments as varargs)
+	return Callable(ClassDB, "class_call_static").callv([PICKER_CLASS, method] + args) if ClassDB.class_exists(PICKER_CLASS) else null
+
+
+func _on_again() -> void:
+	if _again_picks:
+		_pick_file()
+	else:
+		_look_again(true)
+
+
+# Files' picker over the app, for one .obfme file anywhere; the result comes in through _process. The bookmark keeps the pick for a later launch
+func _pick_file() -> void:
+	if not ClassDB.class_exists(PICKER_CLASS) or _importing or _mounting:
+		return
+	if not bool(_picker("pick", ["file", GameFileImport.EXTENSION, ProjectSettings.globalize_path(PICK_BOOKMARK)])):
+		return # a picker is open already
+	print("FIRST RUN picker: opened")
+	_pick_state = "waiting"
+	_watching_pick = true
+
+
+func _process(_delta: float) -> void:
+	if not _watching_pick:
+		return
+	var s = _picker("status")
+	if not (s is Dictionary) or str(s.state) == _pick_state:
+		return
+	_pick_state = str(s.state)
+	_on_pick_status(s)
+
+
+func _on_pick_status(s: Dictionary) -> void:
+	print(Release.info.redact("FIRST RUN picker: %s %s %s %s" % [s.state, s.name, s.place, s.error]))
+	match str(s.state):
+		"waiting":
+			pass # the picker is over the screen
+		"opening":
+			_card_picking(str(s.name), str(s.place))
+		"downloading":
+			_card_downloading(str(s.name), str(s.place))
+		"cancelled":
+			_watching_pick = false
+			_refresh_import()
+		"error":
+			_watching_pick = false
+			_forget_pick(str(s.path))
+			_card_pick_error(str(s.name), str(s.error))
+		"picked":
+			_watching_pick = false
+			if str(s.name).get_extension().to_lower() != GameFileImport.EXTENSION:
+				_forget_pick(str(s.path))
+				_card_pick_error(str(s.name), "%s is not an OpenBFME game file. Choose OpenBFME-GameData.obfme (Prepare makes it on your computer)." % s.name)
+				return
+			if not _picked.is_empty() and _picked.path != s.path:
+				_picker("release", [str(_picked.path), ""]) # the file picked before is no longer read (its bookmark was replaced)
+			_picked = s
+			_refresh_import()
+
+
+# A file picked on an earlier launch (an install the system stopped, or one not started): its access back from the bookmark
+func _restore_pick() -> void:
+	if not ClassDB.class_exists(PICKER_CLASS) or not FileAccess.file_exists(PICK_BOOKMARK):
+		return
+	var r: Dictionary = _picker("restore", [ProjectSettings.globalize_path(PICK_BOOKMARK)])
+	print(Release.info.redact("FIRST RUN picker: restored %s %s %s" % [r.ok, r.path, r.error]))
+	if not r.ok:
+		_forget_pick("")
+		return
+	_pick_state = ""
+	_watching_pick = true
+	_on_pick_status(r)
+	_pick_state = str(r.state)
+
+
+# The picked file is no longer used: its access stops and its bookmark goes
+func _forget_pick(path: String) -> void:
+	_picker("release", [path, ProjectSettings.globalize_path(PICK_BOOKMARK)])
+	if path.is_empty() or (not _picked.is_empty() and _picked.path == path):
+		_picked = {}
+
+
+func _card_picking(name: String, place: String) -> void:
+	_import_bar.visible = false
+	_show_card("Opening %s…" % name.replace("-", "-⁠"), _bb("In %s." % place, C_TEXT_3, TYPE_CAPTION))
+	_set_step(3)
+
+
+# iCloud Drive brings the file down before it can be read (the coordinated read in IOSDocumentPickerBridge.mm); no percentage: the provider
+# does not give one to an app outside its container
+func _card_downloading(name: String, place: String) -> void:
+	_import_bar.visible = true
+	_import_bar.indeterminate = true
+	_show_card("Downloading from %s…" % place, _bb("%s is not on this %s yet. %s is bringing it down (about 6.5 GB); installing can start once it is here. Keep OpenBFME open." % [
+		name.replace("-", "-⁠"), _ios_device(), place], C_TEXT_3, TYPE_CAPTION))
+	_set_step(2)
+
+
+func _card_pick_error(name: String, why: String) -> void:
+	_import_bar.visible = false
+	var title := "This file cannot be opened" if name.is_empty() else "%s cannot be opened" % name.replace("-", "-⁠")
+	_show_card(title, _bb(why + " Choose it again, or send it to %s › OpenBFME." % _ios_place(), C_ERROR), "Choose game file…", "pick", true, true)
+	_files_link.visible = true
+	_set_step(2)
 
 
 # ---- lane IOS-24: the sheets (each step's detail, and the other ways) -----------------------------------------------------------------------
@@ -991,6 +1157,15 @@ func _preview(state: String) -> void:
 			_card_error("This game file cannot be used", "OpenBFME-GameData.obfme is cut short: the copy did not finish. Send it again.", "Look again", "look")
 		"ready":
 			_card_ready()
+		# lane IOS-36 (with --first-run-picker): the picker's states
+		"picking":
+			_card_picking("OpenBFME-GameData.obfme", "iCloud Drive")
+		"downloading":
+			_card_downloading("OpenBFME-GameData.obfme", "iCloud Drive")
+		"picked":
+			_card_found("OpenBFME-GameData.obfme", 6463767289, 25600000000, 8800000000, false, others, "iCloud Drive")
+		"pickerror":
+			_card_pick_error("OpenBFME-GameData.obfme", "The file couldn't be opened because you don't have permission to view it.")
 
 
 # ---- lane IOS-12: building blocks (the tokens above, nothing else) ---------------------------------------------------------------------------
@@ -1145,31 +1320,53 @@ func _button(text: String, kind: String) -> Button:
 func _refresh_import(looked := "") -> void:
 	if _importing or _card == null:
 		return
+	if _watching_pick: # lane IOS-36: a pick is under way (back from the picker, or iCloud still downloading): its card stays
+		return
 	_import = null
 	var found := GameFileImport.find()
 	var pending := GameFileImport.pending()
+	# lane IOS-36: a file picked where it is comes first (the player chose it); one picked in OpenBFME's own folder is found there anyway
+	var kept_in := ""
+	if not _picked.is_empty() and str(_picked.place) != "OpenBFME's folder":
+		kept_in = str(_picked.place)
+		found.insert(0, str(_picked.path))
 	if found.is_empty():
 		if pending:
 			# the folders hold part of an install: say so instead of letting their check read as a broken copy
-			_card_error("The install from the game file did not finish",
-				"Send OpenBFME-GameData.obfme to OpenBFME again and tap Install: it carries on where it stopped.", "Open in Files", "files")
+			if _can_pick():
+				_card_error("The install from the game file did not finish",
+					"Choose OpenBFME-GameData.obfme again, or send it to OpenBFME again, and tap Install: it carries on where it stopped.", "Choose game file…", "pick")
+				_files_link.visible = true
+			else:
+				_card_error("The install from the game file did not finish",
+					"Send OpenBFME-GameData.obfme to OpenBFME again and tap Install: it carries on where it stopped.", "Open in Files", "files")
 		else:
 			_show_idle(looked)
 		return
 	var imp := GameFileImport.new()
+	imp.keep_file = not kept_in.is_empty()
 	var shown_name := found[0].get_file()
 	var others := "" if found.size() == 1 else "\n" + _bb("%d other .obfme files in OpenBFME's folder are not used; delete them in the Files app." % (
 		found.size() - 1), C_TEXT_3, TYPE_CAPTION)
 	if not imp.open(found[0]):
 		print("FIRST RUN game file: ", imp.error)
-		_card_error("This game file cannot be used", imp.error + others.replace("\n", " "), "Look again", "look")
+		if imp.keep_file:
+			_forget_pick(found[0])
+			_card_pick_error(shown_name, imp.error)
+		else:
+			_card_error("This game file cannot be used", imp.error + others.replace("\n", " "), "Look again", "look")
 		return
-	print("FIRST RUN game file: %s, %d files, %d bytes (%d still to install)" % [found[0].get_file(), imp.files.size(), imp.total, imp.remaining])
+	print("FIRST RUN game file: %s, %d files, %d bytes (%d still to install)%s" % [found[0].get_file(), imp.files.size(), imp.total, imp.remaining,
+		(", read in place from " + kept_in) if imp.keep_file else ""])
 	if _checked_ok and not pending:
+		if imp.keep_file:
+			_forget_pick(found[0]) # the game is there: the picked file is not needed (and stays where it is)
+			_show_idle(looked)
+			return
 		_card_ready("%s is not needed. Delete it in the Files app to get its %s back." % [shown_name, GameFileImport.gb(imp.archive_size)])
 		return
 	_import = imp
-	_card_found(shown_name, imp.archive_size, imp.space_left(), imp.space_needed(), imp.resuming, others)
+	_card_found(shown_name, imp.archive_size, imp.space_left(), imp.space_needed(), imp.resuming, others, kept_in)
 
 
 func _on_install() -> void:
@@ -1193,6 +1390,8 @@ func _on_install() -> void:
 		_recheck()
 		return
 	print("FIRST RUN game file installed: %d files" % _import.files.size())
+	if _import.keep_file:
+		_forget_pick(_import.path) # lane IOS-36: read in place; its access and bookmark are no longer needed (the file stays where it was)
 	_import = null
 	await _look_again()
 	if _checked_ok:

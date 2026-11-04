@@ -17,6 +17,11 @@
 ## kept when its MD5 is the manifest's. When every file is in place the .obfme file and the list are deleted. Nothing is guessed: every
 ## problem ends the run with `error` set to what happened and what to do.
 ##
+## Lane IOS-36: open() takes any absolute path, so the welcome screen also hands it a file the player picked where it is with Files' document
+## picker (iCloud Drive, Downloads, a drive: engine IOSDocumentPickerBridge.mm holds the item's security scope while this reads it). Such a file
+## is read in place, with no copy into the app first, and keep_file leaves it there afterwards: it is the player's, maybe in iCloud for another
+## device, and the screen says it can be deleted.
+##
 ## The md5 cache of the game's own check (user://retail-md5-cache.tsv, engine Common/Md5Cache.h) is not filled here: its key is the file's
 ## absolute path, size and last-write time in nanoseconds (std::filesystem::last_write_time), and GDScript reads modification times in whole
 ## seconds only (FileAccess.get_modified_time). The first start after the install hashes every archive once (lane PERF-2: on the job pool).
@@ -45,6 +50,7 @@ var total := 0            # bytes of every file
 var remaining := 0        # bytes still to write (files not listed as done)
 var resuming := false     # an earlier run's list matches this file
 var error := ""           # set when open() or run() returns false: what happened and what to do
+var keep_file := false    # lane IOS-36: the file was picked where it is (Files' document picker, first_run.gd): read in place, not deleted after
 
 var _journal_head := ""
 var _done := {}           # path -> true: written and checked by an earlier run (the journal)
@@ -239,9 +245,10 @@ func run() -> bool:
 		done_bytes += item["size"]
 	progress.emit(total, total, files.size(), files.size(), "")
 	src = null # closed before it is deleted
-	var removed := DirAccess.remove_absolute(path)
-	if removed != OK:
-		return _fail("The game files are installed, but %s could not be deleted (%s): delete it in the Files app to get its space back." % [file_name, error_string(removed)])
+	if not keep_file:
+		var removed := DirAccess.remove_absolute(path)
+		if removed != OK:
+			return _fail("The game files are installed, but %s could not be deleted (%s): delete it in the Files app to get its space back." % [file_name, error_string(removed)])
 	DirAccess.remove_absolute(root.path_join(JOURNAL))
 	return true
 
