@@ -579,6 +579,7 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 	var conf: Dictionary = setup.configured()
 	var args := OS.get_cmdline_user_args()
 	fs.set_mods(mod_args(args, OS.get_environment("OPENBFME_MOD"))) # lane MODS-1: RotWK's -mod, mounted over the verified game files
+	fs.set_mod_list(enabled_mods(args)) # lane IOS-28: the Mods folder's enabled mods (Options > Mods); a -mod wins over them
 	fs.set_install_mods(install_mod_args(args, OS.get_environment("OPENBFME_MOD_INSTALL"))) # lane MODS-2: mods installed into the game folder
 	var engines := PackedStringArray() # lane MODS-3: the modified game binaries of the mod (Common/ModEngineFeatures.h): their features turn on
 	for a in args:
@@ -641,6 +642,43 @@ static func mod_args(args: PackedStringArray, env: String) -> PackedStringArray:
 			out.push_back(a.trim_prefix("--mod="))
 		i += 1
 	return out
+
+
+# lane IOS-28: the Mods folder's mods enabled in the Options.ini of this run (--options-file=PATH, else the user data folder's; scripts/release/mods.gd),
+# lowest priority first. An unreadable Options.ini enables none (the shell reports the file itself when it boots).
+static func enabled_mods(args: PackedStringArray) -> PackedStringArray:
+	var path := ""
+	for a in args:
+		if a.begins_with("--options-file="):
+			path = a.trim_prefix("--options-file=")
+	if path.is_empty():
+		path = ClassDB.class_call_static("AptMenuPlayer", "default_options_path")
+	var r: Dictionary = preload("res://scripts/release/mods.gd").enabled_in_options(path)
+	if not r.ok:
+		printerr("RELEASE mods: ", r.error, "; no mod from the Mods folder is mounted")
+	elif not r.names.is_empty():
+		print("RELEASE mods enabled in Options.ini: ", ", ".join(r.names))
+	return r.names
+
+
+## lane IOS-28: a message box with OK (the menus stay as they are)
+func notice(title: String, text: String) -> void:
+	printerr("RELEASE notice: ", title, ": ", text)
+	if _headless():
+		return
+	var box := AcceptDialog.new()
+	box.name = "Notice"
+	box.title = title
+	box.dialog_text = text
+	box.dialog_autowrap = true
+	box.min_size = Vector2i(640, 0)
+	box.exclusive = true
+	box.process_mode = Node.PROCESS_MODE_ALWAYS
+	box.ok_button_text = "OK"
+	box.confirmed.connect(box.queue_free)
+	box.canceled.connect(box.queue_free)
+	add_child(box)
+	box.popup_centered()
 
 
 # lane MODS-2: the install-folder mod folders, highest priority first (an All In One package: its enhancements, then the package, then the

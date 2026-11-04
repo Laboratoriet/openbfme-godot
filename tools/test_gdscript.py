@@ -104,6 +104,7 @@ ALLOWLIST = {
     "controller_menu_test.gd": "controller menu mapping against a stub shell",
     "controller_routing_test.gd": "controller input routing and scaled, letterboxed pointer motion/clicks",
     "game_file_pack_test.gd": "the iPhone / iPad game file: packer -> importer round trip on generated folders (IOS-24)",
+    "mods_folder_test.gd": "the Mods folder's list, mod.txt and the Mods tab's states on a generated folder (IOS-28)",
     "ios21_touch_test.gd": "touch: hold on a HUD button shows its help, double tap toggles autocast, against a stand-in HUD (IOS-21)",
     "ios23_touch_test.gd": "touch: a placement's ghost above the fingertip, lift / tap wait for ✓ / ✕, hold / HUD lift / pan / mouse, against a stand-in HUD (IOS-23, IOS-26)",
     "online_list_test.gd": "online list parsing and paging against synthetic responses",

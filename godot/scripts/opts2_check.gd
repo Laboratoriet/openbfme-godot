@@ -87,6 +87,7 @@ func run(p_game: Node, p_shots: String) -> int:
 		await shot("opts2-%s-%dx%d" % [tab.to_lower().replace(" / ", "-").replace(" ", "-"), root.size.x, root.size.y]) # "iPhone / iPad": no "/" in a file name
 		_text_colours_check(tab)
 		await _green_pixels_check(tab)
+	await _mods_tab_check(root) # lane IOS-28
 	await click_tab("Controls") # lane IOS-24: the walk above ends on the desktop's "iPhone / iPad" tab
 	await game._step(8)
 	check("the Controls tab lists the CommandMap's hot keys (%d) in a list box" % screen.hotkey_count(), screen.hotkey_count() >= 20 and page().has("list"),
@@ -364,6 +365,41 @@ func top() -> String:
 ## lane OPTS-3: the page's state (AptMenuPlayer.openbfme_page_state: stage rectangles of its tabs, rows and the bottom bar)
 func page() -> Dictionary:
 	return shell.openbfme_page_state()
+
+
+## lane IOS-28: the Mods tab. Its fixed rows; with no mod in the Mods folder the "No mods yet" row and the note saying how to add one; with mods,
+## the first box that is off clicked on: the state says "Restart to apply" (the list now differs from what this start mounted; a picture,
+## opts2-mods-on-<w>x<h>.png), and clicked off again: the state as before (nothing is written: the page's ACCEPT comes later and the list is
+## unchanged by then).
+func _mods_tab_check(root: Window) -> void:
+	await click_tab("Mods")
+	await game._step(10)
+	var rows: Dictionary = page().get("rows", {})
+	for key in ["Mods.folder", "Mods.open", "Mods.rescan", "Mods.state"]:
+		check("Mods: the %s row is shown" % key, rows.has(key), str(rows.keys()))
+	var boxes: Array = rows.keys().filter(func(k): return String(k).begins_with("Mod:"))
+	var folder: String = screen._mods.folder()
+	check("Mods: the Mods folder is known and exists (%s)" % folder, not folder.is_empty() and DirAccess.dir_exists_absolute(folder), folder)
+	if boxes.is_empty():
+		check("Mods: no mod in the folder: the \"No mods yet\" row, and the note says how to add one", rows.has("Mods.none") and
+			screen._mods.note().begins_with("No mods in the Mods folder"), screen._mods.note())
+		return
+	var off: Array = boxes.filter(func(k): return int(rows[k].get("value", 0)) == 0 and rows[k].get("enabled", false))
+	if off.is_empty():
+		print("OPTS2 Mods: every mod is on already; the box is not clicked")
+		return
+	var state_before := str(screen.row("Mods.state").value_text)
+	await click_row(off[0])
+	await game._step(10)
+	check("Mods: %s's box turns it on" % off[0], screen._mods.pending.has(String(off[0]).trim_prefix("Mod:")), str(screen._mods.pending))
+	check("Mods: the state asks for a restart", str(screen.row("Mods.state").value_text) == "Restart to apply" and
+		screen._mods.note().begins_with("Restart to apply"), str(screen.row("Mods.state")))
+	await game._step(4)
+	await shot("opts2-mods-on-%dx%d" % [root.size.x, root.size.y])
+	await click_row(off[0])
+	await game._step(10)
+	check("Mods: clicked again, it is off and the state is back (%s)" % state_before, not screen._mods.changed() and
+		str(screen.row("Mods.state").value_text) == state_before, str(screen.row("Mods.state")))
 
 
 ## a choice / slider value through the gadget, the messages a click on it sends (the drop-down's geometry is the gadget layer's)

@@ -27,6 +27,7 @@ extends CanvasLayer
 
 const DisplaySettings := preload("res://scripts/display_settings.gd")
 const PrepareMobileTab := preload("res://scripts/release/prepare_mobile_tab.gd") # lane IOS-24
+const ModsTab := preload("res://scripts/release/mods_tab.gd") # lane IOS-28
 const TABS := ["Display", "Graphics", "Audio", "Camera", "Interface", "Online", "Performance", "Controls"]
 ## lane OPTS-5: the tab the menu shows first when the main menu's CUSTOM SETTINGS opened it
 const DETAIL_TAB := "Graphics"
@@ -141,6 +142,7 @@ var _options_top := false
 var _retail := {}                  # lane OPTS-5: the shell's rows of the original game's settings (options_retail_rows), read for each spec
 var _menu := false                 # lane OPTS-5: the page is the Options screen (the shell's kOpenBFMEMenu)
 var _prepare := PrepareMobileTab.new() # lane IOS-24: the "iPhone / iPad" tab (desktop only): the game file for the phone or tablet
+var _mods := ModsTab.new()             # lane IOS-28: the "Mods" tab: the Mods folder's mods on / off (Options.ini OpenBFMEMods, on ACCEPT)
 
 
 func _ready() -> void:
@@ -155,6 +157,8 @@ func _ready() -> void:
 	for e in skin_errors:
 		printerr("GAME DISPLAY page: ", e)
 	_prepare.mount_getter = func(): return Release.last_mount # lane IOS-24: the archives this start mounted
+	_mods.mount_getter = func(): return Release.last_mount # lane IOS-28: the mods this start mounted and the Mods folder
+	_mods.bfme1_getter = func(): return Release.last_mount.get("ok", false) and str(Release.last_mount.get("rotwk_install", "")).is_empty()
 
 
 func is_open() -> bool:
@@ -201,6 +205,9 @@ func _process(_delta: float) -> void:
 				if _tab == PrepareMobileTab.TAB:
 					_prepare.press(String(e.key))
 					_show_tab(_tab)
+				elif _tab == ModsTab.TAB: # lane IOS-28: OPEN, LOOK AGAIN
+					_mods.press(String(e.key))
+					_show_tab(_tab)
 			"cancel":
 				close(false)
 			"reset":
@@ -220,9 +227,9 @@ func _exit_tree() -> void:
 	_prepare.stop() # lane IOS-24: a game file being written is stopped and its half-written file deleted
 
 
-## The tabs the page shows: TABS, and on a desktop the "iPhone / iPad" tab (lane IOS-24) last
+## The tabs the page shows: TABS, "Mods" (lane IOS-28), and on a desktop the "iPhone / iPad" tab (lane IOS-24) last
 func tabs() -> Array:
-	return TABS + [PrepareMobileTab.TAB] if PrepareMobileTab.available() else TABS
+	return TABS + [ModsTab.TAB] + ([PrepareMobileTab.TAB] if PrepareMobileTab.available() else [])
 
 
 func open(first_tab := 0) -> void:
@@ -249,6 +256,7 @@ func open(first_tab := 0) -> void:
 		_extras_original = game_options.current()
 		_extras = _extras_original.duplicate()
 	_menu = bool(shell.openbfme_page_state().get("menu", false))
+	_mods.begin(str(shell.get_options().get(ModsTab.Mods.KEY, ""))) # lane IOS-28: the list Options.ini holds, the folder read again
 	if game_options != null:
 		game_options.hold_gamma = _menu
 	_show_tab(DETAIL_TAB if first_tab == 1 else "Display")
@@ -278,6 +286,8 @@ func close(keep: bool) -> void:
 		print("GAME DISPLAY accepted and saved: ", JSON.stringify(settings.to_dict()))
 		if game_options != null:
 			var owned := _owned_extras()
+			if _mods.changed():
+				owned[ModsTab.Mods.KEY] = _mods.value() # lane IOS-28: "" removes the entry (no mods)
 			var w: Dictionary = game_options.commit(owned)
 			if not w.get("ok", false):
 				printerr("GAME OPTIONS Options.ini: ", w.get("error", "?"))
@@ -473,6 +483,9 @@ func _spec() -> Dictionary:
 		PrepareMobileTab.TAB:
 			rows = _prepare.rows()
 			note = _prepare.note()
+		ModsTab.TAB:
+			rows = _mods.rows()
+			note = _mods.note()
 	var spec := {
 		"subtitle": SUBTITLE,
 		"tabs_header": "OpenBFME",
@@ -767,6 +780,10 @@ func _master_preview(value: int) -> void:
 
 func _on_value(key: String, value: int) -> void:
 	if not _open:
+		return
+	if key.begins_with(ModsTab.PREFIX):
+		if _mods.set_mod(key, value != 0): # lane IOS-28: a mod's box (written on ACCEPT)
+			_show_tab(_tab) # the state row, the order in the help lines and a forgotten "not found" row change
 		return
 	if key.begins_with("Social."):
 		if _social_pending.is_empty():

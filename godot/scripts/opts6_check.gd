@@ -45,6 +45,9 @@ const REQUIRED_ROWS_IOS := {"Audio": ["OpenBFMEIOSSilentSound"]}
 ## lane IOS-24: the tab a desktop shows last (prepare_mobile_tab.gd: the game file for the iPhone / iPad) and its rows before a file is made
 const DESKTOP_TAB := "iPhone / iPad"
 const DESKTOP_ROWS := ["Prepare.action", "Prepare.file", "Prepare.folders", "Prepare.state"]
+## lane IOS-28: the Mods tab (every device): its fixed rows, and a box per mod in the player's Mods folder ("Mod:<name>") or "Mods.none"
+const MODS_TAB := "Mods"
+const MODS_ROWS := ["Mods.folder", "Mods.open", "Mods.rescan", "Mods.state"]
 const REQUIRED_BAR := ["accept", "cancel", "reset"]
 const REQUIRED_MAIN := ["MultiPlayNav", "MyHeroes", "OptionsNav", "QuitMainMenu", "SoloPlayNav", "corner"] # the corner button (a 194 x 105 box) has no name
 const REQUIRED_SUB := {
@@ -640,6 +643,10 @@ func settings_hits() -> void:
 		var tab_rows: Array = REQUIRED_ROWS.get(tab, []) + (REQUIRED_ROWS_IOS.get(tab, []) if ClassDB.class_exists("IOSAudioSession") else [])
 		if tab == DESKTOP_TAB:
 			tab_rows = DESKTOP_ROWS
+		elif tab == MODS_TAB:
+			# lane IOS-28: the mod rows depend on the player's Mods folder; the fixed rows are required, and "Mods.none" exactly when there is no mod
+			var mod_rows := rows.keys().filter(func(k): return String(k).begins_with("Mod:"))
+			tab_rows = MODS_ROWS + mod_rows + (["Mods.none"] if mod_rows.is_empty() else []) + (["Mods.more"] if rows.has("Mods.more") else [])
 		check_inventory("the %s tab" % tab, required(tab_rows), shown(rows.keys()))
 		if OS.get_environment("OPTS6_ONLY") == "inventory":
 			continue
@@ -679,11 +686,15 @@ func settings_hits() -> void:
 			var action: Dictionary = rows.get("Prepare.action", {})
 			var box: Rect2 = action.get("rect", Rect2())
 			check("%s at %s: the PREPARE button has its box" % [tab, size_tag], action.get("enabled", false) and box.size == Vector2(170, 26), str(action))
+		elif tab == MODS_TAB and n == 0:
+			# lane IOS-28: no mod in the folder: the two buttons have their boxes (OPEN would open a window, LOOK AGAIN reads the folder; neither pressed)
+			var boxes := [rows.get("Mods.open", {}), rows.get("Mods.rescan", {})].filter(func(r): return r.has("rect") and (r.rect as Rect2).size.x > 0)
+			check("%s at %s: OPEN and LOOK AGAIN have their boxes" % [tab, size_tag], boxes.size() == 2, str(boxes))
 		elif n == 0 and greyed > 0 and bad.is_empty():
 			check("%s: every row is greyed here (%d), nothing to press" % [tab, greyed], true, "")
 		else:
 			check("%s at %s: %d controls react just inside their drawn shape and not just outside" % [tab, size_tag, n], n > 0 and bad.is_empty(), "; ".join(bad))
-	var required_tabs: Array = REQUIRED_TABS + ([DESKTOP_TAB] if not OS.has_feature("mobile") else [])
+	var required_tabs: Array = REQUIRED_TABS + [MODS_TAB] + ([DESKTOP_TAB] if not OS.has_feature("mobile") else [])
 	check_inventory("the tab bar", required(required_tabs), shown(Array(screen.tabs())))
 	check("the page offers a tab bar box for each of the %d required tabs" % required_tabs.size(), page().get("tabs", []).size() == required_tabs.size(), str(page().get("tabs", []).size()))
 	check_inventory("the bottom bar", required(REQUIRED_BAR), shown(page().get("buttons", {}).keys()))

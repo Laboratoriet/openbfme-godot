@@ -1892,6 +1892,8 @@ func _on_shell_request(action: String, argument: String) -> void:
 		_save_flow.request(action, argument) # lane SAVE-2: SaveLoad.apt's saved-game pages
 	elif action == "LoadReplayFile":
 		_begin_replay(argument)
+	elif action in ["Lan", "LanLoadWar", "Online", "OnlineLoadWar"] and not _mods_refusal().is_empty():
+		Release.notice("Mods are on", _mods_refusal()) # lane IOS-28: no online or LAN game with the Mods folder's mods (they change the simulation)
 	elif action == "Lan":
 		_open_lan_lobby()
 	elif action == "LanLoadWar":
@@ -7307,6 +7309,11 @@ func _net_end_flow(desyncs: int) -> void:
 # ---- lane MP-2: the LAN lobby ------------------------------------------------------------------------------------------------------------------
 
 ## The main menu's LAN: GameWorld's LAN lobby (bound once, kept for the session) handed to LanLobby.apt
+## lane IOS-28: "" or why online and LAN play are refused now (the Mods folder's mods are mounted: scripts/release/mods.gd)
+func _mods_refusal() -> String:
+	return load("res://scripts/release/mods.gd").multiplayer_refusal(Release.last_mount)
+
+
 func _open_lan_lobby() -> void:
 	if not _lan_wotr_tamper.is_empty():
 		_tamper_lan_save(_lan_wotr_tamper)
