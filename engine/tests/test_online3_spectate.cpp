@@ -380,6 +380,7 @@ TEST_CASE("online3 spectators (DEVPORT-1, Sol): a finished log whose rename fail
 	std::string error;
 	REQUIRE_MESSAGE(RelayLogFile::parse(after, f, &error), error);
 	CHECK(f.complete);
+	relay.shutdown(now); // Windows cannot delete an open file: this closes the game logs
 	std::filesystem::remove_all(dir);
 }
 

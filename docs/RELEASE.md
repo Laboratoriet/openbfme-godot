@@ -1589,8 +1589,9 @@ runners only, with `permissions: contents: read`, pinned action shas, no secrets
 | `lint` | ubuntu-24.04 | actionlint 1.7.12 and zizmor 1.31.1 (offline), downloads checked by SHA-256 |
 | `gate` | ubuntu-24.04 | the commit gate on the pull request's changes, `pr_audit.py` (built-in privacy rules + the `.github` policy; no private denylist), `pr_pytest.py` |
 | `linux` | ubuntu-24.04 | engine core + `openbfme_tests` build (ccache), the unit tests that need no game files |
-| `windows` | ubuntu-24.04 | `tools/release/build_windows.sh --no-export`: the release's llvm-mingw cross build (tests, peer, GDExtension, PDB scrub, DLL audit), compile only |
-| `macos` | macos-15 | the GDExtension and unit test executable (arm64, macOS 13), then the console filter tests including the real `/dev/null` regression |
+| `windows` | ubuntu-24.04 | `tools/release/build_windows.sh --no-export`: the release's llvm-mingw cross build (tests, peer, GDExtension, PDB scrub, DLL audit); the binaries go to `windows-tests` |
+| `windows-tests` | windows-2025 | those cross-built binaries on real Windows: the unit tests that need no game files, then `tools/test_gdscript.py` with Godot 4.7.2 and the DLL. A junction gives the Linux build's absolute test paths a home |
+| `macos` | macos-15 | the GDExtension and unit test executable (arm64, macOS 13), then the unit tests that need no game files |
 | `CI` | ubuntu-24.04 | needs all of the above, runs even when one failed, and passes only when every one succeeded |
 
 Measured on `ci/publicci1` (2026-10-19, the tree of the next sync): with warm compiler caches the whole check took 7.5 minutes
