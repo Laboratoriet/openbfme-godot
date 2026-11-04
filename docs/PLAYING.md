@@ -356,7 +356,7 @@ The full list is in
 | Resolution | the window's size: common sizes that fit your monitor, and the monitor's own size | the size the window has |
 | Vertical sync | On, Off, Adaptive | On |
 | Frame rate limit | Off, 30, 60, 120, 144, 240 fps or a custom number | Off |
-| Show the frame rate | frames per second and the frame time in the top-left corner | off |
+| Show the frame rate | frames per second and the frame time in the top-left corner (on a phone or tablet also the slowest 1% of frames, "p99") | off |
 | Render scale | 50% to 100% of the window's pixels for the 3D view (menus and the HUD stay sharp) | 100% |
 | Upscaling | Bilinear, AMD FSR 1, AMD FSR 2 | Bilinear |
 

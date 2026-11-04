@@ -212,6 +212,7 @@ another profile). Tabs:
 | Tab | Setting | Key | Default |
 |---|---|---|---|
 | Display | window mode, resolution, vsync, frame limit (a cap given another way shows as its own "custom" entry), counter, render scale (5% steps), upscaling (OPTS-1) | `openbfme-display.cfg` | windowed, 100%, bilinear |
+| | Show the frame rate (OPTS-1; F11; `--fps`, and `--perf` since IOS-25, show it for the run). On touch (a phone, a tablet or `--touch`, IOS-25) it is the phone's readout "60 fps · 16.6 ms · p99 21 ms": the mean frame time of the last half second and the 99th percentile of the last 300 frames (GAME PERF's p99), twice a second, at least 11 pt, top left inside the safe area (clear of the Palantir, the side bar, the clock and the top-right corner; the menus' top-left lines start under it), in fixed-width fields. One setting for the one counter: no separate Performance-tab key | `openbfme-display.cfg` `show_fps` | off |
 | | Widescreen view: Original / Wider (UI-6, stop S-3702) | `OpenBFMEWidescreen` | original |
 | Graphics+ | Anti-aliasing: Off / FXAA / MSAA 2x / 4x / TAA | `OpenBFMEAntiAliasing` | off |
 | | Anisotropic filtering (models): Off .. 16x | `OpenBFMEAnisotropic` | 4x (what the renderer used) |
