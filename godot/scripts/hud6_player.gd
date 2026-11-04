@@ -7,6 +7,9 @@
 ##   sidebar  a builder selected: the build list in the side bar's carved frame (retail-3.png)
 ##   queue    (lane OWNERFIX-3) a Men barracks of the player's: three presses of its soldiers' bubble, the bubble and the Palantir show "3" (RW 0x4A4CD3 / 0x9D7054)
 ##   enemy    (lane OWNERFIX-3) the enemy's barracks and hero, selected by a click: the Palantir shows their command set, every button disabled (RW 0x94397F)
+##   modhero  (lane IOS-28, with the Sauron test mod enabled: tools/mod/make_sauron_mod.py, Options.ini OpenBFMEMods) the fortress's hero ring offers
+##            MordorSauron without the ring: his bubble is clicked with 10,000 given, the fortress builds him (fast forward), he is selected
+##            (hud6-modhero-ring, hud6-modhero-recruiting, hud6-modhero-made)
 ##   hudsize  (lane IOS-27, OpenBFME presentation; with --faction=FactionDwarves, --touch and an Options file's OpenBFMEHudScale) Rebuild bought in the
 ##            spell book (store button 1 of the Dwarves' set), a builder selected: the side bar as a block of one or two columns (hud6-hudsize-sidebar),
 ##            a held finger on the spell book's power and on the first and last button of each side bar column shows its help and presses nothing
@@ -217,6 +220,74 @@ func _scenario_heroes() -> String:
 					break
 			return ""
 	return "the fortress has no PUSH_VISIBLE_COMMAND_RANGE bubble: " + JSON.stringify(r.get("buttons", []))
+
+
+func _scenario_modhero() -> String:
+	var f := fortress()
+	if f.is_empty():
+		return "no own fortress"
+	var heroes: Array = world.get_heroes(game._local_index, int(f.id))
+	var sauron := -1
+	for h in heroes:
+		if str(h.template) == "MordorSauron":
+			sauron = int(h.index)
+	print("HUD6 modhero: the fortress's heroes %s" % JSON.stringify(heroes))
+	if sauron < 0:
+		return "MordorSauron is not among the fortress's heroes (is the mod enabled and mounted?)"
+	world.give_money(game._local_index, 10000)
+	if not await select_object(f):
+		return "the fortress could not be selected"
+	hud.camera_set_height(330.0)
+	await look(f.x, f.y)
+	hud.inject_mouse_move(Vector2(60, 60))
+	await game._step(30)
+	var ring: Dictionary = {}
+	for b in radial().get("buttons", []):
+		if str(b.command) == "PUSH_VISIBLE_COMMAND_RANGE":
+			await click_pixel(bubble_centre(b))
+			hud.inject_mouse_move(Vector2(60, 60))
+			await game._step(30)
+			ring = radial()
+			break
+	print("HUD6 modhero ring: %s" % JSON.stringify(ring))
+	shot("modhero-ring")
+	# Sauron's bubble: the REVIVE button whose portrait is his (HISauron, sauron.ini ButtonImage)
+	var bubble: Dictionary = {}
+	for b in ring.get("buttons", []):
+		if JSON.stringify(b).find("Sauron") >= 0 and str(b.command) == "REVIVE":
+			bubble = b
+	if bubble.is_empty():
+		return "no Sauron bubble in the hero ring: " + JSON.stringify(ring.get("buttons", []))
+	hud.inject_mouse_move(bubble_centre(bubble))
+	await game._step(40)
+	shot("modhero-help")
+	await click_pixel(bubble_centre(bubble))
+	hud.inject_mouse_move(Vector2(60, 60))
+	await game._step(20)
+	var queued := false
+	for h in world.get_heroes(game._local_index, int(f.id)):
+		if str(h.template) == "MordorSauron":
+			queued = bool(h.in_production)
+	if not queued:
+		return "the Sauron bubble was clicked but he is not in production"
+	shot("modhero-recruiting")
+	world.set_time_scale(8.0)
+	var made := {}
+	for i in 200:
+		await game._step(30)
+		made = find_own(func(o): return str(o.template) == "MordorSauron")
+		if not made.is_empty():
+			break
+	world.set_time_scale(1.0)
+	if made.is_empty():
+		return "Sauron was not made"
+	await look(made.x, made.y)
+	await select_object(made)
+	hud.inject_mouse_move(Vector2(60, 60))
+	await game._step(40)
+	shot("modhero-made")
+	print("HUD6 modhero made: %s" % JSON.stringify(made))
+	return ""
 
 
 func _scenario_sidebar() -> String:

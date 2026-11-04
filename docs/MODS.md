@@ -24,6 +24,35 @@ OPENBFME_MOD=<mod folder> openbfme
 - Keep the mod **outside the game folders**. The game folders are checked against the clean 2.01 files, and an unknown `.big` there is
   refused. A mod folder must not contain symbolic links.
 
+## The Mods folder and the Mods tab (OpenBFME, lane IOS-28)
+
+Not retail: retail RotWK has one `-mod`. OpenBFME also keeps a **Mods folder** and lets you turn its mods on and off in **Options › Mods**
+(on a phone or tablet too, where there is no command line).
+
+- **Where:** on an iPhone or iPad, `Mods` in OpenBFME's own folder (the Files app: On My iPhone › OpenBFME › Mods). On a desktop, `Mods`
+  in the RotWK user data folder ("My The Lord of the Rings, The Rise of the Witch-king Files"), so `-mod Mods/<name>` names the same mod.
+  The game makes the folder when it starts; the tab's OPEN shows it.
+- **A mod** is a folder in it (a mod folder, as `-mod` takes one) or a `.big` file in it.
+- **Its name on the tab** (optional): a `mod.txt` in the folder, or `<name>.txt` beside a `.big`, with two lines:
+  ```
+  Title = Sauron at the fortress
+  Description = Mordor can recruit Sauron at its fortress' hero menu for 10,000, without the One Ring.
+  ```
+- **On and off:** each mod has a box. ACCEPT keeps the list in Options.ini (`OpenBFMEMods = <name>;<name>`); the mods load when OpenBFME
+  starts, so the tab says "Restart to apply" until then. CANCEL forgets the change; RESET TO DEFAULTS leaves mods alone.
+- **Several at once:** they mount in the order they were turned on, each like a `-mod`, over the game files. A mod turned on later wins a
+  file over one turned on before it. The loose files of mod folders are one layer that answers before every archive (retail's rule for its
+  one mod folder); when two folders hold the same loose file, the later one's is used and the log says so. The log names every mounted
+  mod, in order.
+- **A `-mod` on the command line wins:** the list is not mounted that time (the log and the tab say so).
+- **A mod that is gone** (deleted from the folder) is left out and listed on the tab as "not found"; clear its box to forget it.
+- **A mod that stops the start** (a damaged archive) stops it with a message saying which and where the folder is: take it out of the
+  Mods folder (on a phone, in the Files app) and start again.
+- **Online and LAN games are off** while Mods-folder mods are on (they change the game, and players with other game data fall out of step).
+  Skirmish, the campaigns and saves work; the save records the mods like a `-mod`'s (the profile identity: a `mod folder` / `mod archive`
+  line per mod in order). A `-mod` keeps its own rule (players with the same mod meet).
+- A test mod to try it: `tools/mod/make_sauron_mod.py` makes "Sauron at the fortress" from your own game files (`tools/mod/README.md`).
+
 ## Mods installed into the game folder (Edain)
 
 Many mods are not `-mod` folders. Their installer, or the All In One BFME Launcher, puts their archives straight into the RotWK game
