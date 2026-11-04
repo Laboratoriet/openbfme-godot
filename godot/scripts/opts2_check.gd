@@ -84,7 +84,7 @@ func run(p_game: Node, p_shots: String) -> int:
 			game._mouse_event((tabs[(shown_tabs.find(tab) + 1) % tabs.size()] as Rect2).get_center(), false, false)
 		await game._step(8)
 		check("the %s tab shows" % tab, screen.current_tab() == tab and int(page().get("tab", -1)) == shown_tabs.find(tab), screen.current_tab())
-		await shot("opts2-%s-%dx%d" % [tab.to_lower(), root.size.x, root.size.y])
+		await shot("opts2-%s-%dx%d" % [tab.to_lower().replace(" / ", "-").replace(" ", "-"), root.size.x, root.size.y]) # "iPhone / iPad": no "/" in a file name
 		_text_colours_check(tab)
 		await _green_pixels_check(tab)
 	await click_tab("Controls") # lane IOS-24: the walk above ends on the desktop's "iPhone / iPad" tab
