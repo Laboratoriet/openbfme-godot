@@ -8,6 +8,10 @@
 ## "Description = ..." lines ("Title: ..." works too; other lines are ignored).
 ## Options.ini keeps the enabled ones as OpenBFMEMods = <name>;<name>... in mount order: the first is mounted first, so a later one wins a file
 ## both have. The engine mounts them over the verified game files when no -mod is given (Common/ModMount.h MountRetailMods).
+## Lane IOS-31: a folder may be an INSTALL-FOLDER mod (Edain: an All In One package laid out by tools/mod/aio_package.py, with its
+## openbfme-aio.json; or an install/ folder; or a copy of the files it puts into the game folder, with lang\*.big). The engine says which
+## (RetailFileSystem.describe_mods_entry, Common/ModMount.h ClassifyModsFolderEntry) and mounts it as --mod-install does, under the other mods,
+## wherever it sits in the list. One at a time.
 extends RefCounted
 
 const KEY := "OpenBFMEMods"
@@ -43,8 +47,10 @@ static func enabled_in_options(path: String) -> Dictionary:
 	return {"ok": true, "names": parse_list(str(read.get("values", {}).get(KEY, ""))), "error": ""}
 
 
-## The mods in `folder`, by name without case: [{name, kind ("folder" / "archive"), title, description, problem}]. A name with the list's
-## separator in it cannot be enabled (problem). Hidden entries (".DS_Store", ".Trash") and other files are not mods.
+## The mods in `folder`, by name without case: [{name, kind ("folder" / "archive" / "install" / "part"), title, description, bytes, problem}].
+## A name with the list's separator in it cannot be enabled (problem); nor can a "part" (a layer of another All In One package: it loads with
+## the mod that needs it) or an install-folder mod whose record is broken or incomplete (problem: the engine's message). Hidden entries
+## (".DS_Store", ".Trash") and other files are not mods.
 static func scan(folder: String) -> Array:
 	var out := []
 	if folder.is_empty() or not DirAccess.dir_exists_absolute(folder):
@@ -61,14 +67,41 @@ static func scan(folder: String) -> Array:
 		var name: String = n[0]
 		var info_path := folder.path_join(name).path_join(INFO_FILE) if n[1] == "folder" else folder.path_join(name.get_basename() + ".txt")
 		var info := read_info(info_path)
+		var entry := describe(folder, name)
+		var kind: String = entry.kind if entry.kind in ["install", "part"] else n[1]
+		var problem := ""
+		if name.contains(SEPARATOR):
+			problem = "Its name has a \"%s\" in it, which the list of enabled mods cannot hold: rename it." % SEPARATOR
+		elif not entry.ok:
+			problem = str(entry.error).trim_prefix("mods: ")
+		elif kind == "part":
+			problem = "A part of another mod (a layer of an All In One package): it loads with the mod that needs it, not on its own."
+		var title: String = info.title
+		if title.is_empty():
+			title = _cut(str(entry.title), TITLE_MAX) if not str(entry.title).is_empty() else (name if n[1] == "folder" else name.get_basename())
 		out.append({
 			"name": name,
-			"kind": n[1],
-			"title": info.title if not info.title.is_empty() else (name if n[1] == "folder" else name.get_basename()),
+			"kind": kind,
+			"title": title,
 			"description": info.description,
-			"problem": "Its name has a \"%s\" in it, which the list of enabled mods cannot hold: rename it." % SEPARATOR if name.contains(SEPARATOR) else "",
+			"bytes": int(entry.bytes),
+			"problem": problem,
 		})
 	return out
+
+
+## lane IOS-31: what the engine makes of `name` in `folder` (RetailFileSystem.describe_mods_entry: {ok, error, kind, title, layout, bytes, ...})
+static func describe(folder: String, name: String) -> Dictionary:
+	return ClassDB.class_call_static("RetailFileSystem", "describe_mods_entry", folder, name)
+
+
+## lane IOS-31: "4.2 GB", "310 KB": a mod's size for the Mods tab (decimal units, as the Files app and Finder show them)
+static func size_text(bytes: int) -> String:
+	if bytes >= 1000 * 1000 * 1000:
+		return "%.1f GB" % (bytes / 1e9)
+	if bytes >= 1000 * 1000:
+		return "%d MB" % roundi(bytes / 1e6)
+	return "%d KB" % maxi(1, roundi(bytes / 1e3))
 
 
 ## The title and description of a mod.txt (absent file: both ""). Values are cut at TITLE_MAX / DESCRIPTION_MAX characters.
@@ -98,16 +131,22 @@ static func _cut(text: String, most: int) -> String:
 	return text if text.length() <= most else text.substr(0, most - 1).strip_edges() + "…"
 
 
-## The mods a mount report mounted from the Mods folder (its mod.list when the source is the folder), else none.
+## The mods a mount report mounted from the Mods folder (its mod.list when the source is the folder), else none. Lane IOS-31: the Mods
+## folder's install-folder mod is one of them when it was mounted (not when a --mod-install on the command line took its place).
 static func mounted_names(mount: Dictionary) -> PackedStringArray:
 	var mod: Dictionary = mount.get("mod", {})
-	if not mod.get("mounted", false) or str(mod.get("source", "")) != "mods folder":
+	var small: bool = mod.get("mounted", false) and str(mod.get("source", "")) == "mods folder"
+	var install := str(mod.get("install_mod_name", "")).to_lower()
+	if not small and install.is_empty():
 		return PackedStringArray()
 	var out := PackedStringArray()
 	var missing: PackedStringArray = mod.get("missing", PackedStringArray())
 	for n in mod.get("list", PackedStringArray()):
-		if not missing.has(n):
-			out.append(n)
+		if missing.has(n) or (n.to_lower() != install and not small):
+			continue
+		if n.to_lower() == str(mod.get("install_mod_skipped", "")).to_lower():
+			continue
+		out.append(n)
 	return out
 
 

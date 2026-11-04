@@ -104,6 +104,58 @@ ModMountReport MountRetailMods(Win32BIGFileSystem &fileSystem, const std::vector
 bool ModsFolderOperands(const std::string &modsFolder, const std::vector<std::string> &names, std::vector<ModOperand> &out,
 	std::vector<std::string> &missing, std::string *error);
 
+// Lane IOS-31 (NOT RETAIL: OpenBFME's Mods folder, docs/MODS.md "Install-folder mods in the Mods folder"): an entry of the Mods folder that is an
+// INSTALL-FOLDER mod (Edain, Edain Unchained ...) mounts as MountInstallOverlay does for --mod-install, never as a -mod folder. An entry is one when
+//  1. it holds an openbfme-aio.json (tools/mod/aio_package.py, schema "openbfme.aio-package"): its stack's install/ folders, highest priority
+//     first, are the overlays; the stack member with the package's own guid is the entry itself, any other member is the folder of that name
+//     beside it in the Mods folder (a member that has nothing for RotWK, such as Edain's BFME2 "Edain_assets", may be absent); the first mod/
+//     folder of the stack is a -mod operand; its engine_edits' MD5s turn on ModEngineFeatures. "dependency_only" = a layer laid out for another
+//     package, not a mod of its own;
+//  2. else it has an install/ folder and no .big directly inside it (the same layout without the record): install/ is the overlay, mod/ a -mod;
+//  3. else a .big sits in its lang/ folder (Edain's lang\English.big): the entry is a copy of the files the mod puts into the game folder and is
+//     itself the overlay. Retail's -mod never mounts an archive below the folder's top level (RW 0xA17FB0 lists direct children only), so such a
+//     folder means nothing as a -mod folder: the rule cannot take a -mod folder away from -mod.
+enum class ModsFolderEntryKind
+{
+	Missing,        // not in the folder (any more)
+	Archive,        // a .big: m_modBIG's semantics
+	Folder,         // a -mod folder: m_modDir's semantics
+	InstallFolder,  // an install-folder mod (above)
+	DependencyOnly, // openbfme-aio.json "dependency_only": a layer of another package, loaded with it
+};
+
+struct InstallFolderMod
+{
+	std::string name;                    // the entry's name in the Mods folder
+	std::string title;                   // openbfme-aio.json "name" and "version" ("Edain 4.8.5.4"); "" without the record
+	std::string layout;                  // "aio" (rule 1), "install-folder" (rule 2) or "game-folder" (rule 3)
+	std::vector<std::string> overlays;   // MountInstallOverlay's folders, highest priority first
+	std::string modPart;                 // a Type 1 layer's mod/ folder ("" = none): a -mod operand under the Mods folder's other mods
+	std::vector<std::string> engineMd5s; // the stack's modified game programs (ModEngineFeatures::activate)
+	std::vector<std::string> notes;      // what the log says about it (a stack member with nothing for RotWK that is not there)
+};
+
+// What `name` in `modsFolder` is. False + *error for a name with a path in it, something that is neither a folder nor a .big, or an install-folder
+// mod whose record does not parse or whose stack lacks a folder it needs (the message says which). `install` (may be null) gets an InstallFolder's plan.
+bool ClassifyModsFolderEntry(const std::string &modsFolder, const std::string &name, ModsFolderEntryKind &kind, InstallFolderMod *install,
+	std::string *error);
+
+// The enabled list split for the mount: the install-folder mod (at most one: two is an error naming both, since each one replaces the game folder's
+// files as a whole and two would be a merge nobody made) and the -mod-style names in list order (a missing name stays in them:
+// ModsFolderOperands reports it). Wherever the install-folder mod sits in the list it is mounted FIRST, under every -mod-style mod: retail with an
+// installed Edain and a -mod reads the -mod first (RW 0x7BAA44 mounts it over the install with overwrite), so a small mod on top wins its files over
+// Edain's. A dependency_only entry turned on is an error (turn on the package itself).
+struct ModsFolderPlan
+{
+	bool hasInstall = false;
+	InstallFolderMod install;
+	std::vector<std::string> modNames;
+};
+bool PlanModsFolder(const std::string &modsFolder, const std::vector<std::string> &names, ModsFolderPlan &out, std::string *error);
+
+// The bytes of every regular file below `path` (a file: its size); 0 for a missing path. The Mods tab's size.
+std::uint64_t ModsFolderEntryBytes(const std::string &path);
+
 // The order RW 0xA17FB0 mounts a mod folder's archives in: the FilenameList set's order (case-insensitive ascending), each with
 // overwrite, so the last one wins. Exposed for tests.
 std::vector<std::string> ModFolderArchiveOrder(std::vector<std::string> names);

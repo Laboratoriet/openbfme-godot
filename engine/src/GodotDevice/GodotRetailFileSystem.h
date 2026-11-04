@@ -74,6 +74,9 @@ public:
 	// The mount creates it.
 	String get_mods_folder() const { return String::utf8(m_modsFolder.c_str()); }
 	static std::string modsFolderOf(const std::string &userDataFolder);
+	// lane IOS-31: what an entry of a Mods folder is (Common/ModMount.h ClassifyModsFolderEntry), for the Mods tab: {ok, error, kind ("missing",
+	// "archive", "folder", "install", "part"), title, layout, bytes, overlays, mod_part, engine_md5s, notes}
+	static Dictionary describe_mods_entry(const String &modsFolder, const String &name);
 	// GDScript view of the mounted mod: {mounted, archives: [{path, size}], loose_files, identity: [...], stops: [...]}
 	Dictionary get_mod_report() const;
 	// the source list of one virtual path, the winner first (ArchiveFileSystem::sourcesOf; "mod-folder:<path>" for a loose mod file)
@@ -143,6 +146,7 @@ private:
 	Dictionary mountFrom(const std::string &rotwkRoot, const std::string &bfme2Root, PackedStringArray errors);
 	Dictionary mountBfme2Shell(const std::string &bfme2Root);
 	void mountMods(const std::string &rotwkRoot, PackedStringArray &errors); // lane MODS-1
+	void planModsFolder(const std::string &rotwkRoot, std::vector<std::string> &engines, PackedStringArray &errors); // lane IOS-31
 
 	std::unique_ptr<Win32BIGFileSystem> m_fs;
 	bool m_mounted = false;
@@ -165,6 +169,13 @@ private:
 	PackedStringArray m_installModArgs; // lane MODS-2: highest priority first
 	PackedStringArray m_modEngines;     // lane MODS-3
 	ModMountReport m_installModReport;
+	// lane IOS-31: the Mods folder's enabled list split for this mount (PlanModsFolder) and the install-folder mod's folders that were mounted: the
+	// command line's --mod-install, else the Mods folder's install-folder mod
+	ModsFolderPlan m_modsPlan;
+	bool m_modsPlanned = false;
+	std::vector<std::string> m_installFolders;
+	std::string m_installModSource;  // "command line", "mods folder" or "" (none)
+	std::string m_installModSkipped; // the Mods folder's install-folder mod not mounted because --mod-install was given
 	AssetPacks m_packs;             // lane SDK-0
 	mutable std::string m_simDataKey, m_simData; // lane PROFILE-2: simulationData's cache (the archive lines and mod lines it was computed for)
 	mutable bool m_packLinesRead = false;         // lane PROFILE-3: packIdentity's cache (cleared when the packs or their checked models change)

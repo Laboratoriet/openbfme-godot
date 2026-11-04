@@ -1,5 +1,7 @@
 ## Parse the clan-choice harness on Boat; with OPENBFME_EDAIN_INSTALL and OPENBFME_EDAIN_ASSETS_INSTALL,
 ## run all three choices and the Dwarven AI through real skirmishes (one child process at a time).
+## Lane IOS-31: Edain 4.8.5.4's "Edain assets" layer (4.8.5.2) holds only BFME2's asset.dat, so tools/mod/aio_package.py lays out nothing of it
+## for RotWK: with OPENBFME_EDAIN_INSTALL alone the runs mount that one install folder (4.8.5.3 had the same assets layer).
 ## godot --headless --path godot --script res://tests/edainfactions1_test.gd
 extends SceneTree
 
@@ -25,13 +27,15 @@ func _run() -> void:
 	var install := OS.get_environment("OPENBFME_EDAIN_INSTALL")
 	var assets := OS.get_environment("OPENBFME_EDAIN_ASSETS_INSTALL")
 	if install.is_empty() and assets.is_empty():
-		print("EDAINFACTIONS1 harness parses; SKIP: set OPENBFME_EDAIN_INSTALL and OPENBFME_EDAIN_ASSETS_INSTALL for mod gameplay")
+		print("EDAINFACTIONS1 harness parses; SKIP: set OPENBFME_EDAIN_INSTALL (and OPENBFME_EDAIN_ASSETS_INSTALL when the assets layer has RotWK files) for mod gameplay")
 		quit(0)
 		return
-	if install.is_empty() or assets.is_empty() or not DirAccess.dir_exists_absolute(install) or not DirAccess.dir_exists_absolute(assets):
-		printerr("EDAINFACTIONS1 FAIL: both Edain install layers must exist (no fallback)")
+	if install.is_empty() or not DirAccess.dir_exists_absolute(install) or (not assets.is_empty() and not DirAccess.dir_exists_absolute(assets)):
+		printerr("EDAINFACTIONS1 FAIL: the Edain install layers that are set must exist (no fallback)")
 		quit(1)
 		return
+	var layers := (["--mod-install=" + assets] if not assets.is_empty() else []) + ["--mod-install=" + install]
+	print("EDAINFACTIONS1 layers: ", " ".join(layers))
 	if OS.get_environment("ROTWK_INSTALL").is_empty() or OS.get_environment("BFME2_INSTALL").is_empty():
 		printerr("EDAINFACTIONS1 FAIL: ROTWK_INSTALL and BFME2_INSTALL must be set")
 		quit(1)
@@ -41,7 +45,7 @@ func _run() -> void:
 		var output: Array = []
 		var code: int = OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"), "--",
 				"--auto", "--no-record", "--opponents=2", "--ai=4", "--faction=FactionDwarves", "--seed=7",
-				"--edain-choice=" + choice, "--mod-install=" + assets, "--mod-install=" + install], output, true)
+				"--edain-choice=" + choice] + layers, output, true)
 		var text: String = "".join(output)
 		var result := "EDAINFACTIONS1 %s: ok" % choice
 		if code != 0 or not text.contains(result):

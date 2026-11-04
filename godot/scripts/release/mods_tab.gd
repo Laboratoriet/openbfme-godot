@@ -7,6 +7,8 @@
 ## so a list that differs from what this start mounted shows "Restart to apply". One column (a two-column row leaves a label about 20 characters):
 ## the mods (at most MAX_SHOWN boxes; the page holds ten rows), then the state, the folder, OPEN and LOOK AGAIN.
 ## Not possible (the boxes greyed, the reason in the note): BFME1 mode, a -mod on the command line (it wins over the list), no mount.
+## Lane IOS-31: an install-folder mod (Edain) shows its title (openbfme-aio.json) and size; it loads first, under the other mods, wherever it is in
+## the list; a second one is refused (its box stays off and the Status row says why).
 extends RefCounted
 
 const Mods := preload("res://scripts/release/mods.gd")
@@ -24,6 +26,7 @@ var saved := PackedStringArray()   # Options.ini's list when the page opened
 var pending := PackedStringArray() # what the boxes show (written on ACCEPT)
 var _found := []                # Mods.scan of the folder (LOOK AGAIN reads it again)
 var _scanned := false
+var _refused := ""              # lane IOS-31: why the last box was not taken (the Status row shows it until the next change)
 
 
 ## The page opened: the list Options.ini holds now (`value`: its OpenBFMEMods text) and a fresh look at the folder.
@@ -67,14 +70,17 @@ func rows() -> Array:
 			continue
 		var on := _index(pending, m.name) >= 0
 		shown[m.name.to_lower()] = true
-		var help: String = m.description if not m.description.is_empty() else "No description (add a mod.txt with Title = and Description = lines)."
-		help += " · " + ("folder " if m.kind == "folder" else "file ") + m.name
-		if on and pending.size() > 1:
-			help += " · loads %s of %d" % [_ordinal(_index(pending, m.name) + 1), pending.size()]
+		var help: String = m.description if not m.description.is_empty() else ("A mod that installs into the game folder: OpenBFME lays it over the game " +
+			"files and keeps your game folder as it is." if m.kind == "install" else "No description (add a mod.txt with Title = and Description = lines).")
+		help += " · " + {"folder": "folder ", "archive": "file ", "install": "install-folder mod ", "part": "folder "}.get(m.kind, "") + m.name
+		help += " · " + Mods.size_text(m.bytes)
+		var order := _load_order(pending)
+		if on and order.size() > 1:
+			help += " · loads %s of %d" % [_ordinal(_index(order, m.name) + 1), order.size()]
 		if not m.problem.is_empty():
 			help = m.problem
 		var r := {"kind": "check", "key": PREFIX + m.name, "label": m.title, "value": 1 if on else 0, "help": help,
-			"enabled": off.is_empty() and m.problem.is_empty()}
+			"enabled": off.is_empty() and (m.problem.is_empty() or on)} # a mod with a problem can still be turned off
 		rows.append(r)
 	# an enabled mod that is not in the folder any more: its box, on, to turn it off
 	for n in pending:
@@ -105,8 +111,12 @@ func note() -> String:
 	if _found.is_empty() and pending.is_empty():
 		return "No mods in the Mods folder. Copy a mod (its folder, or one .big file) into it with %s, then LOOK AGAIN." % \
 			("the Files app (On My iPhone › OpenBFME › Mods)" if OS.has_feature("ios") else "Finder or your file manager")
+	if not _refused.is_empty():
+		return _refused + ": each one replaces the game folder's files, so two cannot load together."
 	if restart_needed():
 		return "Restart to apply: close OpenBFME and open it again after ACCEPT. Online and LAN games are off while mods are on."
+	if _found.any(func(m): return m.kind == "install"):
+		return "An install-folder mod (one at a time) loads first; the other mods go over it, a mod turned on later winning. Online and LAN games are off while mods are on."
 	return "A mod turned on later wins over one turned on before it. Online and LAN games are off while mods are on."
 
 
@@ -121,6 +131,14 @@ func set_mod(key: String, on: bool) -> bool:
 		return false
 	var name := key.trim_prefix(PREFIX)
 	var i := _index(pending, name)
+	_refused = ""
+	if on and i < 0 and _is_install(name):
+		# lane IOS-31: one install-folder mod at a time (Common/ModMount.h PlanModsFolder refuses two at the start too)
+		for n in pending:
+			if _is_install(n):
+				_refused = "Only one install-folder mod at a time: turn %s off first" % _title_of(n)
+				print("GAME MODS %s not turned on: %s" % [name, _refused])
+				return true
 	if on and i < 0:
 		pending.append(name)
 	elif not on and i >= 0:
@@ -174,6 +192,8 @@ func _folder_line() -> String:
 
 
 func _state_line() -> String:
+	if not _refused.is_empty():
+		return "One install mod at a time" # note() has the whole reason
 	var on := _effective(pending).size()
 	if restart_needed():
 		return "Restart to apply"
@@ -190,6 +210,32 @@ func _effective(list: PackedStringArray) -> PackedStringArray:
 			if m.name.to_lower() == n.to_lower():
 				out.append(m.name)
 	return out
+
+
+# lane IOS-31: the order a start mounts `list` in: the install-folder mod first (under the others), then the rest as listed
+func _load_order(list: PackedStringArray) -> PackedStringArray:
+	var out := PackedStringArray()
+	for n in list:
+		if _is_install(n):
+			out.append(n)
+	for n in list:
+		if not _is_install(n):
+			out.append(n)
+	return out
+
+
+func _is_install(name: String) -> bool:
+	for m in _found:
+		if m.name.to_lower() == name.to_lower():
+			return m.kind == "install"
+	return false
+
+
+func _title_of(name: String) -> String:
+	for m in _found:
+		if m.name.to_lower() == name.to_lower():
+			return m.title
+	return name
 
 
 func _mount() -> Dictionary:

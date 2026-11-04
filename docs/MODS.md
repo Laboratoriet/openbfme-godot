@@ -59,6 +59,33 @@ Not retail: retail RotWK has one `-mod`. OpenBFME also keeps a **Mods folder** a
   an `ExperienceLevel`). Two mods that add different files never replace each other's. A `CommandButton` defined twice keeps the first one
   (retail discards the second), so changing a button still means replacing `commandbutton.ini`.
 
+### Install-folder mods in the Mods folder (OpenBFME, lane IOS-31)
+
+An install-folder mod (Edain and the others below) can sit in the Mods folder too, which is the only way on a phone. It mounts exactly as
+`--mod-install` mounts it (the same engine call), in RotWK's load order, its `lang\` archives included.
+
+- **What counts as one.** A folder in the Mods folder that holds an `openbfme-aio.json` (the package folder `tools/mod/aio_package.py` or the
+  launcher lays out: copy `<corpus>/Edain` as it is), or an `install` folder and no `.big` directly inside it, or a `.big` in its `lang` folder
+  (a copy of the files the mod puts into the game folder). Retail's `-mod` never mounts an archive below the folder's top level, so none of
+  these means anything as a `-mod` folder. Everything else stays a `-mod` folder or archive.
+- **The record.** The package's own layer is the folder itself, whatever you name it; its other layers (an enhancement, a patch it depends on)
+  are the folders of their names beside it in the Mods folder. A layer with nothing for RotWK may be missing (Edain 4.8.5.4's "Edain assets"
+  is BFME2's `asset.dat`); one with files is needed, and the message names it. The layers' modified game programs turn their engine
+  features on (`engine_edits`, as the launcher's `--mod-engine`). A layer laid out for another package (`dependency_only`) is not a mod of its
+  own: its box is greyed.
+- **One at a time.** Each install-folder mod replaces the game folder's files as a whole, so two cannot load together: the Mods tab refuses a
+  second box ("Only one install-folder mod at a time: turn Edain 4.8.5.4 off first"), and a start with two in Options.ini stops with a message
+  naming both.
+- **With small mods (decided 2026-11-05, owner asleep: allowed).** The install-folder mod loads first, wherever it is in the list; the
+  `-mod`-style mods go over it, so a small mod's file wins over Edain's, which wins over the game's. That is retail's own order for an
+  installed Edain plus a `-mod`. It is also how a change to Edain is made without editing Edain's files: a separate small mod. A mod made from
+  the 2.01 files (the generated test mods replace whole retail INI files) undoes Edain's version of those files; the log names each mounted mod
+  in order.
+- **The tab** shows the title from the record ("Edain 4.8.5.4"; a `mod.txt` Title wins) and the size on disk. Online and LAN are off while it
+  is on, as for every Mods-folder mod. `--mod-install` on the command line wins over the folder's install-folder mod (the log says so); a
+  `-mod` on the command line wins over the whole list, as before.
+- **On a phone:** `tools/ios/copy_mod_to_device.sh <corpus>/Edain` copies the folder into the app's Documents/Mods with devicectl.
+
 ## Mods installed into the game folder (Edain)
 
 Many mods are not `-mod` folders. Their installer, or the All In One BFME Launcher, puts their archives straight into the RotWK game

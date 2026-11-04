@@ -8,11 +8,14 @@
 #include "Common/AsciiString.h"
 #include "Common/JobSystem.h"
 #include "Common/MD5.h"
+#include "Common/MiniJson.h"
 #include "Common/Md5Cache.h"
 #include "GameEngineDevice/Win32Device/Common/Win32BIGFileSystem.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <set>
@@ -799,6 +802,308 @@ bool ModsFolderOperands(const std::string &modsFolder, const std::vector<std::st
 		out.push_back(op);
 	}
 	return true;
+}
+
+namespace
+{
+
+// lane IOS-31: a Mods folder name is a direct child: no separator, no drive, no "." / ".." (ModsFolderOperands' rule)
+bool badModsFolderName(const std::string &name)
+{
+	return name.empty() || name == "." || name == ".." || name.find('/') != std::string::npos || name.find('\\') != std::string::npos ||
+		name.find(':') != std::string::npos;
+}
+
+// a child of `dir` whose name matches `leaf` without case (the Mods folder comes from Windows machines: "Install", "LANG"); "" = none
+fs::path childNoCase(const fs::path &dir, const std::string &leaf, bool wantDirectory)
+{
+	std::error_code ec;
+	const std::string want = AsciiStringUtil::lowered(leaf);
+	for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+	{
+		if (AsciiStringUtil::lowered(it->path().filename().u8string()) != want)
+		{
+			continue;
+		}
+		std::error_code sec;
+		const bool isDir = it->is_directory(sec);
+		if (isDir == wantDirectory)
+		{
+			return it->path();
+		}
+	}
+	return fs::path();
+}
+
+bool hasDirectBig(const fs::path &dir)
+{
+	std::error_code ec;
+	for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+	{
+		std::error_code sec;
+		if (it->is_regular_file(sec) && lowerExtension(it->path()) == ".big")
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool fail(std::string *error, const std::string &message)
+{
+	if (error)
+	{
+		*error = message;
+	}
+	return false;
+}
+
+// rule 1 of ClassifyModsFolderEntry: the stack of an openbfme-aio.json (tools/mod/aio_package.py schema 2)
+bool readAioRecord(const fs::path &modsFolder, const fs::path &entry, const fs::path &record, ModsFolderEntryKind &kind, InstallFolderMod *install,
+	std::string *error)
+{
+	const std::string name = entry.filename().u8string();
+	std::string text;
+	{
+		std::ifstream in(record, std::ios::binary);
+		if (!in)
+		{
+			return fail(error, "mods: cannot read " + record.u8string());
+		}
+		text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+	}
+	JsonValue root;
+	std::string jsonError;
+	if (!JsonValue::parse(text, root, &jsonError) || !root.isObject())
+	{
+		return fail(error, "mods: '" + name + "': its openbfme-aio.json does not parse (" + jsonError + ")");
+	}
+	const JsonValue *schema = root.get("schema");
+	if (!schema || !schema->isString() || schema->string.rfind("openbfme.aio-package ", 0) != 0)
+	{
+		return fail(error, "mods: '" + name + "': its openbfme-aio.json is not an All In One package record (schema \"openbfme.aio-package\")");
+	}
+	if (const JsonValue *dep = root.get("dependency_only"); dep && dep->type == JsonValue::BOOL && dep->boolean)
+	{
+		kind = ModsFolderEntryKind::DependencyOnly;
+		return true;
+	}
+	const JsonValue *stack = root.get("stack");
+	const JsonValue *guid = root.get("guid");
+	if (!stack || !stack->isArray() || stack->array.empty() || !guid || !guid->isString())
+	{
+		return fail(error, "mods: '" + name + "': its openbfme-aio.json has no stack");
+	}
+	kind = ModsFolderEntryKind::InstallFolder;
+	if (!install)
+	{
+		return true;
+	}
+	InstallFolderMod plan;
+	plan.name = name;
+	plan.layout = "aio";
+	const JsonValue *title = root.get("name");
+	const JsonValue *version = root.get("version");
+	if (title && title->isString())
+	{
+		plan.title = title->string + (version && version->isString() && !version->string.empty() ? " " + version->string : "");
+	}
+	for (const JsonValue &member : stack->array)
+	{
+		const JsonValue *folder = member.get("folder");
+		const JsonValue *memberGuid = member.get("guid");
+		const JsonValue *parts = member.get("parts");
+		const JsonValue *memberName = member.get("name");
+		if (!folder || !folder->isString() || badModsFolderName(folder->string) || !memberGuid || !memberGuid->isString() || !parts || !parts->isArray())
+		{
+			return fail(error, "mods: '" + name + "': its openbfme-aio.json has a stack member without a plain folder, guid and parts");
+		}
+		const std::string label = (memberName && memberName->isString() ? memberName->string : folder->string);
+		// the package itself is the entry, whatever the player named it; the other layers sit beside it (aio_package.py lays each out once)
+		const bool self = memberGuid->string == guid->string;
+		const fs::path dir = self ? entry : modsFolder / fs::u8path(folder->string);
+		std::error_code ec;
+		if (!fs::is_directory(dir, ec))
+		{
+			if (parts->array.empty())
+			{
+				plan.notes.push_back("install mod " + name + ": " + label + " has nothing for RotWK and is not in the Mods folder (not needed)");
+				continue;
+			}
+			return fail(error, "mods: '" + name + "' needs " + label + " (the folder " + folder->string + ", laid out with it by tools/mod/aio_package.py) "
+				"beside it in the Mods folder");
+		}
+		for (const JsonValue &part : parts->array)
+		{
+			if (!part.isString())
+			{
+				return fail(error, "mods: '" + name + "': its openbfme-aio.json has a part that is not a name");
+			}
+			if (part.string == "maps")
+			{
+				plan.notes.push_back("install mod " + name + ": the maps of " + label + " are not mounted (user maps: ROADMAP MOD-5)");
+				continue;
+			}
+			if (part.string != "install" && part.string != "mod")
+			{
+				return fail(error, "mods: '" + name + "': its openbfme-aio.json names an unknown part \"" + part.string + "\"");
+			}
+			const fs::path sub = childNoCase(dir, part.string, true);
+			if (sub.empty())
+			{
+				return fail(error, "mods: '" + name + "': " + label + "'s " + part.string + " folder is missing: the copy is incomplete");
+			}
+			if (part.string == "install")
+			{
+				plan.overlays.push_back(sub.u8string());
+			}
+			else if (plan.modPart.empty())
+			{
+				plan.modPart = sub.u8string();
+			}
+		}
+	}
+	if (const JsonValue *edits = root.get("engine_edits"); edits && edits->isArray())
+	{
+		for (const JsonValue &e : edits->array)
+		{
+			const size_t at = e.isString() ? e.string.rfind(" md5 ") : std::string::npos; // "<package>: <file> md5 <hex>" (aio_package.py)
+			if (at == std::string::npos)
+			{
+				return fail(error, "mods: '" + name + "': its openbfme-aio.json has an engine edit without an md5");
+			}
+			plan.engineMd5s.push_back(e.string.substr(at + 5));
+		}
+	}
+	if (plan.overlays.empty() && plan.modPart.empty())
+	{
+		return fail(error, "mods: '" + name + "': its All In One package has nothing for RotWK to mount");
+	}
+	*install = std::move(plan);
+	return true;
+}
+
+} // namespace
+
+bool ClassifyModsFolderEntry(const std::string &modsFolder, const std::string &name, ModsFolderEntryKind &kind, InstallFolderMod *install,
+	std::string *error)
+{
+	kind = ModsFolderEntryKind::Missing;
+	if (badModsFolderName(name))
+	{
+		return fail(error, "mods: '" + name + "' is not the name of a mod in the Mods folder (a folder or a .big file directly in it)");
+	}
+	const fs::path folder = fs::u8path(modsFolder);
+	const fs::path p = folder / fs::u8path(name);
+	std::error_code ec;
+	const fs::file_status st = fs::symlink_status(p, ec);
+	if (ec || !fs::exists(st))
+	{
+		return true;
+	}
+	if (fs::is_regular_file(st) && lowerExtension(p) == ".big")
+	{
+		kind = ModsFolderEntryKind::Archive;
+		return true;
+	}
+	if (!fs::is_directory(st))
+	{
+		return fail(error, "mods: '" + name + "' in " + modsFolder + " is neither a folder nor a .big file");
+	}
+	kind = ModsFolderEntryKind::Folder;
+	const fs::path record = childNoCase(p, "openbfme-aio.json", false);
+	if (!record.empty())
+	{
+		return readAioRecord(folder, p, record, kind, install, error); // rule 1
+	}
+	const fs::path installDir = childNoCase(p, "install", true);
+	if (!installDir.empty() && !hasDirectBig(p))
+	{
+		kind = ModsFolderEntryKind::InstallFolder; // rule 2
+		if (install)
+		{
+			*install = InstallFolderMod();
+			install->name = name;
+			install->layout = "install-folder";
+			install->overlays.push_back(installDir.u8string());
+			const fs::path modDir = childNoCase(p, "mod", true);
+			install->modPart = modDir.empty() ? std::string() : modDir.u8string();
+		}
+		return true;
+	}
+	const fs::path lang = childNoCase(p, "lang", true);
+	if (!lang.empty() && hasDirectBig(lang))
+	{
+		kind = ModsFolderEntryKind::InstallFolder; // rule 3
+		if (install)
+		{
+			*install = InstallFolderMod();
+			install->name = name;
+			install->layout = "game-folder";
+			install->overlays.push_back(p.u8string());
+		}
+	}
+	return true;
+}
+
+bool PlanModsFolder(const std::string &modsFolder, const std::vector<std::string> &names, ModsFolderPlan &out, std::string *error)
+{
+	out = ModsFolderPlan();
+	ModsFolderPlan plan; // `out` stays empty on an error
+	for (const std::string &name : names)
+	{
+		ModsFolderEntryKind kind;
+		InstallFolderMod install;
+		if (!ClassifyModsFolderEntry(modsFolder, name, kind, &install, error))
+		{
+			return false;
+		}
+		if (kind == ModsFolderEntryKind::DependencyOnly)
+		{
+			return fail(error, "mods: '" + name + "' is a part of another mod (an All In One package's layer), not a mod of its own: turn on the mod "
+				"that needs it instead");
+		}
+		if (kind != ModsFolderEntryKind::InstallFolder)
+		{
+			plan.modNames.push_back(name); // ModsFolderOperands checks the rest (twice, missing)
+			continue;
+		}
+		if (plan.hasInstall)
+		{
+			return fail(error, "mods: '" + plan.install.name + "' and '" + name + "' are both install-folder mods, and only one can be on at a time "
+				"(each replaces the game folder's files): turn one of them off in Options > Mods");
+		}
+		plan.hasInstall = true;
+		plan.install = std::move(install);
+	}
+	out = std::move(plan);
+	return true;
+}
+
+std::uint64_t ModsFolderEntryBytes(const std::string &path)
+{
+	const fs::path p = fs::u8path(path);
+	std::error_code ec;
+	const fs::file_status st = fs::symlink_status(p, ec);
+	if (ec || !fs::exists(st))
+	{
+		return 0;
+	}
+	if (fs::is_regular_file(st))
+	{
+		return (std::uint64_t)fs::file_size(p, ec);
+	}
+	std::uint64_t total = 0;
+	for (fs::recursive_directory_iterator it(p, fs::directory_options::none, ec), end; !ec && it != end; it.increment(ec))
+	{
+		std::error_code sec;
+		if (it->is_regular_file(sec) && !it->is_symlink(sec))
+		{
+			const std::uintmax_t size = it->file_size(sec);
+			total += sec ? 0 : (std::uint64_t)size;
+		}
+	}
+	return total;
 }
 
 ModMountReport MountInstallOverlay(Win32BIGFileSystem &out, const RetailMountReport &retail, const std::string &overlay, const ModMountOptions &options)
