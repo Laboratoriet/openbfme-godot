@@ -55,6 +55,11 @@ void AptView3DImageSize(float rectW, float rectH, float scaleX, float scaleY, bo
 	height = std::max(1, (int)std::lround(rectH / scaleY * scaleX));
 }
 
+float AptView3DBackdropWidth(float rectW, float rectH)
+{
+	return std::max(rectW, rectH * 4.0f / 3.0f);
+}
+
 bool AptView3DOnMenuLevel(const std::string &path, const std::vector<int> &menuLevels)
 {
 	static const char kPrefix[] = "_level";

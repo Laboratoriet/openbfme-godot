@@ -4783,20 +4783,22 @@ void AptMenuPlayer::drawSegment(const AptCanvasList &list, size_t segment, const
 					}
 					// lane IOS-29: under the round-HUD rule (AptUniformHud) the clip is drawn at one scale; the image undoes only the stretch it left
 					float presentX = 1.0f, presentY = 1.0f;
+					bool backdrop = false;
 					if (m->shell && m->shell->wm)
 					{
 						AptUniformHud::presentScale(m->shell->wm->apt(), op.path, presentX, presentY);
+						backdrop = AptUniformHud::isBackdrop(m->shell->wm->apt(), op.path); // lane IOS-33: the in-game dim over the whole window
 					}
 					if (presentX != 1.0f || presentY != 1.0f)
 					{
 						AptCanvasOp drawn = op;
 						drawn.scaleX *= presentX;
 						drawn.scaleY *= presentY;
-						m->view3d.draw(item, Rect2(minx, miny, maxx - minx, maxy - miny), drawn, AptView3DOnMenuLevel(op.path, menuLevels));
+						m->view3d.draw(item, Rect2(minx, miny, maxx - minx, maxy - miny), drawn, AptView3DOnMenuLevel(op.path, menuLevels), backdrop);
 					}
 					else
 					{
-						m->view3d.draw(item, Rect2(minx, miny, maxx - minx, maxy - miny), op, AptView3DOnMenuLevel(op.path, menuLevels));
+						m->view3d.draw(item, Rect2(minx, miny, maxx - minx, maxy - miny), op, AptView3DOnMenuLevel(op.path, menuLevels), backdrop);
 					}
 					break;
 				}

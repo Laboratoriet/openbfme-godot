@@ -16,6 +16,7 @@
 #include "Libraries/Source/Apt/AptButtonInst.h"
 #include "Libraries/Source/Apt/AptInput.h"
 #include "GameClient/AptCanvas.h"
+#include "GameClient/AptView3D.h"
 #include "GameClient/GUI/AptScreens/AptSpellStore.h"
 #include "GameClient/SpellBookUI.h"
 
@@ -1299,6 +1300,41 @@ const AptUniformHud::Entry *auditEntry(const std::vector<AptUniformHud::Entry> &
 }
 } // namespace
 
+namespace
+{
+// lane IOS-33: the in-game background's View3D dim (Background.apt's SFE_MenuOverlay, shown with the spell store) as drawn: its clip's rectangle in
+// window pixels (`rect`: x0 y0 x1 y1) and its target path; false when it is not drawn
+bool overlayRect(PalantirRig &hud, const AptStageMapping &m, float rect[4], std::string &path)
+{
+	AptRenderList rl;
+	hud.hud->apt().buildRenderList(rl);
+	for (const AptRenderCommand &c : rl.commands)
+	{
+		if (c.level != hud.hud->windows().backgroundLevel() || c.kind != AptRenderCommand::Kind::Placeholder || c.renderObject != "SFE_MenuOverlay" ||
+			!(c.color.mul[3] > 0.0f))
+		{
+			continue;
+		}
+		rect[0] = rect[1] = 1e9f;
+		rect[2] = rect[3] = -1e9f;
+		const float xs[4] = { c.bounds[0], c.bounds[2], c.bounds[0], c.bounds[2] }, ys[4] = { c.bounds[1], c.bounds[1], c.bounds[3], c.bounds[3] };
+		for (int i = 0; i < 4; ++i)
+		{
+			float sx, sy, wx, wy;
+			c.matrix.apply(xs[i], ys[i], sx, sy);
+			m.stageToWindow(sx, sy, wx, wy);
+			rect[0] = std::min(rect[0], wx);
+			rect[1] = std::min(rect[1], wy);
+			rect[2] = std::max(rect[2], wx);
+			rect[3] = std::max(rect[3], wy);
+		}
+		path = c.path;
+		return true;
+	}
+	return false;
+}
+} // namespace
+
 TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD draw uniform on touch, landscape, portrait and 4:3 (IOS-29 guard)")
 {
 	if (!haveWorld("hud2 round hud"))
@@ -1306,6 +1342,7 @@ TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD d
 		return;
 	}
 	PalantirRig hud(shared());
+	REQUIRE(hud.hud->windows().loadBackground()); // lane IOS-33: the in-game background the store dims the game with (the device loads it)
 	hud.frames(30);
 	Object *builder = hud.rig.make("MenPorter", 2800, 1400);
 	REQUIRE(builder != nullptr);
@@ -1407,6 +1444,44 @@ TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD d
 				l.stageToWindow(cx, cy, wx, wy);
 				CHECK(wx == doctest::Approx(1335.0f * 0.5f)); // tolerance: float maths of the stage mapping
 				CHECK(root->presentTransform.d == 1.0f); // the stretched axis keeps the stage edge to edge
+			}
+			// lane IOS-33: the dim behind the store (the in-game background's View3D) covers the whole window, portrait and landscape: its clip is a
+			// backdrop edge to edge on the window, and the device draws it at least 4:3 (the plane's fixed horizontal field of view then covers the
+			// height), centred; the store itself stays uniform and centred (above)
+			for (auto size : { std::pair<int, int>{ 939, 1335 }, std::pair<int, int>{ 1335, 939 } })
+			{
+				INFO("the dim at ", size.first, "x", size.second);
+				roundAudit(hud, size.first, size.second, 1.0f, true);
+				AptStageMapping w;
+				w.windowW = (float)size.first;
+				w.windowH = (float)size.second;
+				float dim[4];
+				std::string dimPath;
+				REQUIRE(overlayRect(hud, w, dim, dimPath));
+				INFO(dimPath, " ", dim[0], " ", dim[1], " ", dim[2], " ", dim[3]);
+				CHECK(AptUniformHud::isBackdrop(hud.hud->apt(), dimPath));
+				CHECK(dim[0] <= 1.0f); // tolerance: the clip may bleed past the edge; one pixel of float maths of the stage mapping
+				CHECK(dim[1] <= 1.0f); // tolerance: the clip may bleed past the edge; one pixel of float maths of the stage mapping
+				CHECK(dim[2] >= w.windowW - 1.0f); // tolerance: the clip may bleed past the edge; one pixel of float maths of the stage mapping
+				CHECK(dim[3] >= w.windowH - 1.0f); // tolerance: the clip may bleed past the edge; one pixel of float maths of the stage mapping
+				const float width = AptView3DBackdropWidth(dim[2] - dim[0], dim[3] - dim[1]);
+				CHECK(width * 3.0f >= (dim[3] - dim[1]) * 4.0f - 1.0f); // tolerance: one pixel of float maths
+				CHECK(width >= dim[2] - dim[0]); // tolerance: never narrower than the clip (equal when 4:3, wider in portrait)
+				if (size.first > size.second)
+				{
+					CHECK(width == dim[2] - dim[0]); // wider than 4:3: the clip's own rectangle, as retail
+				}
+			}
+			// a desktop at 100 %: no backdrop, the View3D at its clip's rectangle as retail
+			{
+				roundAudit(hud, 939, 1335, 1.0f, false);
+				AptStageMapping w;
+				w.windowW = 939.0f;
+				w.windowH = 1335.0f;
+				float dim[4];
+				std::string dimPath;
+				REQUIRE(overlayRect(hud, w, dim, dimPath));
+				CHECK_FALSE(AptUniformHud::isBackdrop(hud.hud->apt(), dimPath));
 			}
 			// a desktop at 100 % in the same portrait window: retail's stretch, no presentTransform
 			const std::vector<AptUniformHud::Entry> desk = roundAudit(hud, 939, 1335, 1.0f, false);

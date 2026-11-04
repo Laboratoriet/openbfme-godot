@@ -52,7 +52,9 @@ public:
 	void beginBuild(const std::set<std::string> *paths = nullptr);
 	// The View3D placeholder `op` (nativeTag, symbolName "View3D") drawn into `item` over `rect` (window pixels). Creates the viewer on first use.
 	// `stretchWithStage`: Sol r1 (ONLINE-5, S-4555): the clip is on a shell menu screen (AptView3DOnMenuLevel): it stretches with the stage
-	void draw(RID item, const Rect2 &rect, const AptCanvasOp &op, bool stretchWithStage);
+	// `backdrop` (lane IOS-33, AptUniformHud::isBackdrop): the clip is drawn at least as wide as a 4:3 window of its height (AptView3DBackdropWidth),
+	// centred on it, so its dimming plane covers a window taller than 4:3
+	void draw(RID item, const Rect2 &rect, const AptCanvasOp &op, bool stretchWithStage, bool backdrop = false);
 	void endBuild();
 	// Per render frame: the animation clocks, the poses and the cameras.
 	void advance();

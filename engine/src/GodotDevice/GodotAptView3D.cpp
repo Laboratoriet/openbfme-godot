@@ -211,7 +211,7 @@ void AptView3DViewers::beginBuild(const std::set<std::string> *paths)
 	}
 }
 
-void AptView3DViewers::draw(RID item, const Rect2 &rect, const AptCanvasOp &op, bool stretchWithStage)
+void AptView3DViewers::draw(RID item, const Rect2 &rect, const AptCanvasOp &op, bool stretchWithStage, bool backdrop)
 {
 	if (op.renderObject.empty() || rect.size.x < 1.0f || rect.size.y < 1.0f)
 	{
@@ -256,8 +256,15 @@ void AptView3DViewers::draw(RID item, const Rect2 &rect, const AptCanvasOp &op, 
 	// RW 0xB5470F: the viewport is the clip's rectangle. Lane ONLINE-5 [S-4555]: under an uneven stage stretch (a window that is not 4:3) a menu
 	// screen's model (stretchWithStage) is rendered with its clip's stage aspect and stretched with the movie (AptView3DImageSize), so the 3D menu frame
 	// stays around its panels; any other View3D (GuiFX's end-screen rings) keeps retail's aspect
+	// lane IOS-33: a backdrop's clip (the in-game dim) is drawn at least as wide as a 4:3 window of its height, centred: its sides past the clip's
+	Rect2 drawn = rect;
+	if (backdrop)
+	{
+		drawn.size.x = AptView3DBackdropWidth(rect.size.x, rect.size.y);
+		drawn.position.x = rect.position.x + (rect.size.x - drawn.size.x) * 0.5f;
+	}
 	int imageW = 1, imageH = 1;
-	AptView3DImageSize(rect.size.x, rect.size.y, op.scaleX, op.scaleY, slot.keepAspect, stretchWithStage, imageW, imageH);
+	AptView3DImageSize(drawn.size.x, drawn.size.y, op.scaleX, op.scaleY, slot.keepAspect, stretchWithStage, imageW, imageH);
 	const Vector2i size(imageW, imageH);
 	if (slot.black->get_size() != size)
 	{
@@ -265,9 +272,9 @@ void AptView3DViewers::draw(RID item, const Rect2 &rect, const AptCanvasOp &op, 
 		slot.white->set_size(size);
 	}
 	RenderingServer *rs = RenderingServer::get_singleton();
-	rs->canvas_item_set_copy_to_backbuffer(item, true, rect);
+	rs->canvas_item_set_copy_to_backbuffer(item, true, rect); // the screen behind the clip: what of `drawn` is on the window
 	rs->canvas_item_set_material(item, slot.material->get_rid());
-	rs->canvas_item_add_texture_rect(item, rect, slot.black->get_texture()->get_rid());
+	rs->canvas_item_add_texture_rect(item, drawn, slot.black->get_texture()->get_rid());
 	pose(slot, now);
 }
 

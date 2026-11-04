@@ -55,6 +55,13 @@ bool AptView3DKeepAspect(const std::string &value);
 // frame stays around the panels and titles it frames. With equal scales, or without `stretchWithStage`, the result is the clip's rectangle, as
 // retail's. `keepAspect` false: the clip's rectangle (the camera's own aspect is not ported, S-1483)
 void AptView3DImageSize(float rectW, float rectH, float scaleX, float scaleY, bool keepAspect, bool stretchWithStage, int &width, int &height);
+// Lane IOS-33 (OpenBFME presentation, not retail; the owner's call 2026-11-04: "the dim covers the full screen behind the menus in portrait"): the
+// width a backdrop View3D clip is drawn at (AptUniformHud::isBackdrop: the in-game background's SFE_MenuOverlay, edge to edge on the window).
+// TARGET FACT: the model is seen through a fixed 50 degree horizontal field of view (RW 0xB544E4), so its dimming plane fills the image's width and
+// a fixed share of its height; RotWK's displays are 4:3 or wider, where the plane covers the whole height. INFERENCE: a window taller than 4:3 (a
+// phone in portrait) would show the game un-dimmed above and below the plane, so the clip is drawn as a 4:3 window of its height would draw it,
+// centred, its sides past the window's: the plane covers the window, the rune ring stays round. A 4:3 or wider clip: its own width.
+float AptView3DBackdropWidth(float rectW, float rectH);
 // Sol r1 (ONLINE-5): does the View3D clip at `path` ("_level<N>.<...>", its target path) belong to one of `menuLevels` (the levels of the shell's menu
 // screens)? Those clips stretch with the stage (AptView3DImageSize); any other level's (GuiFX's end screen, an in-game movie) keeps retail's aspect
 bool AptView3DOnMenuLevel(const std::string &path, const std::vector<int> &menuLevels);

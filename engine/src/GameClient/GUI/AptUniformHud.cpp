@@ -259,26 +259,23 @@ void AptUniformHud::audit(Apt &apt, const AptStageMapping &mapping, std::vector<
 	}
 }
 
-void AptUniformHud::presentScale(Apt &apt, const std::string &path, float &fx, float &fy)
+namespace
 {
-	fx = fy = 1.0f;
+// the level root and the root's child at the start of `path` ("_level<n>.<child>..."); child null when the path is the root's or names no child
+const AptSpriteInst *rootAndChild(Apt &apt, const std::string &path, const AptCharacterInst *&child)
+{
+	child = nullptr;
 	static const char kPrefix[] = "_level";
 	if (path.compare(0, sizeof(kPrefix) - 1, kPrefix) != 0)
 	{
-		return;
+		return nullptr;
 	}
 	const std::size_t dot = path.find('.');
 	const int level = std::atoi(path.substr(sizeof(kPrefix) - 1, dot == std::string::npos ? std::string::npos : dot - (sizeof(kPrefix) - 1)).c_str());
 	const AptSpriteInst *root = apt.level(level);
-	if (!root)
+	if (!root || dot == std::string::npos)
 	{
-		return;
-	}
-	fx = scaleOfX(root->presentTransform);
-	fy = scaleOfY(root->presentTransform);
-	if (dot == std::string::npos)
-	{
-		return;
+		return root;
 	}
 	const std::size_t end = path.find('.', dot + 1);
 	const std::string segment = path.substr(dot + 1, end == std::string::npos ? std::string::npos : end - dot - 1);
@@ -286,11 +283,38 @@ void AptUniformHud::presentScale(Apt &apt, const std::string &path, float &fx, f
 	{
 		if (c->pathSegment() == segment)
 		{
-			fx *= scaleOfX(c->presentTransform);
-			fy *= scaleOfY(c->presentTransform);
-			return;
+			child = c;
+			break;
 		}
 	}
+	return root;
+}
+} // namespace
+
+void AptUniformHud::presentScale(Apt &apt, const std::string &path, float &fx, float &fy)
+{
+	fx = fy = 1.0f;
+	const AptCharacterInst *child = nullptr;
+	const AptSpriteInst *root = rootAndChild(apt, path, child);
+	if (!root)
+	{
+		return;
+	}
+	fx = scaleOfX(root->presentTransform);
+	fy = scaleOfY(root->presentTransform);
+	if (child)
+	{
+		fx *= scaleOfX(child->presentTransform);
+		fy *= scaleOfY(child->presentTransform);
+	}
+}
+
+bool AptUniformHud::isBackdrop(Apt &apt, const std::string &path)
+{
+	// apply() gives a corrected root's child a presentTransform only when backdrop() found it one; laid out per child, the root has none
+	const AptCharacterInst *child = nullptr;
+	const AptSpriteInst *root = rootAndChild(apt, path, child);
+	return root && child && !isIdentity(root->presentTransform) && !isIdentity(child->presentTransform);
 }
 
 AptMatrix AptUniformHud::backdrop(AptSpriteInst &root, AptCharacterInst &child, const AptStageMapping &mapping)

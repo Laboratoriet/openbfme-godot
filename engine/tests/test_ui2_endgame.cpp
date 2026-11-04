@@ -172,6 +172,12 @@ TEST_CASE("ui2 View3D animation: the mode names (RW 0xDC3BC0), PLAY_TO_FRAME sto
 	CHECK_FALSE(AptView3DOnMenuLevel("Frame.MenuLogin", { 1 }));
 	CHECK_FALSE(AptView3DOnMenuLevel("_level.Frame", { 0 }));
 	CHECK_FALSE(AptView3DOnMenuLevel("_level99999999999.Frame", { 1 }));
+	// lane IOS-33: a backdrop View3D (the in-game dim) is drawn at least as wide as a 4:3 window of its height: a portrait window gets 4:3, centred
+	// past its sides; 4:3 and wider windows their own width
+	CHECK(AptView3DBackdropWidth(939.0f, 1335.0f) == doctest::Approx(1780.0f)); // tolerance: float maths of 1335 * 4 / 3
+	CHECK(AptView3DBackdropWidth(1024.0f, 768.0f) == doctest::Approx(1024.0f)); // tolerance: float maths of 768 * 4 / 3
+	CHECK(AptView3DBackdropWidth(1335.0f, 939.0f) == 1335.0f);
+	CHECK(AptView3DBackdropWidth(2670.0f, 1878.0f) == 2670.0f);
 	// degenerate input is a 1 x 1 image, never a zero or negative size
 	AptView3DImageSize(0.0f, -5.0f, 0.0f, 0.0f, true, true, w, h);
 	CHECK(w == 1);

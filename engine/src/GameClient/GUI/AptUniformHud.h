@@ -19,7 +19,9 @@
 //     clamped to 0 .. 1): a box flush with the left edge keeps that edge, one flush right its right edge, a centred one (a full-screen menu)
 //     its centre - a uniformly scaled, centred menu, as the front end's Fit mapping draws it in portrait.
 //   * a backdrop (a root unit's child edge to edge across the stage on the shrunk axis, with no button in it: a shade, a band) keeps the stretch
-//     on that axis (backdrop()), so the pause menu still dims the whole screen and its title band still spans it.
+//     on that axis (backdrop()), so the pause menu still dims the whole screen and its title band still spans it. Lane IOS-33: the dim itself is
+//     the in-game background's View3D (SFE_MenuOverlay), a model seen at a fixed horizontal field of view: the device draws a backdrop's View3D
+//     over the whole window (isBackdrop, AptView3DBackdropWidth), so in portrait the game is dimmed above and below the menu too.
 // The correction sits in AptCharacterInst::presentTransform, outside the screen's own viewport transforms, so the drawing (AptRenderList) and every
 // hit test (globalMatrix: AptInput, the tap assist's nearest button, the held finger's help) read the same matrix. Off (a desktop at 100 %),
 // every presentTransform is the identity and the drawing is retail's exactly.
@@ -83,6 +85,9 @@ public:
 	// the rule's x / y factors on the instance at `path` ("_level<n>.<child>...": its level root's and that root child's presentTransform), 1 / 1 when
 	// none: the device's View3D (AptView3DImageSize) undoes only the stretch the rule left (GodotAptPlayer)
 	static void presentScale(Apt &apt, const std::string &path, float &fx, float &fy);
+	// lane IOS-33: is the instance at `path` in a backdrop of a corrected level (backdrop(): a root's child kept edge to edge on the window)? The
+	// device draws such a View3D (the in-game background's dimming plane, SFE_MenuOverlay) over the whole window (AptView3DBackdropWidth)
+	static bool isBackdrop(Apt &apt, const std::string &path);
 	// a root unit's child drawn edge to edge across the stage on the axis the root's correction shrinks, with no button in it (the in-game
 	// background's shade, the pause menu's title band): a backdrop - it keeps the stage's stretch on that axis (a fill has nothing round to squash;
 	// shrunk, it would leave the game un-dimmed beside it) and the root's correction on the other; the identity for any other child
