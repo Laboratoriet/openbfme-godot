@@ -1353,7 +1353,8 @@ TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD d
 		}
 		if (store)
 		{
-			// the store in portrait: one unit (its root), at the 4:3-fit scale about the stage's centre; a press inside a drawn button hits that button
+			// the store in portrait: one unit (its root), at the 4:3-fit scale; lane IOS-32: a menu, so the stage's centre is drawn at the window's centre
+			// (no safe area here); a press inside a drawn button hits that button
 			roundAudit(hud, 939, 1335, 1.0f, true);
 			AptSpriteInst *root = hud.hud->apt().level(hud.hud->spellStore()->level());
 			REQUIRE(root != nullptr);
@@ -1361,26 +1362,11 @@ TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD d
 			m.windowW = 939.0f;
 			m.windowH = 1335.0f;
 			CHECK(root->presentTransform.d * m.scaleY() == doctest::Approx(m.scaleX())); // tolerance: float products of the fit factor
-			// anchored at its own place: the content box keeps its relative position on the stage's height (t = top / (stage - height))
-			float x0, y0, x1, y1;
-			REQUIRE(root->contentBounds(x0, y0, x1, y1));
-			const AptMatrix placed = root->viewportTransform.concat(root->matrix);
-			float px0, py0, px1, py1, qx0, qy0, qx1, qy1;
-			placed.apply(x0, y0, px0, py0);
-			placed.apply(x1, y1, px1, py1);
-			root->presentTransform.apply(px0, py0, qx0, qy0);
-			root->presentTransform.apply(px1, py1, qx1, qy1);
-			// (a box as tall as the stage or taller keeps its centre)
-			if (std::fabs(py1 - py0) >= 768.0f)
-			{
-				CHECK((qy0 + qy1) * 0.5f == doctest::Approx((py0 + py1) * 0.5f)); // tolerance: float maths of the anchor
-			}
-			else
-			{
-				const float before = std::min(py0, py1) / (768.0f - std::fabs(py1 - py0));
-				const float after = std::min(qy0, qy1) / (768.0f - std::fabs(qy1 - qy0));
-				CHECK(after == doctest::Approx(std::clamp(before, 0.0f, 1.0f)).epsilon(0.001)); // tolerance: float maths of the anchor
-			}
+			float cx, cy, wx, wy;
+			root->presentTransform.apply(512.0f, 384.0f, cx, cy);
+			m.stageToWindow(cx, cy, wx, wy);
+			CHECK(wx == doctest::Approx(939.0f * 0.5f)); // tolerance: float maths of the stage mapping
+			CHECK(wy == doctest::Approx(1335.0f * 0.5f)); // tolerance: float maths of the stage mapping
 			AptButtonInst *b = firstButton(root);
 			REQUIRE(b != nullptr);
 			float box[4];
@@ -1391,6 +1377,37 @@ TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD d
 			float sx, sy;
 			m.windowToStage((box[0] + box[2]) * 0.5f, (box[1] + box[3]) * 0.5f, sx, sy);
 			CHECK(hud.hud->apt().input().hitTestButtons(sx, sy) == b);
+			// lane IOS-32: with a safe area (a notch of 150 px at the top, a home indicator of 60 px at the bottom) the menu's centre is the safe area's:
+			// y = 150 + (1335 - 150 - 60) / 2 = 712.5 window pixels; its buttons still hit where they are drawn
+			{
+				AptPalantir::HudLayout safe;
+				safe.roundHud = true;
+				safe.safeInsets[1] = 150.0f;
+				safe.safeInsets[3] = 60.0f;
+				hud.hud->setHudLayout(safe);
+				hud.frames(2);
+				root->presentTransform.apply(512.0f, 384.0f, cx, cy);
+				m.stageToWindow(cx, cy, wx, wy);
+				CHECK(wx == doctest::Approx(939.0f * 0.5f)); // tolerance: float maths of the stage mapping
+				CHECK(wy == doctest::Approx(712.5f)); // tolerance: float maths of the stage mapping
+				CHECK(root->presentTransform.d * m.scaleY() == doctest::Approx(m.scaleX())); // tolerance: float products of the fit factor
+				AptButtonInst *sb = firstButton(root);
+				REQUIRE(sb != nullptr);
+				float sbox[4];
+				globalBox(sb, m, sbox);
+				m.windowToStage((sbox[0] + sbox[2]) * 0.5f, (sbox[1] + sbox[3]) * 0.5f, sx, sy);
+				CHECK(hud.hud->apt().input().hitTestButtons(sx, sy) == sb);
+				// landscape with the same layout: x is the shrunk axis; the stage's centre on the safe area's centre (no side insets: the window's)
+				hud.hud->setWindowSize(1335, 939);
+				hud.frames(2);
+				AptStageMapping l;
+				l.windowW = 1335.0f;
+				l.windowH = 939.0f;
+				root->presentTransform.apply(512.0f, 384.0f, cx, cy);
+				l.stageToWindow(cx, cy, wx, wy);
+				CHECK(wx == doctest::Approx(1335.0f * 0.5f)); // tolerance: float maths of the stage mapping
+				CHECK(root->presentTransform.d == 1.0f); // the stretched axis keeps the stage edge to edge
+			}
 			// a desktop at 100 % in the same portrait window: retail's stretch, no presentTransform
 			const std::vector<AptUniformHud::Entry> desk = roundAudit(hud, 939, 1335, 1.0f, false);
 			const AptUniformHud::Entry *storeUnit = auditEntry(desk, "_level" + std::to_string(hud.hud->spellStore()->level()));

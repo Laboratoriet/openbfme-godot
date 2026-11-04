@@ -68,7 +68,20 @@ float anchorOf(float lo, float hi, float extent)
 }
 } // namespace
 
-AptMatrix AptUniformHud::correction(const AptCharacterInst &unit, const AptMatrix &parentChain, const AptStageMapping &mapping, float &fixX, float &fixY)
+bool AptUniformHud::Menus::has(int level) const
+{
+	return std::find(levels.begin(), levels.end(), level) != levels.end();
+}
+
+void AptUniformHud::safeCentre(const AptStageMapping &mapping, const float safeInsets[4], float &cx, float &cy)
+{
+	const float wx = safeInsets[0] + (mapping.windowW - safeInsets[0] - safeInsets[2]) * 0.5f;
+	const float wy = safeInsets[1] + (mapping.windowH - safeInsets[1] - safeInsets[3]) * 0.5f;
+	mapping.windowToStage(wx, wy, cx, cy);
+}
+
+AptMatrix AptUniformHud::correction(const AptCharacterInst &unit, const AptMatrix &parentChain, const AptStageMapping &mapping, float &fixX, float &fixY,
+	const float *centre)
 {
 	fixX = fixY = 1.0f;
 	// the presentation scale above the unit: the mapping, the parents' viewport / present transforms (parentChain's scale: the authored matrices of
@@ -113,6 +126,19 @@ AptMatrix AptUniformHud::correction(const AptCharacterInst &unit, const AptMatri
 	fix.d = fixY;
 	fix.tx = ax * (1.0f - fixX);
 	fix.ty = ay * (1.0f - fixY);
+	if (centre)
+	{
+		// lane IOS-32, a menu: on the shrunk axis the stage's centre goes to the safe area's centre (x' = c + fix (x - stage / 2)); the other axis
+		// (factor 1) keeps the stage's stretch edge to edge
+		if (fixX < 1.0f)
+		{
+			fix.tx = centre[0] - fixX * mapping.stageW * 0.5f;
+		}
+		if (fixY < 1.0f)
+		{
+			fix.ty = centre[1] - fixY * mapping.stageH * 0.5f;
+		}
+	}
 	if (isIdentity(parentChain))
 	{
 		return fix;
@@ -130,6 +156,13 @@ AptMatrix AptUniformHud::correction(const AptCharacterInst &unit, const AptMatri
 
 void AptUniformHud::apply(Apt &apt, const AptStageMapping &mapping, bool enabled)
 {
+	apply(apt, mapping, enabled, Menus());
+}
+
+void AptUniformHud::apply(Apt &apt, const AptStageMapping &mapping, bool enabled, const Menus &menus)
+{
+	float centre[2];
+	safeCentre(mapping, menus.safeInsets, centre[0], centre[1]);
 	for (int level : apt.loadedLevels())
 	{
 		AptSpriteInst *root = apt.level(level);
@@ -145,7 +178,7 @@ void AptUniformHud::apply(Apt &apt, const AptStageMapping &mapping, bool enabled
 		}
 		else
 		{
-			root->presentTransform = correction(*root, AptMatrix(), mapping, fx, fy);
+			root->presentTransform = correction(*root, AptMatrix(), mapping, fx, fy, menus.has(level) ? centre : nullptr);
 		}
 		const AptMatrix rootChain = root->globalMatrix();
 		const bool rootFixed = enabled && !perChild && !isIdentity(root->presentTransform);

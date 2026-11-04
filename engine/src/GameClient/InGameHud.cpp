@@ -51,7 +51,9 @@
 #include "Libraries/Source/Apt/AptRenderList.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cstring>
 #include <set>
 
 InGameHud::InGameHud(Config config)
@@ -410,11 +412,62 @@ AptStageMapping InGameHud::hudStageMapping() const
 	return m;
 }
 
+// lane IOS-32 (OpenBFME presentation, not retail; AptUniformHud.h "THE MENUS"): the in-game movies drawn as centred menus under the rule - the
+// full-screen menus over the game and the dimmed background they open over. Not the HUD's own movies (Palantir.apt, the banners, the chat, the
+// notification box), which keep their edges.
+namespace
+{
+constexpr const char *kCentredMenus[] = { "Background.apt", "QuitMenu.apt", "Objectives.apt", "SaveLoad.apt", "PlayerTribute.apt", "Options.apt",
+	"DisconnectScreen.apt" };
+
+bool isCentredMenu(const std::string &filename)
+{
+	for (const char *name : kCentredMenus)
+	{
+		if (filename.size() == std::strlen(name) && std::equal(filename.begin(), filename.end(), name, [](char a, char b) {
+				return std::tolower((unsigned char)a) == std::tolower((unsigned char)b);
+			}))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+} // namespace
+
+AptUniformHud::Menus InGameHud::centredMenus() const
+{
+	AptUniformHud::Menus menus;
+	for (int i = 0; i < 4; ++i)
+	{
+		menus.safeInsets[i] = m_hudLayout.safeInsets[i];
+	}
+	auto add = [&](const AptScreen *screen) {
+		if (screen && screen->level() >= 0 && isCentredMenu(screen->filename()))
+		{
+			menus.levels.push_back(screen->level());
+		}
+	};
+	if (m_shellRef)
+	{
+		for (int i = 0; i < m_shellRef->screenCount(); ++i)
+		{
+			add(m_shellRef->screenAt(i));
+		}
+		add(m_shellRef->overlay()); // the pause menu (lane OPTS-6: outside the stack)
+	}
+	if (m_store && m_store->level() >= 0)
+	{
+		menus.levels.push_back(m_store->level()); // the spell store: a full-screen menu on its own level
+	}
+	return menus;
+}
+
 void InGameHud::applyRoundHud()
 {
 	if (m_booted && m_wm)
 	{
-		AptUniformHud::apply(m_wm->apt(), hudStageMapping(), m_hudLayout.uniform());
+		AptUniformHud::apply(m_wm->apt(), hudStageMapping(), m_hudLayout.uniform(), centredMenus());
 	}
 }
 

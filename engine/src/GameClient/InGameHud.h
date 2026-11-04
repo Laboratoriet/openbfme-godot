@@ -292,6 +292,7 @@ private:
 	// lane IOS-29: AptUniformHud::apply on every in-game movie (the HUD layout's uniform()); the stage mapping of the HUD's hit tests
 	void applyRoundHud();
 	AptStageMapping hudStageMapping() const;
+	AptUniformHud::Menus centredMenus() const; // lane IOS-32: the levels the rule draws as centred menus, and the safe area
 	void bootHud6();
 	void updateHud6(ObjectID context, const std::string &faction, double seconds);
 	bool hud6OverGui(int x, int y) const;

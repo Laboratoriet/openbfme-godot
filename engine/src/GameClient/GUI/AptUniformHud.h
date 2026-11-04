@@ -25,6 +25,14 @@
 // every presentTransform is the identity and the drawing is retail's exactly.
 // INFERENCE: the content box is AptSpriteInst::contentBounds (every child, shown or not), measured every frame (a unit that grows moves its anchor
 // smoothly: the anchor is linear in the box's position).
+//
+// THE MENUS (lane IOS-32, the owner's call 2026-11-04: "centre the menus in portrait"): a full-screen in-game menu (the pause menu, the objectives,
+// the save / load menu, the players screen, the in-game Options, the spell store and the dimmed background under them: Menus::levels, chosen by
+// InGameHud by movie) is not anchored at its content box but drawn as the front end's Fit mapping draws a whole stage: the stage's centre on the
+// safe area's centre on the shrunk axis. The pause menu's title band starts at the stage's top, so the anchor rule pinned it to the window's top
+// in portrait; centred, every menu's title band sits at the same height, at the top of the dimmed 4:3 band, and the menu in the middle of the
+// safe area (the notch and the home indicator excluded). Landscape keeps its look (the stage's centre is the content's there); the HUD (the
+// Palantir, the banners, the chat) stays anchored.
 
 #pragma once
 
@@ -58,8 +66,18 @@ public:
 	};
 	static float ratioOff(float sx, float sy) { return sx > sy ? sx / sy - 1.0f : sy / sx - 1.0f; }
 
+	// lane IOS-32: the levels drawn as centred menus, and the window's safe area (window pixels kept clear: left, top, right, bottom)
+	struct Menus
+	{
+		std::vector<int> levels;
+		float safeInsets[4] = {};
+		bool has(int level) const;
+	};
 	// the rule, once per HUD update after the screens laid out their children; `enabled` false resets every presentTransform to the identity
-	static void apply(Apt &apt, const AptStageMapping &mapping, bool enabled);
+	static void apply(Apt &apt, const AptStageMapping &mapping, bool enabled, const Menus &menus);
+	static void apply(Apt &apt, const AptStageMapping &mapping, bool enabled); // no menu levels
+	// lane IOS-32: the stage point the safe area's centre is drawn at (the stage mapping's inverse of the safe area's middle)
+	static void safeCentre(const AptStageMapping &mapping, const float safeInsets[4], float &cx, float &cy);
 	// the audit: every unit and every instance carrying a viewport or present transform, in level and tree order
 	static void audit(Apt &apt, const AptStageMapping &mapping, std::vector<Entry> &out);
 	// the rule's x / y factors on the instance at `path` ("_level<n>.<child>...": its level root's and that root child's presentTransform), 1 / 1 when
@@ -70,5 +88,7 @@ public:
 	// shrunk, it would leave the game un-dimmed beside it) and the root's correction on the other; the identity for any other child
 	static AptMatrix backdrop(AptSpriteInst &root, AptCharacterInst &child, const AptStageMapping &mapping);
 	// the presentTransform the rule gives `unit` drawn under `parentChain` (the stage <- parent matrix); the identity when it is uniform already
-	static AptMatrix correction(const AptCharacterInst &unit, const AptMatrix &parentChain, const AptStageMapping &mapping, float &fixX, float &fixY);
+	// `centre` (lane IOS-32, a menu's root): the stage point the stage's centre goes to on the shrunk axis, instead of the content box's anchor
+	static AptMatrix correction(const AptCharacterInst &unit, const AptMatrix &parentChain, const AptStageMapping &mapping, float &fixX, float &fixY,
+		const float *centre = nullptr);
 };

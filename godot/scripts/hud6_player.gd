@@ -23,6 +23,8 @@
 ##            hud_scale_audit): a builder selected (hud6-round-builder), the pause menu (hud6-round-pause), the spell store (hud6-round-store); every
 ##            line "HUD6 round <where>: <path> sx sy fix", FAIL when the rule is on and any in-game movie unit or HUD draw has |sx / sy - 1| > 1 %
 ##            (a full-bleed backdrop, edge to edge on its stretched axis, is allowed: AptUniformHud::Entry::fullBleed)
+##   menus    (lane IOS-32, with --touch) the full-screen in-game menus with the round-HUD audit: the pause menu, the players screen, the objectives,
+##            the save menu over the game, the spell store (hud6-menus-<name>); in portrait they sit in the middle of the safe area
 extends "res://scripts/scenario_player.gd"
 
 var game: Node
@@ -698,6 +700,47 @@ func _scenario_round() -> String:
 		if not e.is_empty():
 			problems.append(e)
 		shot("round-store")
+		hud.close_spell_store()
+		await game._step(60)
+	return "" if problems.is_empty() else "; ".join(problems)
+
+
+## lane IOS-32: the full-screen in-game menus (hud6-menus-<name>): the pause menu, the players screen (the Palantir flag in a skirmish), the
+## objectives screen, the save menu over the game and the spell store, each with the round-HUD audit; in portrait with the rule on, the menus sit in
+## the middle of the safe area (AptUniformHud's menu levels)
+func _scenario_menus() -> String:
+	var on := bool(hud.set_view_options({}).get("round_hud", false))
+	print("HUD6 menus: the rule is %s, window %s" % ["on" if on else "off (retail)", str(game.get_viewport().get_visible_rect().size)])
+	var problems := []
+	var check := func(where: String) -> void:
+		print("HUD6 menus %s: the shell's screens %s" % [where, str(game._shell.shell_stack())])
+		var e := round_audit(where, on)
+		if not e.is_empty():
+			problems.append(e)
+		shot("menus-" + where)
+	await game._press_escape()
+	await game._step(45)
+	check.call("pause")
+	await game._press_escape()
+	await game._step(30)
+	game._palantir_objectives() # a skirmish: the players screen (PlayerTribute.apt)
+	await game._step(45)
+	check.call("players")
+	game._close_tribute()
+	await game._step(30)
+	game._open_objectives(0)
+	await game._step(45)
+	check.call("objectives")
+	game._close_objectives()
+	await game._step(30)
+	game._save_flow.open_menu(3, 0xB, true)
+	await game._step(45)
+	check.call("save")
+	game._shell.shell_pop()
+	await game._step(30)
+	if hud.open_spell_store():
+		await game._step(60)
+		check.call("store")
 		hud.close_spell_store()
 		await game._step(60)
 	return "" if problems.is_empty() else "; ".join(problems)
