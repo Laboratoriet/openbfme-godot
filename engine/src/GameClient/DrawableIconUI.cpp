@@ -520,8 +520,8 @@ void DrawableIconUI::build(GameLogic &logic, const DrawableManager &drawables, c
 		}
 		// RW 0x6780DF
 		const ICoord2D screen = view.size();
-		const float scaleX = ((float)screen.x / 1024.0f) * 0.5f * zoomScale;
-		const float scaleY = ((float)screen.y / 768.0f) * 0.5f * zoomScale;
+		float scaleX, scaleY;
+		markScale(screen.x, screen.y, zoomScale, s.uniformScale, scaleX, scaleY);
 		const float spacingX = 2.0f * scaleX, spacingY = 2.0f * scaleY;
 		ICoord2D sp;
 		const TemplateBox &box = boxOf(*markObject->getTemplate());
@@ -561,6 +561,16 @@ void DrawableIconUI::build(GameLogic &logic, const DrawableManager &drawables, c
 				x += iconW + spacingX;
 			}
 		}
+	}
+}
+
+void DrawableIconUI::markScale(int screenW, int screenH, float zoomScale, bool uniform, float &scaleX, float &scaleY)
+{
+	scaleX = ((float)screenW / 1024.0f) * 0.5f * zoomScale;
+	scaleY = ((float)screenH / 768.0f) * 0.5f * zoomScale;
+	if (uniform)
+	{
+		scaleX = scaleY = std::min(scaleX, scaleY); // lane IOS-29: the round-HUD rule
 	}
 }
 

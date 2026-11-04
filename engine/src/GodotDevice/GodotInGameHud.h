@@ -174,6 +174,9 @@ public:
 	// `pixel` is on: { kind: "movie" (a Palantir / side bar / spell book / hero bar button) | "radial" (a bubble) | "" , target, autocast }
 	void set_touch_help(bool on);
 	void hold_help(bool on);
+	// lane IOS-29 (OpenBFME presentation, not retail): the round-HUD audit (InGameHud::hudScaleAudit): [{ level, path, sx, sy, fix_x, fix_y, unit,
+	// distorted, full_bleed, squashes }], sx / sy the window pixels per stage unit each in-game movie unit / transformed clip / HUD draw is drawn at
+	Array hud_scale_audit() const;
 	Dictionary touch_button_at(const Vector2 &pixel);
 	// lane IOS-23 (OpenBFME, not retail; touch only): whether a finger at window `pixel` aims a building's placement: { placing (a build button waits for
 	// its site, InGameUI::isPlacing), line_build (a wall span from a hub, InGameUI::isLineBuildStarted), world (the pixel is on the world: not on the HUD,

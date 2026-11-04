@@ -429,10 +429,10 @@ void InGameHud::updateHud6(ObjectID context, const std::string &faction, double 
 	const bool allowed = ctx && (ctx->getControllingPlayer() == local || !ControlBar::localPlayerActive(local));
 	m_radial.setImageSize(imageSizeOf, (void *)m_hud6Images);
 	m_radial.setFontMetrics(m_hud6Metrics); // lane OWNERFIX-3: the count's measure (the device's fonts)
-	// lane IOS-27: a HUD layout other than retail's (the HUD size above 100 %, a phone's safe area) has square radial buttons at the HUD size
+	// lane IOS-27: a HUD layout other than retail's (the HUD size above 100 %, a phone's safe area) has square radial buttons at the HUD size; lane IOS-29:
+	// so has touch / mobile at 100 % (HudLayout::uniform, the round-HUD rule)
 	const AptPalantir::HudLayout &hl = m_hudLayout;
-	const bool retailHud = hl.scale == 1.0f && hl.safeInsets[0] == 0.0f && hl.safeInsets[1] == 0.0f && hl.safeInsets[2] == 0.0f && hl.safeInsets[3] == 0.0f;
-	m_radial.setSquareScale(retailHud ? 0.0f : hl.scale);
+	m_radial.setSquareScale(hl.uniform() ? hl.scale : 0.0f);
 	m_radial.update(logic, &m_config.game.drawables(), m_config.view, m_windowW, m_windowH, context, m_bar->sideButtons(), allowed);
 	// the help box: the control bar's test of the last frame, the hover of this one, the movie clip's update
 	m_helpBox.setEndGameTimer(m_config.endGameTimer ? m_config.endGameTimer() : -1);
@@ -533,10 +533,30 @@ void InGameHud::updateHud6(ObjectID context, const std::string &faction, double 
 	const float stagePerPixelY = (sy1 - sy0) / (float)m_windowH;
 	const float pixelPerStageX = (float)m_windowW / (sx1 - sx0), pixelPerStageY = (float)m_windowH / (sy1 - sy0);
 	const float fontScale = pixelPerStageX < pixelPerStageY ? pixelPerStageX : pixelPerStageY;
+	float iconX, iconY;
+	helpIconScale(iconX, iconY);
 	const HelpBoxSettings &settings = m_helpSettings;
 	m_helpBox.update(
-		[&](CommandButtonHelp &h, int width) { return h.setWidthAndComputeHeight(width, settings, fontScale, pixelPerStageX, pixelPerStageY, metrics); },
+		[&](CommandButtonHelp &h, int width) { return h.setWidthAndComputeHeight(width, settings, fontScale, iconX, iconY, metrics); },
 		stagePerPixelY);
+}
+
+// RW 0x974795's icon scale: the window's pixels per stage unit on each axis (a 30 / 34 pixel icon drawn 30 x 34 at 1024 x 768); lane IOS-29 (OpenBFME
+// presentation, not retail): with the round-HUD rule (HudLayout::uniform) both are the font's min(x, y), so a round icon stays round
+void InGameHud::helpIconScale(float &sx, float &sy) const
+{
+	AptStageMapping m;
+	m.windowW = (float)m_windowW;
+	m.windowH = (float)m_windowH;
+	float sx0, sy0, sx1, sy1;
+	m.windowToStage(0.0f, 0.0f, sx0, sy0);
+	m.windowToStage((float)m_windowW, (float)m_windowH, sx1, sy1);
+	sx = (float)m_windowW / (sx1 - sx0);
+	sy = (float)m_windowH / (sy1 - sy0);
+	if (m_hudLayout.uniform())
+	{
+		sx = sy = std::min(sx, sy);
+	}
 }
 
 void InGameHud::helpBoxRender(float x, float y, float w, float h, std::vector<HelpDrawOp> &out)

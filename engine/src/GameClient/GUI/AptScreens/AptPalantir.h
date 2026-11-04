@@ -43,6 +43,13 @@ public:
 		float scale = 1.0f;        ///< OpenBFMEHudScale / 100: 1 .. 2 (1 = retail)
 		float safeInsets[4] = {};  ///< window pixels the HUD keeps clear of: left, top, right, bottom (the notch, the home indicator)
 		float topRightReserve = 0.0f; ///< lane IOS-27: window pixels from the top a portrait side bar keeps clear of (InGameUI's message lines)
+		///< lane IOS-29: touch / mobile (InGameHudNode set_view_options round_hud): the round-HUD rule even at 100 % (uniform())
+		bool roundHud = false;
+		// the retail layout: a desktop at 100 % (scale 1, no insets)
+		bool retail() const { return scale == 1.0f && safeInsets[0] == 0.0f && safeInsets[1] == 0.0f && safeInsets[2] == 0.0f && safeInsets[3] == 0.0f; }
+		// lane IOS-29 (OpenBFME presentation, not retail): circles stay circles - every HUD element is drawn at one scale for x and y (AptUniformHud, the
+		// radial bubbles, the help box's icons, the veterancy marks) on touch / mobile or with a layout other than retail's; false: retail's per-axis scale
+		bool uniform() const { return roundHud || !retail(); }
 	};
 	void setViewportSize(int width, int height, const HudLayout &layout);
 	// lane IOS-18: the size factor the last layout gave each anchored group (the option's, or less where the group would leave the safe area)

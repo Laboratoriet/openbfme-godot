@@ -68,7 +68,8 @@ bool RadialMenuLayout::updateCenter(int x, int y)
 void RadialMenuLayout::update(int displayW, int displayH)
 {
 	const bool square = m_squareScale > 0.0f;
-	const bool remeasure = square && (displayW != m_measuredW || displayH != m_measuredH || m_squareScale != m_measuredScale);
+	// lane IOS-29: also once more when the square size is switched off (back to retail's size; retail itself never re-measures: m_measuredScale stays 0)
+	const bool remeasure = (square || m_measuredScale > 0.0f) && (displayW != m_measuredW || displayH != m_measuredH || m_squareScale != m_measuredScale);
 	if (m_count < 1 || (m_radius != 0 && !remeasure))
 	{
 		return; // RW 0x9D6335 (no buttons) / RW 0x9D634B (measured since the restart)

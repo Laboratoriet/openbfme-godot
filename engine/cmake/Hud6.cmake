@@ -8,6 +8,7 @@ set(OPENBFME_HUD6_CLIENT_SOURCES
     src/GameClient/CommandButtonHelp.cpp
     src/GameClient/InGameHelpBox.cpp
     src/GameClient/InGameHudHud6.cpp
+    src/GameClient/GUI/AptUniformHud.cpp # lane IOS-29: the round-HUD rule
 )
 set(OPENBFME_HUD6_TESTS
     tests/test_hud6.cpp

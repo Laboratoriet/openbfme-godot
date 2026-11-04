@@ -85,6 +85,10 @@
    "reason": "lane HUD-6: the help box movie's state machine and the hover provider: user interface on the render clock"
   },
   {
+   "glob": "src/GameClient/GUI/AptUniformHud.cpp",
+   "reason": "lane IOS-29: the round-HUD rule (the in-game movies' presentation transform, uniform x / y scale on touch): user interface, never read by the logic"
+  },
+  {
    "glob": "src/GameClient/InGameHudHud6.cpp",
    "reason": "lane HUD-6: the HUD's side bar gate, radial bubbles and help box wiring: user interface, never changes the logic"
   },

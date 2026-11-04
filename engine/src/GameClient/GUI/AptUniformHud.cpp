@@ -1,0 +1,309 @@
+// OpenBFME. GPL-3.0.
+// See AptUniformHud.h (lane IOS-29: the round-HUD rule, OpenBFME presentation, not retail).
+
+#include "GameClient/GUI/AptUniformHud.h"
+
+#include "Libraries/Source/Apt/Apt.h"
+#include "Libraries/Source/Apt/AptCharacterInst.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+
+namespace
+{
+// the x and y scale a presentation matrix (a viewport or present transform: a scale and a move) applies
+float scaleOfX(const AptMatrix &m) { return std::hypot(m.a, m.b); }
+float scaleOfY(const AptMatrix &m) { return std::hypot(m.c, m.d); }
+
+bool isIdentity(const AptMatrix &m)
+{
+	return m.a == 1.0f && m.b == 0.0f && m.c == 0.0f && m.d == 1.0f && m.tx == 0.0f && m.ty == 0.0f;
+}
+
+// a level is laid out child by child when its screen gave one of the root's children a viewport transform (AptPalantir::setViewportSize)
+bool laidOutPerChild(const AptSpriteInst &root)
+{
+	for (const AptCharacterInst *c : root.children())
+	{
+		if (!isIdentity(c->viewportTransform))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// a clip that carries a button (a control the player presses): never a backdrop
+bool hasButton(AptCharacterInst *c)
+{
+	if (c->asButton())
+	{
+		return true;
+	}
+	if (AptSpriteInst *s = c->asSprite())
+	{
+		for (AptCharacterInst *k : s->children())
+		{
+			if (hasButton(k))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+// the anchor of a box [lo, hi] on a stage axis of `extent`: the box's point at its own relative place (flush left: its left edge; flush right: its
+// right edge; centred: its centre)
+float anchorOf(float lo, float hi, float extent)
+{
+	const float size = hi - lo;
+	if (extent - size <= 1e-3f)
+	{
+		return (lo + hi) * 0.5f; // as large as the stage or larger: its centre
+	}
+	const float t = std::clamp(lo / (extent - size), 0.0f, 1.0f);
+	return lo + t * size;
+}
+} // namespace
+
+AptMatrix AptUniformHud::correction(const AptCharacterInst &unit, const AptMatrix &parentChain, const AptStageMapping &mapping, float &fixX, float &fixY)
+{
+	fixX = fixY = 1.0f;
+	// the presentation scale above the unit: the mapping, the parents' viewport / present transforms (parentChain's scale: the authored matrices of
+	// a level's root and its children are 1 in the HUD movies; INFERENCE: a rotated or scaled authored parent would count here as well)
+	const float ex = mapping.scaleX() * scaleOfX(parentChain) * scaleOfX(unit.viewportTransform);
+	const float ey = mapping.scaleY() * scaleOfY(parentChain) * scaleOfY(unit.viewportTransform);
+	if (!(ex > 0.0f) || !(ey > 0.0f) || ratioOff(ex, ey) <= kTolerance)
+	{
+		return AptMatrix();
+	}
+	const float s = std::min(ex, ey);
+	fixX = s / ex;
+	fixY = s / ey;
+	// the unit's content box on the stage (without a correction of its own)
+	const AptMatrix placed = parentChain.concat(unit.viewportTransform.concat(unit.matrix));
+	float x0, y0, x1, y1;
+	float bx0, by0, bx1, by1;
+	if (unit.contentBounds(x0, y0, x1, y1))
+	{
+		bx0 = by0 = 1e30f;
+		bx1 = by1 = -1e30f;
+		const float xs[4] = { x0, x1, x0, x1 }, ys[4] = { y0, y0, y1, y1 };
+		for (int i = 0; i < 4; ++i)
+		{
+			float px, py;
+			placed.apply(xs[i], ys[i], px, py);
+			bx0 = std::min(bx0, px);
+			by0 = std::min(by0, py);
+			bx1 = std::max(bx1, px);
+			by1 = std::max(by1, py);
+		}
+	}
+	else
+	{
+		placed.apply(0.0f, 0.0f, bx0, by0); // nothing drawn yet: its origin
+		bx1 = bx0;
+		by1 = by0;
+	}
+	const float ax = anchorOf(bx0, bx1, mapping.stageW), ay = anchorOf(by0, by1, mapping.stageH);
+	AptMatrix fix; // on the stage: x' = ax + fixX (x - ax)
+	fix.a = fixX;
+	fix.d = fixY;
+	fix.tx = ax * (1.0f - fixX);
+	fix.ty = ay * (1.0f - fixY);
+	if (isIdentity(parentChain))
+	{
+		return fix;
+	}
+	// presentTransform sits under the parent: parent * present = fix * parent
+	bool ok = false;
+	const AptMatrix inv = parentChain.inverse(&ok);
+	if (!ok)
+	{
+		fixX = fixY = 1.0f;
+		return AptMatrix();
+	}
+	return inv.concat(fix.concat(parentChain));
+}
+
+void AptUniformHud::apply(Apt &apt, const AptStageMapping &mapping, bool enabled)
+{
+	for (int level : apt.loadedLevels())
+	{
+		AptSpriteInst *root = apt.level(level);
+		if (!root)
+		{
+			continue;
+		}
+		const bool perChild = laidOutPerChild(*root);
+		float fx, fy;
+		if (!enabled || perChild)
+		{
+			root->presentTransform = AptMatrix();
+		}
+		else
+		{
+			root->presentTransform = correction(*root, AptMatrix(), mapping, fx, fy);
+		}
+		const AptMatrix rootChain = root->globalMatrix();
+		const bool rootFixed = enabled && !perChild && !isIdentity(root->presentTransform);
+		for (AptCharacterInst *c : root->children())
+		{
+			c->presentTransform = enabled && perChild ? correction(*c, rootChain, mapping, fx, fy) : AptMatrix();
+			if (rootFixed)
+			{
+				c->presentTransform = backdrop(*root, *c, mapping);
+			}
+		}
+	}
+}
+
+void AptUniformHud::audit(Apt &apt, const AptStageMapping &mapping, std::vector<Entry> &out)
+{
+	for (int level : apt.loadedLevels())
+	{
+		AptSpriteInst *root = apt.level(level);
+		if (!root)
+		{
+			continue;
+		}
+		const bool perChild = laidOutPerChild(*root);
+		// the walk: the presentation scale (the present and viewport transforms' x / y scales) down to each instance
+		struct Walk
+		{
+			static void go(AptCharacterInst *inst, float px, float py, int depth, int level, bool perChild, const AptStageMapping &m, std::vector<Entry> &out)
+			{
+				if (!inst || !inst->defined() || !inst->visible)
+				{
+					return;
+				}
+				const float kx = px * scaleOfX(inst->presentTransform) * scaleOfX(inst->viewportTransform);
+				const float ky = py * scaleOfY(inst->presentTransform) * scaleOfY(inst->viewportTransform);
+				const bool unit = perChild ? depth == 1 : depth == 0;
+				if (unit || !isIdentity(inst->viewportTransform) || !isIdentity(inst->presentTransform))
+				{
+					float x0, y0, x1, y1;
+					// a unit or transformed clip with nothing to draw (an empty slot) squashes nothing
+					if (inst->contentBounds(x0, y0, x1, y1))
+					{
+						Entry e;
+						e.level = level;
+						e.path = inst->targetPath();
+						e.sx = m.scaleX() * kx;
+						e.sy = m.scaleY() * ky;
+						e.fixX = scaleOfX(inst->presentTransform);
+						e.fixY = scaleOfY(inst->presentTransform);
+						e.unit = unit;
+						// its box in window pixels, edge to edge on the more stretched axis?
+						const AptMatrix g = inst->globalMatrix();
+						float lo = 1e30f, hi = -1e30f;
+						const bool alongX = e.sx > e.sy;
+						const float xs[4] = { x0, x1, x0, x1 }, ys[4] = { y0, y0, y1, y1 };
+						for (int i = 0; i < 4; ++i)
+						{
+							float gx, gy, wx, wy;
+							g.apply(xs[i], ys[i], gx, gy);
+							m.stageToWindow(gx, gy, wx, wy);
+							lo = std::min(lo, alongX ? wx : wy);
+							hi = std::max(hi, alongX ? wx : wy);
+						}
+						e.fullBleed = lo <= 1.0f && hi >= (alongX ? m.windowW : m.windowH) - 1.0f;
+						out.push_back(e);
+					}
+				}
+				if (AptSpriteInst *s = inst->asSprite())
+				{
+					for (AptCharacterInst *c : s->children())
+					{
+						go(c, kx, ky, depth + 1, level, perChild, m, out);
+					}
+				}
+			}
+		};
+		Walk::go(root, 1.0f, 1.0f, 0, level, perChild, mapping, out);
+	}
+}
+
+void AptUniformHud::presentScale(Apt &apt, const std::string &path, float &fx, float &fy)
+{
+	fx = fy = 1.0f;
+	static const char kPrefix[] = "_level";
+	if (path.compare(0, sizeof(kPrefix) - 1, kPrefix) != 0)
+	{
+		return;
+	}
+	const std::size_t dot = path.find('.');
+	const int level = std::atoi(path.substr(sizeof(kPrefix) - 1, dot == std::string::npos ? std::string::npos : dot - (sizeof(kPrefix) - 1)).c_str());
+	const AptSpriteInst *root = apt.level(level);
+	if (!root)
+	{
+		return;
+	}
+	fx = scaleOfX(root->presentTransform);
+	fy = scaleOfY(root->presentTransform);
+	if (dot == std::string::npos)
+	{
+		return;
+	}
+	const std::size_t end = path.find('.', dot + 1);
+	const std::string segment = path.substr(dot + 1, end == std::string::npos ? std::string::npos : end - dot - 1);
+	for (const AptCharacterInst *c : root->children())
+	{
+		if (c->pathSegment() == segment)
+		{
+			fx *= scaleOfX(c->presentTransform);
+			fy *= scaleOfY(c->presentTransform);
+			return;
+		}
+	}
+}
+
+AptMatrix AptUniformHud::backdrop(AptSpriteInst &root, AptCharacterInst &child, const AptStageMapping &mapping)
+{
+	// the axis the root's correction shrinks, and the child's box on the stage without it
+	const AptMatrix &fix = root.presentTransform;
+	const bool alongX = fix.a < fix.d;
+	const AptMatrix placed = root.viewportTransform.concat(root.matrix).concat(child.viewportTransform.concat(child.matrix));
+	float x0, y0, x1, y1;
+	if (!child.contentBounds(x0, y0, x1, y1) || hasButton(&child))
+	{
+		return AptMatrix();
+	}
+	float lo = 1e30f, hi = -1e30f;
+	const float xs[4] = { x0, x1, x0, x1 }, ys[4] = { y0, y0, y1, y1 };
+	for (int i = 0; i < 4; ++i)
+	{
+		float px, py;
+		placed.apply(xs[i], ys[i], px, py);
+		lo = std::min(lo, alongX ? px : py);
+		hi = std::max(hi, alongX ? px : py);
+	}
+	const float extent = alongX ? mapping.stageW : mapping.stageH;
+	if (lo > 1.0f || hi < extent - 1.0f)
+	{
+		return AptMatrix();
+	}
+	// edge to edge, no control in it: a backdrop (a shade, a band). It keeps the root's correction on its other axis only (its place), and the
+	// stage's stretch on this one: child.present = R^-1 * fix^-1 * keep * R, R the root's own transform
+	AptMatrix keep = fix;
+	if (alongX)
+	{
+		keep.a = 1.0f;
+		keep.tx = 0.0f;
+	}
+	else
+	{
+		keep.d = 1.0f;
+		keep.ty = 0.0f;
+	}
+	const AptMatrix r = root.viewportTransform.concat(root.matrix);
+	bool okR = false, okF = false;
+	const AptMatrix rInv = r.inverse(&okR), fixInv = fix.inverse(&okF);
+	if (!okR || !okF)
+	{
+		return AptMatrix();
+	}
+	return rInv.concat(fixInv).concat(keep).concat(r);
+}

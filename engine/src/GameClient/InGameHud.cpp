@@ -387,6 +387,7 @@ void InGameHud::setWindowSize(int width, int height)
 	{
 		m_store->setViewportSize(m_windowW, m_windowH);
 	}
+	applyRoundHud();
 }
 
 void InGameHud::setHudLayout(const AptPalantir::HudLayout &layout)
@@ -396,6 +397,55 @@ void InGameHud::setHudLayout(const AptPalantir::HudLayout &layout)
 	{
 		m_palantirRef->setViewportSize(m_windowW, m_windowH, m_hudLayout);
 	}
+	applyRoundHud();
+}
+
+// lane IOS-29 (OpenBFME presentation, not retail; GameClient/GUI/AptUniformHud.h): the round-HUD rule over every in-game movie, on the stage mapping the
+// HUD's hit tests use (aptButtonAt, touchButtonAt: the 1024 x 768 stage stretched to the window)
+AptStageMapping InGameHud::hudStageMapping() const
+{
+	AptStageMapping m;
+	m.windowW = (float)m_windowW;
+	m.windowH = (float)m_windowH;
+	return m;
+}
+
+void InGameHud::applyRoundHud()
+{
+	if (m_booted && m_wm)
+	{
+		AptUniformHud::apply(m_wm->apt(), hudStageMapping(), m_hudLayout.uniform());
+	}
+}
+
+void InGameHud::hudScaleAudit(std::vector<AptUniformHud::Entry> &out) const
+{
+	if (!m_booted || !m_wm)
+	{
+		return;
+	}
+	AptUniformHud::audit(m_wm->apt(), hudStageMapping(), out);
+	// the radial bubbles (ControlBarRadialMenu): each button's window rectangle
+	std::vector<RadialMenuLayout::Rect> rects;
+	m_radial.layout().place(rects);
+	for (std::size_t i = 0; i < rects.size(); ++i)
+	{
+		AptUniformHud::Entry e;
+		e.path = "hud6:radial[" + std::to_string(i) + "]";
+		e.sx = (float)rects[i].w;
+		e.sy = (float)rects[i].h;
+		out.push_back(e);
+	}
+	// the help box's icons (CommandButtonHelp: an icon's image size times these)
+	AptUniformHud::Entry help;
+	help.path = "hud6:helpIcon";
+	helpIconScale(help.sx, help.sy);
+	out.push_back(help);
+	// the veterancy marks (DrawableIconUI): at zoom 1
+	AptUniformHud::Entry vet;
+	vet.path = "icon:veterancy";
+	DrawableIconUI::markScale(m_windowW, m_windowH, 1.0f, m_hudLayout.uniform(), vet.sx, vet.sy);
+	out.push_back(vet);
 }
 
 void InGameHud::whenHeld(std::function<void()> f)
@@ -617,6 +667,7 @@ void InGameHud::update(double seconds)
 	}
 	part(m_updateParts.windows);
 	m_palantirRef->setViewportSize(m_windowW, m_windowH, m_hudLayout);
+	applyRoundHud(); // lane IOS-29: after the screens laid out their children
 	// lane HUD-2: the local side and the control bar's context the Palantir's update reads (AptPalantir::syncLocal, PalantirCommandUI.h). INFERENCE: the context
 	// drawable is the selection's only object; a multiple selection hands NULL, as ZH's ControlBar does for its multi-select context (the RotWK context rules,
 	// RW 0x944390 .. 0x9450B3, were not read)
@@ -710,6 +761,7 @@ void InGameHud::update(double seconds)
 	const std::shared_ptr<const LogicSnapshot> iconSnap = m_config.game.presentedSnapshot();
 	m_iconSettings.snapshot = iconSnap.get();
 	m_iconSettings.shroudDrawn = iconSnap && iconSnap->shroud && iconSnap->shroud->displayed;
+	m_iconSettings.uniformScale = m_hudLayout.uniform(); // lane IOS-29: the round-HUD rule
 	presentBeacons(); // lane CHAT-1
 	m_iconUI.build(m_config.game.logic(), m_config.game.drawables(), m_config.view, m_iconSettings, selectedSet, m_input->ui().mouseoverObject(), m_iconOps);
 	updateFloatingText(m_config.view, m_iconSettings.shroudDrawn);

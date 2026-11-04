@@ -17,6 +17,7 @@
 #include "GameClient/GUI/AptScreens/AptPalantir.h"
 #include "GameLogic/ScriptEngine/ScriptEngine.h"
 #include "GameClient/GUI/AptScreens/AptSpellStore.h"
+#include "GameClient/GUI/AptUniformHud.h" // lane IOS-29
 #include "GameClient/SpellBookUI.h"
 #include "GameClient/GUI/Shell/Shell.h"
 #include "GameClient/GUI/ShellEnvironment.h"
@@ -97,6 +98,11 @@ public:
 	// every later layout
 	void setHudLayout(const AptPalantir::HudLayout &layout);
 	const AptPalantir::HudLayout &hudLayout() const { return m_hudLayout; }
+	// lane IOS-29 (OpenBFME presentation, not retail; GameClient/GUI/AptUniformHud.h): the round-HUD audit - every in-game Apt unit and transformed clip
+	// (AptUniformHud::audit) and the HUD's own drawn elements ("hud6:radial", "hud6:helpIcon", "icon:veterancy"): the window scale each is drawn at
+	void hudScaleAudit(std::vector<AptUniformHud::Entry> &out) const;
+	// the help box's icon scale (window pixels per stage unit, x and y): retail's per-axis scale, or min(x, y) under the round-HUD rule
+	void helpIconScale(float &sx, float &sy) const;
 	void updateRadarEvents(); ///< lane RADAR-1
 	int windowWidth() const { return m_windowW; } ///< lane RADAR-1: TheDisplay's width (the view box band, RW 0x503CDA)
 	int windowHeight() const { return m_windowH; } ///< lane OWNERFIX-2: the placement text's clamp (updateStringPos)
@@ -283,6 +289,9 @@ public:
 
 private:
 	bool m_objectivesScreenOpen = false; // lane CAMPUI-1
+	// lane IOS-29: AptUniformHud::apply on every in-game movie (the HUD layout's uniform()); the stage mapping of the HUD's hit tests
+	void applyRoundHud();
+	AptStageMapping hudStageMapping() const;
 	void bootHud6();
 	void updateHud6(ObjectID context, const std::string &faction, double seconds);
 	bool hud6OverGui(int x, int y) const;

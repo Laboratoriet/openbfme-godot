@@ -116,7 +116,7 @@ void Apt::buildRenderList(AptRenderList &out)
 		{
 			return;
 		}
-		const AptMatrix M = parentM.concat(inst->viewportTransform.concat(inst->matrix));
+		const AptMatrix M = parentM.concat(inst->presentTransform.concat(inst->viewportTransform.concat(inst->matrix))); // lane IOS-29
 		const AptColorTransform C = parentC.concat(inst->color);
 		AptRenderCommand base;
 		base.path = std::move(path);

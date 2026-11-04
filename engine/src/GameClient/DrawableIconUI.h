@@ -95,11 +95,16 @@ struct IconUISettings
 	// shroud test (the unit tests' rigs, a map viewer without a shroud)
 	const LogicSnapshot *snapshot = nullptr;
 	bool shroudDrawn = false;
+	// lane IOS-29 (OpenBFME presentation, not retail; AptPalantir::HudLayout::uniform): the veterancy marks at one scale, min(x, y), so a round mark stays
+	// round off 4:3; false: retail's per-axis scale (RW 0x6780DF)
+	bool uniformScale = false;
 };
 
 class DrawableIconUI
 {
 public:
+	// RW 0x6780DF: the veterancy marks' scale, (screen / 1024 x 768) / 2 / zoom on each axis; lane IOS-29: `uniform` takes min(x, y) for both
+	static void markScale(int screenW, int screenH, float zoomScale, bool uniform, float &scaleX, float &scaleY);
 	static std::string constructionText(const GameTextSource *text, double percent);
 	// the ops of this frame, in retail's list order (0, then 2), drawables in id order within a list
 	void build(GameLogic &logic, const DrawableManager &drawables, const TacticalView &view, const IconUISettings &settings, const std::set<ObjectID> &selected,

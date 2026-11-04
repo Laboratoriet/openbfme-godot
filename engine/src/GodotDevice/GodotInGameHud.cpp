@@ -1238,6 +1238,7 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("nearest_button", "pixel", "radius_px"), &InGameHudNode::nearest_button); // lane IOS-10
 	ClassDB::bind_method(D_METHOD("set_touch_help", "on"), &InGameHudNode::set_touch_help);           // lane IOS-21
 	ClassDB::bind_method(D_METHOD("hold_help", "on"), &InGameHudNode::hold_help);                     // lane IOS-21
+	ClassDB::bind_method(D_METHOD("hud_scale_audit"), &InGameHudNode::hud_scale_audit);              // lane IOS-29
 	ClassDB::bind_method(D_METHOD("touch_button_at", "pixel"), &InGameHudNode::touch_button_at);      // lane IOS-21
 	ClassDB::bind_method(D_METHOD("touch_placement_at", "pixel"), &InGameHudNode::touch_placement_at); // lane IOS-23
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
@@ -4045,6 +4046,15 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 			r["hud_scale_error"] = "hud_scale " + String::num(k) + " is outside 1 .. 2";
 		}
 	}
+	if (o.has("round_hud"))
+	{
+		// lane IOS-29 (OpenBFME presentation, not retail): touch / mobile - the round-HUD rule even at 100 % (AptPalantir::HudLayout::roundHud)
+		d->hudLayout.roundHud = (bool)o["round_hud"];
+		if (d->hud)
+		{
+			d->hud->setHudLayout(d->hudLayout);
+		}
+	}
 	if (o.has("free_camera") && d->cam)
 	{
 		d->cam->setFreeCamera((bool)o["free_camera"]);
@@ -4062,6 +4072,7 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 	r["scroll_factor"] = d->cam ? d->cam->gameData().horizontalScrollSpeedFactor : 0.0f;
 	r["ui_scale"] = d->uiScale;
 	r["hud_scale"] = d->hudLayout.scale;
+	r["round_hud"] = d->hudLayout.uniform(); // lane IOS-29: the rule in effect
 	return r;
 }
 
@@ -4574,6 +4585,33 @@ void InGameHudNode::hold_help(bool on)
 	{
 		d->hud->holdHelp(on);
 	}
+}
+
+Array InGameHudNode::hud_scale_audit() const
+{
+	Array out;
+	if (!d->hud)
+	{
+		return out;
+	}
+	std::vector<AptUniformHud::Entry> entries;
+	d->hud->hudScaleAudit(entries);
+	for (const AptUniformHud::Entry &e : entries)
+	{
+		Dictionary row;
+		row["level"] = e.level;
+		row["path"] = String::utf8(e.path.c_str());
+		row["sx"] = e.sx;
+		row["sy"] = e.sy;
+		row["fix_x"] = e.fixX;
+		row["fix_y"] = e.fixY;
+		row["unit"] = e.unit;
+		row["distorted"] = e.distorted();
+		row["full_bleed"] = e.fullBleed; // a stage-wide backdrop, allowed
+		row["squashes"] = e.squashes();
+		out.push_back(row);
+	}
+	return out;
 }
 
 Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)

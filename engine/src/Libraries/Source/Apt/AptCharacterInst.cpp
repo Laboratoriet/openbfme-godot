@@ -169,7 +169,7 @@ AptSpriteInst *AptCharacterInst::movieRoot()
 
 AptMatrix AptCharacterInst::globalMatrix() const
 {
-	const AptMatrix local = viewportTransform.concat(matrix);
+	const AptMatrix local = presentTransform.concat(viewportTransform.concat(matrix)); // lane IOS-29: presentTransform
 	if (!m_parent)
 	{
 		return local;

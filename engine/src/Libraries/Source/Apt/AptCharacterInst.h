@@ -156,6 +156,9 @@ public:
 	// placement state
 	AptMatrix matrix;
 	AptMatrix viewportTransform;
+	// lane IOS-29 (OpenBFME presentation, not retail): the round-HUD rule's correction (GameClient/GUI/AptUniformHud.h), applied outside the viewport
+	// transform: global = parent * presentTransform * viewportTransform * matrix. Identity unless the rule is on; only AptUniformHud writes it
+	AptMatrix presentTransform;
 	AptColorTransform color;
 	float ratio = 0;
 	float placeRatio = 0; // lane FB7-1: the ratio of the place object that created the instance (the seek's same-placement test, BFME2 0x00AF9589)

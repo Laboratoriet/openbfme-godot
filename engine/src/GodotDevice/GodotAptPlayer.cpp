@@ -8,6 +8,7 @@
 #include <godot_cpp/classes/input.hpp>
 #include "GodotDevice/GodotVideoStream.h"
 #include "GameClient/GUI/PlatformIcons.h"
+#include "GameClient/GUI/AptUniformHud.h" // lane IOS-29
 #include "GameClient/CameraSettings.h"
 #include "GameNetwork/Transport.h"
 #include "GodotDevice/GodotPackedTexture.h"
@@ -4780,7 +4781,23 @@ void AptMenuPlayer::drawSegment(const AptCanvasList &list, size_t segment, const
 							}
 						}
 					}
-					m->view3d.draw(item, Rect2(minx, miny, maxx - minx, maxy - miny), op, AptView3DOnMenuLevel(op.path, menuLevels));
+					// lane IOS-29: under the round-HUD rule (AptUniformHud) the clip is drawn at one scale; the image undoes only the stretch it left
+					float presentX = 1.0f, presentY = 1.0f;
+					if (m->shell && m->shell->wm)
+					{
+						AptUniformHud::presentScale(m->shell->wm->apt(), op.path, presentX, presentY);
+					}
+					if (presentX != 1.0f || presentY != 1.0f)
+					{
+						AptCanvasOp drawn = op;
+						drawn.scaleX *= presentX;
+						drawn.scaleY *= presentY;
+						m->view3d.draw(item, Rect2(minx, miny, maxx - minx, maxy - miny), drawn, AptView3DOnMenuLevel(op.path, menuLevels));
+					}
+					else
+					{
+						m->view3d.draw(item, Rect2(minx, miny, maxx - minx, maxy - miny), op, AptView3DOnMenuLevel(op.path, menuLevels));
+					}
 					break;
 				}
 				if (m->shell && op.nativeTag && m->shell->wm->renderCallback(op.symbolName))

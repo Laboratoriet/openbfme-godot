@@ -1267,3 +1267,175 @@ TEST_CASE("hud2 custom hero buttons: model-state icons distinguish Shield Maiden
 	CHECK(InGameHeroSelect::buttonImage(*maiden) == "HICAHShieldMaiden");
 }
 
+
+// lane IOS-29 (OpenBFME presentation, not retail; GameClient/GUI/AptUniformHud.h): the round-HUD rule and its guard. With the rule on (touch / mobile,
+// or a HUD size above 100 %) nothing the in-game movies or the HUD's own draws put on the screen has |sx / sy - 1| > 1 % on the Duo's inner screen
+// (half size, landscape and portrait) and on 4:3; off (a desktop at 100 %) every presentTransform is the identity and the stage stays stretched as retail's.
+namespace
+{
+std::vector<AptUniformHud::Entry> roundAudit(PalantirRig &hud, int width, int height, float scale, bool round)
+{
+	AptPalantir::HudLayout layout;
+	layout.scale = scale;
+	layout.roundHud = round;
+	hud.hud->setWindowSize(width, height);
+	hud.hud->setHudLayout(layout);
+	hud.frames(2);
+	std::vector<AptUniformHud::Entry> audit;
+	hud.hud->hudScaleAudit(audit);
+	return audit;
+}
+
+const AptUniformHud::Entry *auditEntry(const std::vector<AptUniformHud::Entry> &audit, const std::string &path)
+{
+	for (const AptUniformHud::Entry &e : audit)
+	{
+		if (e.path == path)
+		{
+			return &e;
+		}
+	}
+	return nullptr;
+}
+} // namespace
+
+TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD draw uniform on touch, landscape, portrait and 4:3 (IOS-29 guard)")
+{
+	if (!haveWorld("hud2 round hud"))
+	{
+		return;
+	}
+	PalantirRig hud(shared());
+	hud.frames(30);
+	Object *builder = hud.rig.make("MenPorter", 2800, 1400);
+	REQUIRE(builder != nullptr);
+	hud.hud->input().ui().selectObject(builder->getID());
+	hud.frames(40);
+	REQUIRE(hud.hud->palantir()->sideBarShown());
+	const std::string palantir = "_level" + std::to_string(hud.hud->palantir()->level());
+	// the guard: every drawn unit, transformed clip and HUD draw uniform, with the spell store (a full-screen in-game movie on its own level) shut and open
+	for (bool store : { false, true })
+	{
+		std::string error;
+		if (store)
+		{
+			REQUIRE_MESSAGE(hud.hud->openSpellStore(&error), error);
+			hud.frames(30);
+		}
+		for (float scale : { 1.0f, 1.25f })
+		{
+			for (auto size : { std::pair<int, int>{ 1335, 939 }, std::pair<int, int>{ 939, 1335 }, std::pair<int, int>{ 1024, 768 } })
+			{
+				INFO(size.first, "x", size.second, " at ", scale, store ? " with the store" : "");
+				const std::vector<AptUniformHud::Entry> audit = roundAudit(hud, size.first, size.second, scale, true);
+				int radial = 0;
+				for (const AptUniformHud::Entry &e : audit)
+				{
+					INFO(e.path, " sx ", e.sx, " sy ", e.sy, " fix ", e.fixX, " ", e.fixY, e.fullBleed ? " full bleed" : "");
+					CHECK_FALSE(e.squashes());
+					radial += e.path.rfind("hud6:radial", 0) == 0 ? 1 : 0;
+				}
+				// the Palantir's groups, its help box and the HUD's own draws are all in the audit
+				CHECK(radial > 0); // tolerance: the builder's bubble count is its command set's
+				CHECK(auditEntry(audit, "hud6:helpIcon") != nullptr);
+				CHECK(auditEntry(audit, "icon:veterancy") != nullptr);
+				if (size.first != 1024)
+				{
+					CHECK(auditEntry(audit, palantir + ".PalantirFrame") != nullptr);
+					CHECK(auditEntry(audit, palantir + ".SideCommandBar") != nullptr);
+					// the help box is the Palantir's child it does not lay out itself: the rule's own correction
+					const AptUniformHud::Entry *help = auditEntry(audit, palantir + ".helpBox");
+					REQUIRE(help != nullptr);
+					// tolerance: the fit factor (< 1) on the axis the stage stretches more: landscape x, portrait y
+					CHECK((help->fixX < 1.0f || help->fixY < 1.0f));
+				}
+			}
+		}
+		if (store)
+		{
+			// the store in portrait: one unit (its root), at the 4:3-fit scale about the stage's centre; a press inside a drawn button hits that button
+			roundAudit(hud, 939, 1335, 1.0f, true);
+			AptSpriteInst *root = hud.hud->apt().level(hud.hud->spellStore()->level());
+			REQUIRE(root != nullptr);
+			AptStageMapping m;
+			m.windowW = 939.0f;
+			m.windowH = 1335.0f;
+			CHECK(root->presentTransform.d * m.scaleY() == doctest::Approx(m.scaleX())); // tolerance: float products of the fit factor
+			// anchored at its own place: the content box keeps its relative position on the stage's height (t = top / (stage - height))
+			float x0, y0, x1, y1;
+			REQUIRE(root->contentBounds(x0, y0, x1, y1));
+			const AptMatrix placed = root->viewportTransform.concat(root->matrix);
+			float px0, py0, px1, py1, qx0, qy0, qx1, qy1;
+			placed.apply(x0, y0, px0, py0);
+			placed.apply(x1, y1, px1, py1);
+			root->presentTransform.apply(px0, py0, qx0, qy0);
+			root->presentTransform.apply(px1, py1, qx1, qy1);
+			// (a box as tall as the stage or taller keeps its centre)
+			if (std::fabs(py1 - py0) >= 768.0f)
+			{
+				CHECK((qy0 + qy1) * 0.5f == doctest::Approx((py0 + py1) * 0.5f)); // tolerance: float maths of the anchor
+			}
+			else
+			{
+				const float before = std::min(py0, py1) / (768.0f - std::fabs(py1 - py0));
+				const float after = std::min(qy0, qy1) / (768.0f - std::fabs(qy1 - qy0));
+				CHECK(after == doctest::Approx(std::clamp(before, 0.0f, 1.0f)).epsilon(0.001)); // tolerance: float maths of the anchor
+			}
+			AptButtonInst *b = firstButton(root);
+			REQUIRE(b != nullptr);
+			float box[4];
+			globalBox(b, m, box);
+			// tolerance: a drawn button, some pixels on each side
+			CHECK((box[2] - box[0]) > 4.0f);
+			CHECK((box[3] - box[1]) > 4.0f); // tolerance: a drawn button, some pixels on each side
+			float sx, sy;
+			m.windowToStage((box[0] + box[2]) * 0.5f, (box[1] + box[3]) * 0.5f, sx, sy);
+			CHECK(hud.hud->apt().input().hitTestButtons(sx, sy) == b);
+			// a desktop at 100 % in the same portrait window: retail's stretch, no presentTransform
+			const std::vector<AptUniformHud::Entry> desk = roundAudit(hud, 939, 1335, 1.0f, false);
+			const AptUniformHud::Entry *storeUnit = auditEntry(desk, "_level" + std::to_string(hud.hud->spellStore()->level()));
+			REQUIRE(storeUnit != nullptr);
+			CHECK(storeUnit->distorted());
+			CHECK(root->presentTransform.d == 1.0f);
+			hud.hud->closeSpellStore();
+			hud.frames(30);
+		}
+	}
+	// the help box's icons and the veterancy marks: one scale on touch
+	{
+		roundAudit(hud, 939, 1335, 1.0f, true);
+		float ix, iy;
+		hud.hud->helpIconScale(ix, iy);
+		CHECK(ix == iy);
+		float vx, vy;
+		DrawableIconUI::markScale(939, 1335, 1.0f, true, vx, vy);
+		CHECK(vx == vy);
+		CHECK(vx == (939.0f / 1024.0f) * 0.5f);
+	}
+	// a desktop at 100 %: retail. No presentTransform anywhere; the help box stretched with the stage, the radial buttons, the help icons and the
+	// veterancy marks at retail's per-axis scale
+	{
+		const std::vector<AptUniformHud::Entry> audit = roundAudit(hud, 1335, 939, 1.0f, false);
+		for (const AptUniformHud::Entry &e : audit)
+		{
+			INFO(e.path);
+			CHECK(e.fixX == 1.0f);
+			CHECK(e.fixY == 1.0f);
+		}
+		const AptUniformHud::Entry *help = auditEntry(audit, palantir + ".helpBox");
+		REQUIRE(help != nullptr);
+		CHECK(help->distorted());
+		const AptUniformHud::Entry *bubble = auditEntry(audit, "hud6:radial[0]");
+		REQUIRE(bubble != nullptr);
+		CHECK(bubble->sx == (float)(int)(1335.0f * 0.046875f));
+		CHECK(bubble->sy == (float)(int)(939.0f * 0.0625f));
+		float ix, iy;
+		hud.hud->helpIconScale(ix, iy);
+		CHECK(ix == doctest::Approx(1335.0f / 1024.0f)); // tolerance: the window -> stage -> window round trip of retail's maths
+		CHECK(iy == doctest::Approx(939.0f / 768.0f)); // tolerance: the window -> stage -> window round trip of retail's maths
+		float vx, vy;
+		DrawableIconUI::markScale(1335, 939, 1.0f, false, vx, vy);
+		CHECK(vx == (1335.0f / 1024.0f) * 0.5f);
+		CHECK(vy == (939.0f / 768.0f) * 0.5f);
+	}
+}
