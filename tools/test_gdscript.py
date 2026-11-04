@@ -104,6 +104,8 @@ ALLOWLIST = {
     "controller_menu_test.gd": "controller menu mapping against a stub shell",
     "controller_routing_test.gd": "controller input routing and scaled, letterboxed pointer motion/clicks",
     "game_file_pack_test.gd": "the iPhone / iPad game file: packer -> importer round trip on generated folders (IOS-24)",
+    "ios21_touch_test.gd": "touch: hold on a HUD button shows its help, double tap toggles autocast, against a stand-in HUD (IOS-21)",
+    "ios23_touch_test.gd": "touch: a placement's ghost above the fingertip, lift places, tap / hold / HUD lift, against a stand-in HUD (IOS-23)",
     "online_list_test.gd": "online list parsing and paging against synthetic responses",
     "online_list_client_test.gd": "the native list client against synthetic responses",
     "online_war_phase_test.gd": "battle relay tickets name only human original seats while tactical seats retain AI",

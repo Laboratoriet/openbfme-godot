@@ -111,6 +111,8 @@ runner is claimed. All paths below are relative to the repository root.
 | --- | --- | --- |
 | `godot/tests/app_icon_test.gd` | `tools/test_gdscript.py::test_game_script` | Allowlisted: bundled application icon resources; headless, 20 s timeout. |
 | `godot/tests/game_file_pack_test.gd` | `tools/test_gdscript.py::test_game_script` | Allowlisted: the desktop's "Prepare for iPhone / iPad" packer against the app's importer on generated folders (what goes in, Adler-32, a byte-identical round trip, cancel); headless, 20 s timeout. `--retail-out=DIR --reference=FILE` (manual) packs the real folders through the game's mount and compares with `tools/ios/make_game_file.py`'s file. |
+| `godot/tests/ios21_touch_test.gd` | `tools/test_gdscript.py::test_game_script` | Allowlisted: the touch layer's hold-for-help on HUD buttons and double-tap autocast (IOS-21) against a stand-in HUD; headless, no extension. |
+| `godot/tests/ios23_touch_test.gd` | `tools/test_gdscript.py::test_game_script` | Allowlisted: touch placement (IOS-23): the ghost 60 pt above the fingertip, lift places, tap places at the tap, a still hold cancels, the top-edge clamp, a lift over the HUD; stand-in HUD, headless, no extension. |
 | `godot/tests/apt_canvas_pixel_test.gd` | Manual only; no generic pytest runner | Denied here: GPU/window/render readback required (some also need retail assets). |
 | `godot/tests/audio_stress_test.gd` | Manual only; no generic pytest runner | Denied here: needs private RotWK/BFME2 assets and game/frame setup. |
 | `godot/tests/audio_test.gd` | Existing CI Godot gate | Denied here: already scheduled by CI; use its existing asset/window setup. |
