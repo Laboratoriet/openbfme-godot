@@ -423,6 +423,7 @@ func view_options(values: Dictionary) -> Dictionary:
 		"health_bar_mode": values.OpenBFMEHealthBars,
 		"ui_scale": values.OpenBFMEUIScale.to_int() / 100.0,
 		"hud_scale": values.OpenBFMEHudScale.to_int() / 100.0, # lane IOS-18
+		"round_hud": OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch"), # lane IOS-29: the round-HUD rule on touch (AptUniformHud)
 		"free_camera": values.OpenBFMEFreeCamera == "yes" or (game != null and game.get("_free_camera_flag") == true),
 		"zoom_out_factor": _zoom_out_factor(values),
 		"widescreen_wider": _widescreen_wider(values),

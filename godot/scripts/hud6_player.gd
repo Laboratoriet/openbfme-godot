@@ -14,6 +14,10 @@
 ##            spell book (store button 1 of the Dwarves' set), a builder selected: the side bar as a block of one or two columns (hud6-hudsize-sidebar),
 ##            a held finger on the spell book's power and on the first and last button of each side bar column shows its help and presses nothing
 ##            (hud6-hudsize-hold-*); the tap assist takes a press 6 px off to the same button
+##   round    (lane IOS-29, OpenBFME presentation; with --touch or an Options file's OpenBFMEHudScale above 100) the round-HUD audit (InGameHudNode
+##            hud_scale_audit): a builder selected (hud6-round-builder), the pause menu (hud6-round-pause), the spell store (hud6-round-store); every
+##            line "HUD6 round <where>: <path> sx sy fix", FAIL when the rule is on and any in-game movie unit or HUD draw has |sx / sy - 1| > 1 %
+##            (a full-bleed backdrop, edge to edge on its stretched axis, is allowed: AptUniformHud::Entry::fullBleed)
 extends "res://scripts/scenario_player.gd"
 
 var game: Node
@@ -464,6 +468,49 @@ func _scenario_enemy() -> String:
 
 
 # lane IOS-27: the side bar's columns and the spell book under the HUD size; a held finger (IOS-21's hold_help with the pointer under it) shows the help
+# lane IOS-29: the audit's lines; the rule's failures when it is on
+func round_audit(where: String, on: bool) -> String:
+	var bad := []
+	for row in hud.hud_scale_audit():
+		print("HUD6 round %s: L%d %s sx %.4f sy %.4f fix %.4f %.4f%s%s%s" % [where, int(row.level), str(row.path), float(row.sx), float(row.sy),
+			float(row.fix_x), float(row.fix_y), " unit" if bool(row.unit) else "", " DISTORTED" if bool(row.distorted) else "",
+			" (full-bleed backdrop)" if bool(row.full_bleed) else ""])
+		if on and bool(row.squashes):
+			bad.append(str(row.path))
+	return "" if bad.is_empty() else "%s: drawn non-uniformly: %s" % [where, str(bad)]
+
+
+func _scenario_round() -> String:
+	var on := bool(hud.set_view_options({}).get("round_hud", false))
+	print("HUD6 round: the rule is %s, window %s" % ["on" if on else "off (retail)", str(game.get_viewport().get_visible_rect().size)])
+	var problems := []
+	var b := find_own(func(o): return str(o.template).find("Worker") >= 0 or str(o.template).find("Porter") >= 0 or str(o.template).find("Builder") >= 0)
+	if not b.is_empty() and await select_object(b):
+		hud.inject_mouse_move(Vector2(60, 60))
+		await game._step(60)
+	var e := round_audit("builder", on)
+	if not e.is_empty():
+		problems.append(e)
+	shot("round-builder")
+	await game._press_escape()
+	await game._step(45)
+	e = round_audit("pause", on)
+	if not e.is_empty():
+		problems.append(e)
+	shot("round-pause")
+	await game._press_escape()
+	await game._step(30)
+	if hud.open_spell_store():
+		await game._step(60)
+		e = round_audit("store", on)
+		if not e.is_empty():
+			problems.append(e)
+		shot("round-store")
+		hud.close_spell_store()
+		await game._step(60)
+	return "" if problems.is_empty() else "; ".join(problems)
+
+
 func _scenario_hudsize() -> String:
 	if str(game._faction) != "FactionDwarves":
 		return "hudsize needs --faction=FactionDwarves (its store button 1 is Rebuild)"
