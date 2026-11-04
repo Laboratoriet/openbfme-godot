@@ -1,10 +1,12 @@
 // OpenBFME. GPL-3.0.
 //
 // The md5 cache of mounted files (lane INI-1's RetailArchivePolicy mount; shared with the -mod mount, Common/ModMount.h, lane MODS-1):
-// md5 by "size, last-write time, absolute path". A missing or damaged cache only costs a rehash.
+// md5 by "size, last-write time, path" (the path absolute, or relative to the cache's folder for a file inside it: portable(), lane IOS-34).
+// A missing or damaged cache only costs a rehash.
 
 #pragma once
 
+#include <algorithm>
 #include "Common/PathIO.h"
 
 #include <cstdint>
@@ -28,6 +30,35 @@ struct Md5Cache
 	static std::string key(const std::string &file, std::uint64_t size, long long mtime)
 	{
 		return std::to_string(size) + "\t" + std::to_string(mtime) + "\t" + file;
+	}
+
+	// lane IOS-34: the key as the cache stores it. A file inside the cache's own folder keeps its path relative to that folder
+	// ("./RotWK/..."): iOS moves an app's data container (.../Containers/Data/Application/<UUID>) when the app is updated or
+	// reinstalled, and absolute keys then missed every file (the iPhone Duo re-hashed its 8.5 GB of archives, 14.7 s, on the first
+	// start after each install). A file anywhere else keeps its absolute path, as before. /private/var and /var are one folder on iOS.
+	std::string portable(const std::string &key) const
+	{
+		const size_t t1 = key.find('\t');
+		const size_t t2 = t1 == std::string::npos ? std::string::npos : key.find('\t', t1 + 1);
+		if (t2 == std::string::npos || path.empty())
+		{
+			return key;
+		}
+		auto strip = [](std::string s) {
+			std::replace(s.begin(), s.end(), '\\', '/');
+			if (s.rfind("/private/var/", 0) == 0)
+			{
+				s.erase(0, 8);
+			}
+			return s;
+		};
+		const std::string root = strip(std::filesystem::path(PathIO::native(path)).parent_path().u8string()) + "/";
+		const std::string file = strip(key.substr(t2 + 1));
+		if (root.size() < 2 || file.compare(0, root.size(), root) != 0)
+		{
+			return key;
+		}
+		return key.substr(0, t2 + 1) + "./" + file.substr(root.size());
 	}
 
 	static bool isMd5Hex(const std::string &s)

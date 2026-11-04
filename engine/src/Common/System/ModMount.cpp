@@ -58,7 +58,7 @@ void hashJobs(std::vector<HashJob> &jobs, Md5Cache &cache, ModMountReport &repor
 	std::vector<std::pair<size_t, size_t>> copies;
 	for (size_t i = 0; i < jobs.size(); ++i)
 	{
-		auto it = cache.entries.find(jobs[i].key);
+		auto it = cache.entries.find(cache.portable(jobs[i].key)); // lane IOS-34: survives iOS moving the app's data container
 		if (it != cache.entries.end())
 		{
 			jobs[i].md5 = it->second;
@@ -90,7 +90,7 @@ void hashJobs(std::vector<HashJob> &jobs, Md5Cache &cache, ModMountReport &repor
 			continue;
 		}
 		++report.filesHashed;
-		cache.entries[jobs[i].key] = jobs[i].md5;
+		cache.entries[cache.portable(jobs[i].key)] = jobs[i].md5;
 		cache.dirty = true;
 	}
 	for (const auto &c : copies)
