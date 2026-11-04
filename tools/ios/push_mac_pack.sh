@@ -6,7 +6,7 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 GODOT=${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}
-BUNDLE_ID=${BUNDLE_ID:-no.alkemist.openbfme}
+BUNDLE_ID=${BUNDLE_ID:-org.openbfme.game}
 DEST=""
 for c in "$HOME"/Library/Containers/*/; do
     if plutil -p "$c.com.apple.containermanagerd.metadata.plist" 2>/dev/null | grep -q "\"$BUNDLE_ID\""; then

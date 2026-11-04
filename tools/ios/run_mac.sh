@@ -14,7 +14,7 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 GODOT=${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}
 : "${TEAM_ID:?set TEAM_ID to your Apple developer team id (Xcode > Settings > Accounts)}"
-BUNDLE_ID=${BUNDLE_ID:-no.alkemist.openbfme}
+BUNDLE_ID=${BUNDLE_ID:-org.openbfme.game}
 OUT="$ROOT/workspace/ios-mac"
 [ "${1:-}" = "--" ] && shift
 
