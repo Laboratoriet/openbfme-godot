@@ -19,6 +19,10 @@
 // retail releases the frame's updater and makes a new one.
 
 #include "GameClient/GUI/AptScreens/AptPalantir.h"
+#include "Libraries/Source/Apt/Apt.h"
+#include "Libraries/Source/Apt/AptCharacterInst.h"
+
+#include <algorithm>
 
 void AptPalantir::sideBarLoaded(const std::string &arg)
 {
@@ -124,4 +128,199 @@ bool AptPalantir::contentSlotAt(const std::string &path, bool &arc, int &slot) c
 		}
 	}
 	return false;
+}
+
+// ---- lane IOS-27 (OpenBFME presentation, not retail): the side bar as a block of one or two columns (AptPalantir.h) --------------------------------------
+// InGameSideCommandBar.apt (read from the movie, measured: hud2 palantir tests): SideCommandBar.ButtonSet holds the twelve frames Button0 .. Button11 in one
+// column (46 units apart, the reported button frames are their "Button" children), each with its frame art "Frame" (labels _middle, _top, _topbottom,
+// _bottom: the gold ends a column shows above its first and below its last button) and ButtonGlass; flashEffects.Button<N> is frame N's flash, placed by
+// the movie at the frame's centre. The movie's FadeIn / FadeOut slide ButtonSet in from / out past the stage's right edge (its x) by a little more than a
+// column's width. The layout moves whole frames (a viewport transform on ButtonN and its flash: the hit test, the tap assist and the help read the global
+// matrix, so they follow), sets the frame art of the frames that end a column, and stretches ButtonSet's slide by the block's width in columns.
+
+namespace
+{
+const char *const kFrameLabels[4] = { "_middle", "_top", "_topbottom", "_bottom" };
+
+// the label of the section of `s`'s timeline it stands in ("" none of kFrameLabels)
+std::string frameSection(const AptSpriteInst &s)
+{
+	std::string best;
+	int bestFrame = -1;
+	for (const char *l : kFrameLabels)
+	{
+		const int f = s.labelFrame(l);
+		if (f >= 0 && f <= s.frame && f > bestFrame)
+		{
+			best = l;
+			bestFrame = f;
+		}
+	}
+	return best;
+}
+
+// the parent path of a dotted clip path ("" for a top-level name)
+std::string parentPath(const std::string &path)
+{
+	const size_t dot = path.rfind('.');
+	return dot == std::string::npos ? std::string() : path.substr(0, dot);
+}
+} // namespace
+
+void AptPalantir::resetSideBarArrangement(AptSpriteInst *root)
+{
+	if (!m_sideArranged)
+	{
+		return;
+	}
+	m_sideArranged = false;
+	m_sideColumns = 1;
+	for (int i = 0; i < 16; ++i)
+	{
+		if (m_sideFramePath[i].empty())
+		{
+			continue;
+		}
+		const std::string frame = parentPath(m_sideFramePath[i]);
+		AptCharacterInst *c = windows().apt().resolvePath(root, frame);
+		if (!c)
+		{
+			continue;
+		}
+		c->viewportTransform = AptMatrix();
+		if (AptSpriteInst *set = dynamic_cast<AptSpriteInst *>(c->parent()))
+		{
+			set->viewportTransform = AptMatrix();
+			if (AptCharacterInst *flash = windows().apt().resolvePath(set, "flashEffects." + c->instName()))
+			{
+				flash->viewportTransform = AptMatrix();
+			}
+		}
+		if (!m_sideForcedState[i].empty())
+		{
+			// back to the movie's own choice for one column (UpdateNeighborFrameStates: the neighbours' indices)
+			const char *label = m_sideCount == 1 ? "_topbottom" : (i == 0 ? "_top" : (i == m_sideCount - 1 ? "_bottom" : "_middle"));
+			if (i < m_sideCount)
+			{
+				call(frame + ".Frame", "gotoAndPlay", { label });
+			}
+			m_sideForcedState[i].clear();
+		}
+	}
+}
+
+bool AptPalantir::arrangeSideBar(AptSpriteInst *root, bool portrait, float vscale, float stageWidth, float stageHeight, float safeTop, float safeBottom, float &k)
+{
+	const float target = k;
+	const int n = std::min(m_sideCount, 16);
+	if (target <= 1.0f || n < 1 || m_bfme1)
+	{
+		resetSideBarArrangement(root);
+		return false;
+	}
+	// the shown frames (ButtonN, the reported frame's parent) and their column's clip
+	AptSpriteInst *frames[16] = {};
+	for (int i = 0; i < n; ++i)
+	{
+		AptCharacterInst *c = m_sideFramePath[i].empty() ? nullptr : windows().apt().resolvePath(root, parentPath(m_sideFramePath[i]));
+		frames[i] = c ? c->asSprite() : nullptr;
+		if (!frames[i] || (i > 0 && frames[i]->parent() != frames[0]->parent()))
+		{
+			if (m_callErrors.size() < 200)
+			{
+				m_callErrors.push_back("IOS-27 side bar layout: frame " + std::to_string(i) + " (" + m_sideFramePath[i] + ") is not a clip of the bar's column");
+			}
+			resetSideBarArrangement(root);
+			return false;
+		}
+	}
+	AptSpriteInst *set = dynamic_cast<AptSpriteInst *>(frames[0]->parent());
+	AptCharacterInst *bar = set ? set->parent() : nullptr;
+	if (!set || !bar || bar->parent() != root)
+	{
+		if (m_callErrors.size() < 200)
+		{
+			m_callErrors.push_back("IOS-27 side bar layout: the frames' column is not a clip of a child of the Palantir's root");
+		}
+		resetSideBarArrangement(root);
+		return false;
+	}
+	// the column's measures (the movie's own, unscaled): its pitch, a frame's width (the frames are square), what the frame art reaches above the first
+	// button's origin (its _top end) and below the last's (its _bottom end)
+	const float x0 = frames[0]->matrix.tx, y0 = frames[0]->matrix.ty;
+	const float pitch = n > 1 ? frames[1]->matrix.ty - y0 : 0.0f; // one button is one column: no pitch needed
+	float bx0, by0, bx1, by1, lx0, ly0, lx1, ly1;
+	if ((n > 1 && pitch <= 0.0f) || !frames[0]->contentBounds(bx0, by0, bx1, by1) || !frames[n - 1]->contentBounds(lx0, ly0, lx1, ly1))
+	{
+		if (m_callErrors.size() < 200)
+		{
+			m_callErrors.push_back("IOS-27 side bar layout: the column's frames have no pitch or no frame art to measure");
+		}
+		resetSideBarArrangement(root);
+		return false;
+	}
+	const float capAbove = std::max(0.0f, -by0), capBelow = std::max(0.0f, ly1);
+	const float width = pitch;
+	const float safeHeight = safeBottom - safeTop;
+	auto blockHeight = [&](int rows) { return (float)(rows - 1) * pitch + capAbove + capBelow; };
+	const int columns = !portrait && n > 1 && (n > kSideBarMaxRows || vscale * target * blockHeight(n) > safeHeight) ? 2 : 1;
+	const int rows = (n + columns - 1) / columns;
+	k = target;
+	if (vscale * k * blockHeight(rows) > safeHeight)
+	{
+		k = std::max(1.0f, safeHeight / (vscale * blockHeight(rows)));
+	}
+	m_sideColumns = columns;
+	m_sideArranged = true;
+	// landscape: the block stands in the bar's bottom-right corner (the group's anchor, the safe area's corner): its last row's frame art ends at the
+	// stage's bottom. Portrait: the column's first frame art starts at `safeTop` once the group's transform (k about the stage's bottom-right corner,
+	// which goes to the safe area's) has placed it. Root space of the column's y: the bar's and ButtonSet's matrices (their x is the slide)
+	const float setY = bar->matrix.ty + bar->matrix.d * set->matrix.ty;
+	const float unitY = bar->matrix.d * set->matrix.d;
+	const float topRoot = stageHeight + (safeTop - safeBottom) / (vscale * k);
+	const float bottomOrigin = portrait ? topRoot + capAbove + (float)(rows - 1) * pitch : stageHeight - capBelow;
+	const int firstRows = rows, secondRows = n - rows;
+	for (int i = 0; i < 16; ++i)
+	{
+		AptCharacterInst *c = i < n ? frames[i] : nullptr;
+		if (!c && !m_sideFramePath[i].empty())
+		{
+			c = windows().apt().resolvePath(root, parentPath(m_sideFramePath[i]));
+		}
+		if (!c)
+		{
+			continue;
+		}
+		AptMatrix move;
+		std::string label;
+		if (i < n)
+		{
+			// column-major, the columns' last buttons on the bottom row: the second (shorter) column starts a row lower
+			const int column = columns == 2 && i >= firstRows ? 1 : 0;
+			const int inColumn = column == 0 ? i : i - firstRows;
+			const int count = column == 0 ? firstRows : secondRows;
+			const int row = inColumn + (rows - count);
+			const float wantY = bottomOrigin - (float)(rows - 1 - row) * pitch;
+			move.tx = columns == 2 && column == 0 ? -width : 0.0f;
+			move.ty = (wantY - setY) / unitY - c->matrix.ty;
+			label = count == 1 ? "_topbottom" : (inColumn == 0 ? "_top" : (inColumn == count - 1 ? "_bottom" : "_middle"));
+		}
+		c->viewportTransform = move;
+		if (AptCharacterInst *flash = windows().apt().resolvePath(set, "flashEffects." + c->instName()))
+		{
+			flash->viewportTransform = move;
+		}
+		AptSpriteInst *art = i < n ? dynamic_cast<AptSpriteInst *>(windows().apt().resolvePath(c, "Frame")) : nullptr;
+		if (art && !label.empty() && frameSection(*art) != label)
+		{
+			call(parentPath(m_sideFramePath[i]) + ".Frame", "gotoAndPlay", { label });
+			m_sideForcedState[i] = label;
+		}
+	}
+	// FadeOut slides ButtonSet right by a little more than one column: two columns slide twice as far, so the bar still leaves the screen. The shown
+	// position puts the column's right edge on the stage's
+	const float shownX = (stageWidth - bar->matrix.tx) / bar->matrix.a - x0 * set->matrix.a;
+	set->viewportTransform = AptMatrix();
+	set->viewportTransform.tx = (float)(columns - 1) * (set->matrix.tx - shownX);
+	return true;
 }

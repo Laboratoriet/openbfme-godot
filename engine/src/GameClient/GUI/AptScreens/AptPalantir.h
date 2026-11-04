@@ -29,6 +29,8 @@
 #include <string>
 #include <vector>
 
+class AptSpriteInst;
+
 class AptPalantir : public AptScreen
 {
 public:
@@ -40,6 +42,7 @@ public:
 	{
 		float scale = 1.0f;        ///< OpenBFMEHudScale / 100: 1 .. 2 (1 = retail)
 		float safeInsets[4] = {};  ///< window pixels the HUD keeps clear of: left, top, right, bottom (the notch, the home indicator)
+		float topRightReserve = 0.0f; ///< lane IOS-27: window pixels from the top a portrait side bar keeps clear of (InGameUI's message lines)
 	};
 	void setViewportSize(int width, int height, const HudLayout &layout);
 	// lane IOS-18: the size factor the last layout gave each anchored group (the option's, or less where the group would leave the safe area)
@@ -51,6 +54,16 @@ public:
 		Count
 	};
 	float hudGroupScale(HudGroup g) const { return m_groupScale[(int)g]; }
+	// lane IOS-27 (OpenBFME presentation, not retail; HUD size above 100 % only): the side command bar's buttons at the HUD size times kSideBarBoost
+	// (125 % -> 140 %). Landscape: a block in the safe area's bottom-right corner; more than kSideBarMaxRows buttons, or a column taller than the safe
+	// area at that size, wrap into two columns (column-major: the first, left column top to bottom, then the second), each column with its own frame
+	// ends. Portrait (the owner's call): one column from the top of the right edge, below the message lines (HudLayout::topRightReserve), its buttons as
+	// large on the screen as the landscape block's, as far as the height down to the safe area's bottom holds them. At 100 % (a desktop) the retail column, untouched. The spell book (SpellBookUI) hangs from the Palantir with the Palantir's
+	// factor, as far as the safe area's top holds its vine (its own fit, so a long vine no longer holds the whole Palantir at 100 %)
+	static constexpr float kSideBarBoost = 1.12f;
+	static constexpr int kSideBarMaxRows = 6;
+	int sideBarColumns() const { return m_sideColumns; }
+	float spellBookScale() const { return m_spellBookScale; }
 
 	// the commands the Palantir registers, in the binary's order (without the screen prefix of the command UI names)
 	static const std::vector<std::string> &retailCommandNames();
@@ -315,6 +328,14 @@ private:
 	float m_groupReach[(int)HudGroup::Count][4] = {};
 	bool m_groupReachSeen[(int)HudGroup::Count] = {};
 	float m_groupScale[(int)HudGroup::Count] = { 1.0f, 1.0f, 1.0f };
+	// lane IOS-27 (AptPalantirSideBar.cpp): the side bar's block layout; false keeps the IOS-18 column (scale <= 1, or the movie's clips not found).
+	// `k` in: the factor the side bar may take at most (the HUD size times kSideBarBoost); out: the factor that fits
+	bool arrangeSideBar(AptSpriteInst *root, bool portrait, float vscale, float stageWidth, float stageHeight, float safeTop, float safeBottom, float &k);
+	void resetSideBarArrangement(AptSpriteInst *root);
+	int m_sideColumns = 1;
+	bool m_sideArranged = false;            ///< some ButtonN / flash / ButtonSet carries a layout transform or a forced frame state
+	std::string m_sideForcedState[16];      ///< the frame-art label the layout set on ButtonN.Frame ("" none)
+	float m_spellBookScale = 1.0f;          ///< the spell book's factor (the Palantir's, or less where its vine meets the safe area's top)
 	bool m_sideBarGate = false;
 	std::vector<std::string> m_sideBarCalls;
 	std::function<void(const std::string &, bool)> m_helpBoxHandler;

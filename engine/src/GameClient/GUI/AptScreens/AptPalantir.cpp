@@ -921,7 +921,8 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 		{
 			const std::string &name = child->instName();
 			float x0, y0, x1, y1;
-			if (name == "helpBox" || name == "ButtonFlashStage" || !child->contentBounds(x0, y0, x1, y1))
+			// lane IOS-27: the spell book's vine (up to the stage's top with every power) fits on its own (below), so it does not hold the Palantir
+			if (name == "helpBox" || name == "ButtonFlashStage" || name == "SpellBookUI" || !child->contentBounds(x0, y0, x1, y1))
 			{
 				continue;
 			}
@@ -981,6 +982,19 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 		}
 		m_groupScale[g] = k;
 	}
+	// lane IOS-27: above 100 % the side bar is a block of one or two columns at the HUD size times kSideBarBoost, as far as the safe area's height holds it
+	{
+		// portrait: the HUD's unit is the window's width / 1024, the same screen turned to landscape gives min(height / 1024, width / 768); the column
+		// takes that ratio on top, so its buttons are as large on the screen as the landscape block's (as far as the height below the message lines holds)
+		const bool portrait = width < height;
+		const float turned = portrait ? std::min((float)height / (float)width, stageWidth / stageHeight) : 1.0f;
+		float k = layout.scale > 1.0f ? layout.scale * kSideBarBoost * turned : 1.0f; // 100 %: the IOS-18 column (arrangeSideBar undoes its layout)
+		const float top = std::max(safeTop, layout.topRightReserve / unitY); // portrait: the column starts below the message lines
+		if (arrangeSideBar(root, portrait, vscale, stageWidth, stageHeight, top, safeBottom, k))
+		{
+			m_groupScale[(int)HudGroup::BottomRight] = k;
+		}
+	}
 	for (AptCharacterInst *child : root->children())
 	{
 		const std::string &name = child->instName();
@@ -1005,6 +1019,35 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 		child->viewportTransform.tx = an.x * (1.0f - a) + (an.sx - an.x);
 		child->viewportTransform.d = d;
 		child->viewportTransform.ty = an.y * (1.0f - d) + (an.sy - an.y);
+		if (name == "SpellBookUI")
+		{
+			m_spellBookScale = m_groupScale[g];
+			float x0, y0, x1, y1;
+			if (!retailLayout && child->contentBounds(x0, y0, x1, y1))
+			{
+				// lane IOS-27 (OpenBFME presentation, not retail): the spell book hangs from the Palantir's top-left by a vine that grows up the stage's left
+				// edge with every power bought (RotWK: to the stage's top with all twelve). Its foot (the left edge, its lowest point: where the rope meets
+				// the Palantir) goes where the Palantir's transform puts it, and the book scales about it by the Palantir's factor, or less where its top
+				// would leave the safe area (measured live: the vine only grows)
+				float topX, topY, bottomX, bottomY;
+				child->matrix.apply(x0, y0, topX, topY);
+				child->matrix.apply(x1, y1, bottomX, bottomY);
+				const float footX = an.x, footY = std::max(topY, bottomY);
+				const float placedX = a * footX + child->viewportTransform.tx, placedY = d * footY + child->viewportTransform.ty;
+				float ks = m_groupScale[g];
+				const float up = footY - std::min(topY, bottomY);
+				if (up > 0.0f && vscale * ks * up > placedY - safeTop)
+				{
+					ks = std::max(0.0f, (placedY - safeTop) / (vscale * up));
+				}
+				m_spellBookScale = ks;
+				const float as = scale * ks, ds = vscale * ks;
+				child->viewportTransform.a = as;
+				child->viewportTransform.d = ds;
+				child->viewportTransform.tx = placedX - as * footX;
+				child->viewportTransform.ty = placedY - ds * footY;
+			}
+		}
 	}
 }
 

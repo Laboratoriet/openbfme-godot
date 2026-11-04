@@ -337,6 +337,10 @@ struct HudDevice : public AptNativeHook
 	int messageLinesDrawn = 0;     ///< lane CHAT-1: the lines the last draw put on screen
 	Rect2 messageLinesRect;        ///< lane CHAT-1: their extent (window pixels)
 	void drawMessageLines();
+	// the message lines' font at a window width (drawMessageLines'); null when the HUD or its fonts are not ready
+	Ref<Font> messageFont(int width, int &size) const;
+	// lane IOS-27: how far down from the window's top the six message lines reach (MessagePosition's y plus kMaxLines lines), window pixels
+	float messageBandBottom(int width, int height) const;
 	Rect2 placeTextRect;
 	std::string resourceDecalError;
 	void drawResourceFeedback();
@@ -1459,6 +1463,40 @@ std::u16string chatGodotToU16(const String &t)
 }
 } // namespace
 
+Ref<Font> HudDevice::messageFont(int width, int &size) const
+{
+	if (!hud || width <= 0)
+	{
+		return Ref<Font>();
+	}
+	const InGameUIMessageSettings &ms = hud->messageLines().settings();
+	const int px = std::max(1, GlobalLanguage::adjustFontSize(ms.pointSize, width));
+	float drawSize = (float)px;
+	Ref<Font> font = player ? player->font_for(ms.font, (float)px, &drawSize) : Ref<Font>();
+	if (font.is_valid() && player)
+	{
+		font = player->font_cell(font, (int)std::lround(drawSize));
+	}
+	if (font.is_null())
+	{
+		font = ThemeDB::get_singleton() ? ThemeDB::get_singleton()->get_fallback_font() : Ref<Font>();
+	}
+	size = std::max(1, (int)std::lround(drawSize));
+	return font;
+}
+
+float HudDevice::messageBandBottom(int width, int height) const
+{
+	if (!hud || width <= 0 || height <= 0)
+	{
+		return 0.0f;
+	}
+	int size = 1;
+	const Ref<Font> font = messageFont(width, size);
+	const int lineH = font.is_valid() ? std::max(1, (int)std::ceil(font->get_height(size))) : 0;
+	return (float)(InGameUIMessages::screenY(height, hud->messageLines().settings().positionY) + InGameUIMessages::kMaxLines * lineH);
+}
+
 void HudDevice::drawMessageLines()
 {
 	// lane CHAT-1: InGameUI's message draw (RW 0x6A0BC0; GameClient/InGameUIMessages.h): MessagePosition scaled from 1024 x 768, the lines oldest first,
@@ -1476,22 +1514,12 @@ void HudDevice::drawMessageLines()
 	{
 		return;
 	}
-	const int px = std::max(1, GlobalLanguage::adjustFontSize(ms.pointSize, width));
-	float drawSize = (float)px;
-	Ref<Font> font = player ? player->font_for(ms.font, (float)px, &drawSize) : Ref<Font>();
-	if (font.is_valid() && player)
-	{
-		font = player->font_cell(font, (int)std::lround(drawSize));
-	}
-	if (font.is_null())
-	{
-		font = ThemeDB::get_singleton() ? ThemeDB::get_singleton()->get_fallback_font() : Ref<Font>();
-	}
+	int size = 1;
+	const Ref<Font> font = messageFont(width, size);
 	if (font.is_null())
 	{
 		return;
 	}
-	const int size = std::max(1, (int)std::lround(drawSize));
 	// the lines to draw, oldest first: the six message lines, or (the chat window open) the scroll-back's last lines in full colour
 	struct L
 	{
@@ -4061,6 +4089,8 @@ void InGameHudNode::fitSafeArea(const Vector2 &window)
 		UtilityFunctions::print("HUD safe area ", safe, " in a ", size, " window: insets ", insets[0], " ", insets[1], " ", insets[2], " ", insets[3]);
 	}
 	std::copy(insets, insets + 4, d->hudLayout.safeInsets);
+	// lane IOS-27: a portrait side bar starts below InGameUI's message lines (MessagePosition: the top-right corner)
+	d->hudLayout.topRightReserve = d->messageBandBottom((int)window.x, (int)window.y);
 	if (d->hud)
 	{
 		d->hud->setHudLayout(d->hudLayout);
