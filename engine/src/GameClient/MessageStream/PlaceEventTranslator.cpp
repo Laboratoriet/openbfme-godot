@@ -88,8 +88,9 @@ std::vector<std::string> PlaceEventTranslator::stopLines()
 {
 	return {
 		"[S-1770] wall line build (QA2-FIX): RotWK's PlaceEventTranslator line build branch is ported (RW 0x83E911 .. 0x83E9B8: MSG_WALL_HUB_CONSTRUCT_SPAN from the hub to the "
-		"click with the build button's Options; the flag of RW 0x6A2D26); not ported: the release's restricted-area test (RW 0x707141, code 8) and the wall's "
-		"line ghost (RW 0x6A2D38 ff); the build button is kept with the placement instead of being the GUI command (RW 0x94089B)" };
+		"click with the build button's Options; the flag of RW 0x6A2D26); not ported: the release's restricted-area test (RW 0x707141, code 8); the wall's "
+		"line ghost (RW 0x6A2D38 ff) is not read: the span planner's tiles are drawn instead (PlacementIcons::updateWall, INFERENCE); the build button is kept "
+		"with the placement instead of being the GUI command (RW 0x94089B)" };
 }
 
 void PlaceEventTranslator::frame()

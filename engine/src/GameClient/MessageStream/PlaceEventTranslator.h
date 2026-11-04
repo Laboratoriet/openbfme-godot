@@ -52,7 +52,9 @@
 //     object id the source object (+0x74) }, clears the flag (vslot 0x100(0)) and the anchor (vslot 0x104) and ends the mode (RW 0x83E6A4: vslots 0xBC(0), 0xDC(0, 0)):
 //     no shift to keep placing.
 // Not ported (stop S-1770): the restricted-area test of the release (RW 0x707141: the local player's areas against the template's geometry, code 8, then the message
-// of RW 0x83EA43) and the wall's line ghost (the hub and segment drawables RW 0x6A2D38 ff draw along the pointer). Lane BUILD-5 ports the release's canMakeUnit
+// of RW 0x83EA43); the wall's line ghost is not read (the hub and segment drawables RW 0x6A2D38 ff draw along the pointer): INFERENCE, PlacementIcons::updateWall
+// draws the span planner's tiles (WallSpan::plan, RW 0x79586E) from the hub to the ghost's site, each tinted by its code (lane IOS-23 found it drawn and relies on
+// it for the touch placement drag). Lane BUILD-5 ports the release's canMakeUnit
 // check for every build (RW 0x83E771) and, r2, the PORT snap (template + 0x11F & 0x10, BuildAssistant::getPortTransform RW 0x794C63) of the ghost (RW 0x6A37AD)
 // and of the click after its legality test (RW 0x83E8D4).
 
