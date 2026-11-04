@@ -1113,7 +1113,7 @@ RetailMountReport MountRetailArchives(Win32BIGFileSystem &fileSystem, const std:
 			p.install = install.label;
 			p.entry = entry;
 			p.diskPath = found->second.u8string();
-			p.key = Md5Cache::key(disk, size, mtime);
+			p.key = cache.portable(Md5Cache::key(disk, size, mtime)); // relative to the cache's folder for a file inside it (Md5Cache::portable)
 			p.entryCheck = entryCheck;
 			p.layoutName = layoutWords;
 			p.advice = advice;

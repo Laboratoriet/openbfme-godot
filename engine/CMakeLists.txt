@@ -890,7 +890,7 @@ add_executable(openbfme_tests
     tests/test_any_language.cpp
     tests/test_mods1_mount.cpp
     tests/test_ios28_mods.cpp
-    tests/test_ios34_md5cache.cpp
+    tests/test_md5cache_portable.cpp
     tests/test_mods1_retail.cpp
     tests/test_logic_clock.cpp
     tests/test_chunkio.cpp
