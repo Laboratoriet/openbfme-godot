@@ -81,4 +81,5 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: print_stacktrace=1
           TSAN_OPTIONS: die_after_fork=0
-        run: engine/build/openbfme_tests -tce="audio decode: MP3*"
+        run: |
+          engine/build/openbfme_tests -tce="audio decode: MP3*"
