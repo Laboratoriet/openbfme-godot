@@ -1209,9 +1209,15 @@ func watch() -> Dictionary:
 	for p in _world.get_economy().get("players", []):
 		if p.playable:
 			names.append(p.name)
+			var first_structure := Vector2.INF
 			for o in _world.get_player_objects(p.name):
 				if o.commandcenter:
 					bases[p.name] = Vector2(o.x, o.y)
+				elif o.structure and first_structure == Vector2.INF:
+					first_structure = Vector2(o.x, o.y)
+			# lane IOS-31: a mod's starting castle need not be a COMMANDCENTER (Edain's keeps are not): the player's first structure stands in
+			if not bases.has(p.name) and first_structure != Vector2.INF:
+				bases[p.name] = first_structure
 	print("QA watch bases: %s" % str(bases))
 	var next_line := 0
 	var lines_printed := 0

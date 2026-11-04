@@ -41,3 +41,37 @@ A row that fails names the gap: the retail function (RW address) it needs, or th
 3. Age of the Ring: its game program decoded (a function-by-function comparison with retail 2.01's) and each change rebuilt as a feature.
 
 Mods covered first: Edain 4.8.5.3, Edain Unchained 4.4.3, then the rest of the All In One RotWK packages, then Age of the Ring.
+
+## Edain 4.8.5.4 on macOS with the Mobile renderer (lane IOS-31, 2026-11-05)
+
+The All In One package `0ff0ab7a` laid out by `tools/mod/aio_package.py` (38 files, every MD5 as the service lists it; 6.2 GB on disk: some
+archives are listed with Size 0), turned on in the Mods folder (Options › Mods) and also mounted with `--mod-install`. No retail capture was
+made, so a row "passes" here only as far as OpenBFME's own checks go; the retail reference captures are still to do.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | It mounts | yes: 14 archives in RotWK's load order, `lang\English.big` and `lang\englishpatch201.big` included; identity `mod install Edain`; no engine edits (no `game.dat`) |
+| 2 | Its data loads | 11202 object templates, 9 playable factions, 2 INI messages: `ExperienceLevels.ini` (macro `SUMMONED_HERO_WEAK` has no value) and `RiskCampaign.ini` (Living World `WorldText`, S-1321) |
+| 3 | The intro movies | the package has no `edainintro.vp6` (Edain's `Overall_Game_Intro`) and names no logo movies ("None"): nothing plays, as the package would in retail |
+| 4 | The main menu | Edain's menu (SOLO PLAY / MULTIPLAYER / OPTIONS / MY HEROES / QUIT) over the rune background: the package's shell maps ship disabled (`*.big.bak`) |
+| 5 | Every shell screen | MODUI-1: 87 Apt movies load, 0 failed; the MENU-1 walk 28 ok, 1 failed, nothing beyond 2.01's own failure (LAN's `LastLanLobbyScreen` extern) |
+| 6 | A skirmish | starts with Edain's factions (Gondor, Dwarves, Misty Mountains, Angmar ...), castles and build plots; a 12-minute 4-player game of hard computer players ran to its end with no script error and no crash (64 W3D model messages: Edain models' missing textures and sub objects, presentation only; the same game unmodded: 12); the gap census (3000 frames) hit `AimWeaponBehavior` (10 objects), `LocomotorSetUpgrade` (4), `RubbleRiseUpdate` (2), `EvacuateDamage` (1); 57 unported module classes appear in Edain's templates (AimWeaponBehavior 86 templates, EvacuateDamage 67, TooltipUpgrade 57 ...) |
+| 7 | Two players | not run (Mods-folder mods keep LAN and online off; `--mod-install` LAN not tried) |
+| 8 | The in-game interface | the Palantir, the keep's and the build plots' radial menus show Edain's buttons; the QA bot cannot build Edain's plot economy (it looks for retail's side bar), so its scripted Gondor lost after 5 minutes |
+| 9 | A save and a load | not run |
+| 10 | Its maps | the lobby lists 246 maps with Edain's; Fords of Isen II, Udun and Fall Back 4p played; Edain's own maps not tried one by one |
+
+`edainfactions1_test.gd` (written for 4.8.5.3): each clan choice (Erebor, Iron Hills, Ered Luin) and the Dwarven AI pass when their game
+command runs on its own; inside the test's wrapper the keep is often not picked ("no clickable keep") and one AI child exited 134 once, which
+did not happen again: a harness flake to look at, not a 4.8.5.4 difference (the clan buttons and upgrades have the 4.8.5.3 names).
+
+Memory and frame times, the same 10-minute 4-player game (Udun, hard computer players, the camera on the computer unit farthest from its
+base) on an M2 Max with the Mobile renderer in a 1335×939 window, `--gpu-probe --perf`:
+
+| | RotWK 2.01 | Edain 4.8.5.4 | Edain, Texture Quality Medium (reduction 1) |
+|---|---|---|---|
+| video memory, peak (after 6 min) | 638 MB (585 MB) | 673 MB (658 MB) | 649 MB in its 6 min (597 MB where Edain at full textures had 645 MB) |
+| process memory (RSS), peak | 1.70 GB | 2.36 GB | 2.29 GB |
+| objects, peak | 590 | 952 | 893 |
+| frame time p95 / p99, mean of the 5 s windows | 10.2 / 15.2 ms | 11.9 / 17.1 ms | 10.9 / 16.5 ms |
+| frame rate (display cap 120) | 116 | 115 | 116 |
