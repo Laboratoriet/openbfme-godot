@@ -13,6 +13,10 @@
 //   the wheel ............... a UIPanGestureRecognizer for scroll events only (allowedTouchTypes empty: it never takes a finger). Not GCMouse's
 //                             scroll: UIKit's is what the Mac's "Designed for iPad" host and the simulator deliver too, and two sources would scroll twice
 //   keys .................... GCKeyboard's keyChangedHandler (presses and releases; touch_controls.gd uses its releases)
+//   an Apple Pencil ......... lane IOS-35: the touch observer records where a UITouchTypePencil touch began (a pencil claim); Godot's own screen
+//                             touch of it stays a touch, and touch_controls.gd asks claimPencil to give it the select mode's gestures (a drag
+//                             is a selection box when one finger pans: the scheme of daisyhasacat/openbfme-godot 607d6406, whose bridge tells the
+//                             Pencil apart in its own hook of Godot's view; here the observer that already sees every touch first does it)
 // Godot's view keeps every touch: no recognizer here cancels or delays touches.
 
 #import <GameController/GameController.h>
@@ -57,6 +61,7 @@ struct State
 	std::mutex lock; // the queue and the claims (every caller is on the main thread; cheap insurance)
 	std::vector<Event> queue;
 	std::vector<Claim> claims;
+	std::vector<Claim> pencilClaims; // lane IOS-35
 	bool started = false;
 	float x = -1.0f, y = -1.0f;     // the pointer in window pixels; -1: never placed
 	double placedAt = -1.0;         // when UIKit last placed it
@@ -104,15 +109,46 @@ void Push(const Event &e)
 	s.queue.push_back(e);
 }
 
-void AddClaim(float x, float y)
+void AddClaim(std::vector<Claim> &claims, float x, float y)
 {
 	State &s = S();
 	std::lock_guard<std::mutex> guard(s.lock);
-	if (s.claims.size() >= kClaimLimit)
+	if (claims.size() >= kClaimLimit)
 	{
-		s.claims.erase(s.claims.begin());
+		claims.erase(claims.begin());
 	}
-	s.claims.push_back(Claim{ x, y, Now() });
+	claims.push_back(Claim{ x, y, Now() });
+}
+
+void AddClaim(float x, float y)
+{
+	AddClaim(S().claims, x, y);
+}
+
+// true (once) when a claim of `claims` began at (x, y) within the last kClaimSeconds; stale claims go
+bool TakeClaim(std::vector<Claim> &claims, float x, float y)
+{
+	State &s = S();
+	std::lock_guard<std::mutex> guard(s.lock);
+	const double t = Now();
+	bool found = false;
+	for (auto it = claims.begin(); it != claims.end();)
+	{
+		if (t - it->at > kClaimSeconds)
+		{
+			it = claims.erase(it);
+		}
+		else if (!found && std::fabs(it->x - x) <= kClaimPixels && std::fabs(it->y - y) <= kClaimPixels)
+		{
+			it = claims.erase(it);
+			found = true;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	return found;
 }
 
 } // namespace
@@ -261,7 +297,7 @@ static int ButtonOf(UITouch *touch, UIEvent *event)
 		self.delaysTouchesBegan = NO;
 		self.delaysTouchesEnded = NO;
 		self.requiresExclusiveTouchType = NO;
-		self.allowedTouchTypes = @[ @(UITouchTypeDirect), @(UITouchTypeIndirectPointer) ];
+		self.allowedTouchTypes = @[ @(UITouchTypeDirect), @(UITouchTypeIndirectPointer), @(UITouchTypePencil) ]; // IOS-35: the Pencil's claims
 	}
 	return self;
 }
@@ -289,6 +325,14 @@ static int ButtonOf(UITouch *touch, UIEvent *event)
 	bool doubleClick = false;
 	for (UITouch *touch in touches)
 	{
+		if (touch.type == UITouchTypePencil)
+		{
+			// lane IOS-35: the Pencil's touch stays Godot's (a screen touch); only its start is recorded, for claimPencil
+			const CGPoint p = [touch locationInView:view];
+			AddClaim(S().pencilClaims, (float)(int)(p.x * scale), (float)(int)(p.y * scale));
+			S().counts.pencilTouches++;
+			continue;
+		}
 		if (!IsPointerTouch(touch, view))
 		{
 			continue;
@@ -679,29 +723,20 @@ void IOSPointerBridge::poll(std::vector<Event> &out)
 
 bool IOSPointerBridge::claimTouch(float x, float y)
 {
-	State &s = S();
-	std::lock_guard<std::mutex> guard(s.lock);
-	const double t = Now();
-	bool found = false;
-	for (auto it = s.claims.begin(); it != s.claims.end();)
-	{
-		if (t - it->at > kClaimSeconds)
-		{
-			it = s.claims.erase(it);
-		}
-		else if (!found && std::fabs(it->x - x) <= kClaimPixels && std::fabs(it->y - y) <= kClaimPixels)
-		{
-			it = s.claims.erase(it);
-			found = true;
-		}
-		else
-		{
-			++it;
-		}
-	}
+	const bool found = TakeClaim(S().claims, x, y);
 	if (found)
 	{
-		s.counts.claims++;
+		S().counts.claims++;
+	}
+	return found;
+}
+
+bool IOSPointerBridge::claimPencil(float x, float y)
+{
+	const bool found = TakeClaim(S().pencilClaims, x, y);
+	if (found)
+	{
+		S().counts.pencilClaims++;
 	}
 	return found;
 }

@@ -56,6 +56,8 @@ struct Status
 	int secondaryTaps = 0;
 	int keys = 0;
 	int claims = 0;           // Godot screen touches recognised as the pointer's
+	int pencilTouches = 0;    // lane IOS-35: Apple Pencil touches seen
+	int pencilClaims = 0;     // ... and Godot screen touches recognised as theirs
 };
 
 // Installs the recognizers on Godot's view (a UIView*, DisplayServer WINDOW_VIEW) and the GameController handlers. Idempotent; false without a view.
@@ -64,6 +66,9 @@ bool start(void *uiView);
 void poll(std::vector<Event> &out);
 // True (once) when a pointer touch began at (x, y) window pixels within the last second: Godot's screen touch there is the mouse's click.
 bool claimTouch(float x, float y);
+// lane IOS-35: true (once) when an Apple Pencil touch (UITouchTypePencil) began at (x, y) window pixels within the last second: Godot's screen touch
+// there is the Pencil's (it stays a touch; touch_controls.gd gives it the select mode's gestures).
+bool claimPencil(float x, float y);
 // A pointer is in use: it hovered, moved, clicked or scrolled (a GCMouse merely listed does not count: IOS-17).
 bool mouseConnected();
 bool keyboardConnected();

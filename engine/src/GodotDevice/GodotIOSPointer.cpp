@@ -178,6 +178,11 @@ bool IOSPointer::claim_touch(const Vector2 &position)
 	return IOSPointerBridge::claimTouch(position.x, position.y);
 }
 
+bool IOSPointer::claim_pencil(const Vector2 &position)
+{
+	return IOSPointerBridge::claimPencil(position.x, position.y); // lane IOS-35
+}
+
 bool IOSPointer::is_mouse_connected() const
 {
 	return IOSPointerBridge::mouseConnected();
@@ -210,6 +215,8 @@ Dictionary IOSPointer::status() const
 	d["secondary_taps"] = s.secondaryTaps;
 	d["keys"] = s.keys;
 	d["claims"] = s.claims;
+	d["pencil_touches"] = s.pencilTouches; // lane IOS-35
+	d["pencil_claims"] = s.pencilClaims;
 	return d;
 }
 
@@ -218,6 +225,7 @@ void IOSPointer::_bind_methods()
 	ClassDB::bind_method(D_METHOD("start"), &IOSPointer::start);
 	ClassDB::bind_method(D_METHOD("poll"), &IOSPointer::poll);
 	ClassDB::bind_method(D_METHOD("claim_touch", "position"), &IOSPointer::claim_touch);
+	ClassDB::bind_method(D_METHOD("claim_pencil", "position"), &IOSPointer::claim_pencil); // lane IOS-35
 	ClassDB::bind_method(D_METHOD("is_mouse_connected"), &IOSPointer::is_mouse_connected);
 	ClassDB::bind_method(D_METHOD("is_keyboard_connected"), &IOSPointer::is_keyboard_connected);
 	ClassDB::bind_method(D_METHOD("buttons_down"), &IOSPointer::buttons_down);

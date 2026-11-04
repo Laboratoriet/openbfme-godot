@@ -30,6 +30,8 @@ public:
 	Array poll();
 	// True (once) when Godot's screen touch that began at `position` is a pointer click the bridge reports itself.
 	bool claim_touch(const Vector2 &position);
+	// lane IOS-35: true (once) when Godot's screen touch that began at `position` is an Apple Pencil's.
+	bool claim_pencil(const Vector2 &position);
 	bool is_mouse_connected() const;
 	bool is_keyboard_connected() const;
 	int64_t buttons_down() const;
