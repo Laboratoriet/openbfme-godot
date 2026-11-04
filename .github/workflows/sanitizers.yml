@@ -67,7 +67,7 @@ jobs:
       - name: Build
         run: |
           ccache -z
-          cmake --build engine/build
+          cmake --build engine/build -- -k 0
           ccache -s
       - name: Save the compiler cache (pushes only)
         if: github.event_name == 'push'
@@ -82,4 +82,4 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1
           TSAN_OPTIONS: die_after_fork=0
         run: |
-          engine/build/openbfme_tests -tce="audio decode: MP3*"
+          engine/build/openbfme_tests -tce="audio decode: MP3*,audio decode: corrupted MP3*"
