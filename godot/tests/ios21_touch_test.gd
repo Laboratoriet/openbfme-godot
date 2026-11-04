@@ -91,6 +91,9 @@ func _run() -> int:
 	_controls._hud = _hud
 	_controls._apply_edge_scroll()
 	_check(_hud.touch_help == [true], "the HUD's help is the touch help (no mouse): %s" % [_hud.touch_help])
+	# the first frames of a headless start can be slower than a hold: a 0.6 s wait could end, and the finger lift, in the frame the hold was due
+	# (an intermittent failure of the first case); settle first
+	await _wait(0.5)
 
 	var a := AUTOCAST.get_center()
 	var b := BUTTON.get_center()
