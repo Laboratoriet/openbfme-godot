@@ -5,6 +5,11 @@ extends Node
 ## Lane IOS-21: then, with a builder selected, a hold on a side bar button and on the portrait shows their help while held and presses nothing; a tap
 ## still presses (the building's placement, cancelled again by a hold in the world: its right click); and a double tap on an autocast ability (the
 ## Witch-king's Morgul Blade, made for the test when the hooks allow it) toggles its autocast.
+## Lane IOS-23: a building's placement by finger: the builder's build button tapped, a finger on the world puts the ghost GHOST_OFFSET_PT above it;
+## dragged onto the player's own fortress (an invalid site) and lifted, the placement stays; dragged to a legal site and lifted, the structure stands
+## at the ghost's point, not under the finger. Then a wall: a Men wall hub (made for the test), Begin Wall Span, a drag shows the span's ghost
+## segments from the hub to the ghost's point, the lift builds them. The pictures of the drags mark the finger (a ring) and the ghost's point (a dot),
+## drawn by this test only.
 
 var _out := ""
 var _controls: Node
@@ -94,6 +99,9 @@ func _run() -> void:
 	# 6. lane IOS-21: hold shows info; a double tap toggles autocast
 	failures.append_array(await _hold_info_check(hud))
 	failures.append_array(await _autocast_check(hud))
+	# 7. lane IOS-23: placement by finger, a building and a wall span
+	failures.append_array(await _placement_check(hud))
+	failures.append_array(await _wall_check(hud))
 	if failures.is_empty():
 		print("TOUCH SELFTEST PASS")
 	else:
@@ -308,6 +316,328 @@ func _autocast_check(hud: Node) -> PackedStringArray:
 	print("TOUCH SELFTEST autocast double tap again: auto %s" % auto2)
 	if auto2 != auto0:
 		out.append("a second double tap did not toggle the autocast back")
+	return out
+
+
+## lane IOS-23: the self-test's marker in its pictures: a ring where the finger is, a line up to the ghost's point and a dot there
+class FingerMarker:
+	extends Control
+	var finger := Vector2.INF
+	var ghost := Vector2.INF
+
+	func _draw() -> void:
+		if not finger.is_finite():
+			return
+		draw_line(finger, ghost, Color(1, 1, 1, 0.7), 2.0)
+		draw_arc(finger, 22.0, 0.0, TAU, 40, Color(1.0, 0.8, 0.1), 3.0)
+		draw_circle(ghost, 5.0, Color(1, 1, 1))
+
+
+var _marker: FingerMarker = null
+
+
+## the marker at finger `at` (Vector2.INF: hidden)
+func _mark(at: Vector2) -> void:
+	if _marker == null:
+		var layer := CanvasLayer.new()
+		layer.layer = 128
+		add_child(layer)
+		_marker = FingerMarker.new()
+		_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_marker.set_anchors_preset(Control.PRESET_FULL_RECT)
+		layer.add_child(_marker)
+	_marker.finger = at
+	_marker.ghost = _controls.ghost_point(at) if at.is_finite() else Vector2.INF
+	_marker.queue_redraw()
+
+
+## the local player's first builder (_builder_picture's rule), selected as a player's click selects (the logic's selection too: a construct
+## message's builder is its first object); its id (-1: none)
+func _select_builder(hud: Node) -> int:
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	if world == null:
+		return -1
+	for o in world.get_player_objects(str(game.get("_local_name"))):
+		var t := str(o.template)
+		if t.contains("Porter") or t.contains("Worker"):
+			hud.select_object_with_message(int(o.id))
+			await _wait(1.5)
+			return int(o.id)
+	return -1
+
+
+## the first DOZER_CONSTRUCT button of the side command bar on screen: { position, name } ({} none)
+func _build_button(hud: Node) -> Dictionary:
+	for b in hud.get_command_buttons():
+		if not b.in_palantir and str(b.command) == "DOZER_CONSTRUCT":
+			var w: Dictionary = hud.find_button_window(str(b.frame))
+			if w.get("found", false):
+				return {"position": Vector2(float(w.x), float(w.y)), "name": str(b.name)}
+	return {}
+
+
+## the ids of the local player's objects
+func _object_ids(world, player: String) -> Dictionary:
+	var ids := {}
+	for o in world.get_player_objects(player):
+		ids[int(o.id)] = true
+	return ids
+
+
+## finger 0 (down) from `from` to `to` in `steps` frames
+func _finger_to(from: Vector2, to: Vector2, steps := 10) -> void:
+	var p := from
+	for i in range(1, steps + 1):
+		var n := from.lerp(to, float(i) / steps)
+		_drag(0, n, n - p)
+		p = n
+		await get_tree().process_frame
+
+
+## the window point is on the world (not the HUD) and inside the view
+func _on_world(hud: Node, at: Vector2) -> bool:
+	return get_viewport().get_visible_rect().has_point(at) and bool(hud.touch_placement_at(at).get("world", false))
+
+
+## lane IOS-23: a building placed by a finger: the ghost follows GHOST_OFFSET_PT above it, an invalid lift keeps the placement, a legal lift builds
+## at the ghost's point
+func _placement_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	if not hud.has_method("touch_placement_at"):
+		out.append("the extension has no touch_placement_at (built before lane IOS-23)")
+		return out
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	var local := str(game.get("_local_name")) if game != null else ""
+	if world == null or await _select_builder(hud) < 0:
+		print("TOUCH SELFTEST placement: SKIP (no builder of the local player)")
+		return out
+	var button := _build_button(hud)
+	if button.is_empty():
+		out.append("placement: no side bar build button of the builder on screen")
+		return out
+	await _tap(button.position)
+	await _wait(0.8)
+	var pl: Dictionary = hud.get_placement()
+	if not pl.placing:
+		out.append("placement: a tap on %s started no placement" % button.name)
+		return out
+	var template := str(pl.template)
+	var size := get_viewport().get_visible_rect().size
+	var off := Vector2(0.0, _controls.GHOST_OFFSET_PT * _controls._scale)
+	print("TOUCH SELFTEST placement: %s from %s, ghost offset %s px (%.0f pt at %.1f px per point)" % [template, button.name, off, _controls.GHOST_OFFSET_PT, _controls._scale])
+
+	# a. an invalid site: the ghost dragged onto the player's own fortress and lifted: retail's refusal, the placement stays
+	var fort := Vector2.INF
+	for o in world.get_player_objects(local):
+		if o.commandcenter:
+			fort = hud.world_to_pixel(Vector2(float(o.x), float(o.y)))
+			break
+	var lifts0 := int(_controls.stats.place_lifts)
+	if fort.is_finite() and _on_world(hud, fort) and _on_world(hud, fort + off) and _on_world(hud, fort + off + Vector2(0, 30)):
+		_touch(0, fort + off + Vector2(0, 30), true)
+		await get_tree().process_frame
+		await _finger_to(fort + off + Vector2(0, 30), fort + off)
+		await _wait(0.4)
+		var legal := int(hud.get_placement().legal)
+		_mark(fort + off)
+		await _shot("10-place-invalid")
+		_mark(Vector2.INF)
+		_touch(0, fort + off, false)
+		await _wait(0.8)
+		var still: bool = hud.get_placement().placing
+		print("TOUCH SELFTEST placement on the fortress: ghost code %d, lifted: placing %s, lifts +%d" % [legal, still, int(_controls.stats.place_lifts) - lifts0])
+		if legal == 0:
+			out.append("placement: the ghost on the fortress was judged legal")
+		if not still:
+			out.append("placement: a lift on an invalid site ended the placement")
+		if int(_controls.stats.place_lifts) != lifts0 + 1:
+			out.append("placement: the lift on the fortress was no placement lift")
+	else:
+		print("TOUCH SELFTEST placement on the fortress: SKIP (the fortress at %s is not on screen with a finger below it)" % fort)
+
+	# b. a legal site: finger down, the ghost above it; dragged until the ghost is legal, lifted: the structure at the ghost's point
+	var start := size * Vector2(0.5, 0.62)
+	var ids0 := _object_ids(world, local)
+	_touch(0, start, true)
+	await _wait(0.3)
+	var p0: Dictionary = hud.get_placement()
+	var ghost0 := Vector2(float(p0.x), float(p0.y))
+	var want0: Vector2 = hud.pixel_to_world(_controls.ghost_point(start))
+	var under0: Vector2 = hud.pixel_to_world(start)
+	print("TOUCH SELFTEST placement drag: finger %s (world %s), ghost at %s, the offset point's world %s" % [start, under0, ghost0, want0])
+	# tolerance: the ghost's site is PlaceEventTranslator's terrain pick of the pointer through the drawn camera, pixel_to_world the HUD's of the same pixel
+	if ghost0.distance_to(want0) > 4.0:
+		out.append("placement: the ghost %s is not at the offset point's ground %s" % [ghost0, want0])
+	if ghost0.distance_to(under0) < 20.0:
+		out.append("placement: the ghost %s is under the finger %s" % [ghost0, under0])
+	var finger := start
+	var legal_at := Vector2.INF
+	var shot := false
+	for c in [start + Vector2(-200, 40), start + Vector2(220, 30), start + Vector2(-380, -80), start + Vector2(380, -80), start + Vector2(0, 110),
+			start + Vector2(-120, -140), start + Vector2(140, -150)]:
+		await _finger_to(finger, c)
+		finger = c
+		await _wait(0.35)
+		if not shot:
+			shot = true
+			_mark(finger)
+			await _shot("11-place-drag")
+			_mark(Vector2.INF)
+		if int(hud.get_placement().legal) == 0 and _on_world(hud, _controls.ghost_point(finger)):
+			legal_at = finger
+			break
+	var want: Vector2 = hud.pixel_to_world(_controls.ghost_point(finger))
+	var under: Vector2 = hud.pixel_to_world(finger)
+	_mark(finger)
+	await _shot("12-place-before-lift")
+	_mark(Vector2.INF)
+	_touch(0, finger, false)
+	await _wait(1.5)
+	await _shot("13-place-after-lift")
+	if not legal_at.is_finite():
+		out.append("placement: no legal site for %s along the drag" % template)
+		if hud.get_placement().placing:
+			await _hold(size * Vector2(0.5, 0.35))
+		return out
+	var made := {}
+	var best := INF
+	for o in world.get_player_objects(local):
+		if not ids0.has(int(o.id)) and o.structure:
+			var d := Vector2(float(o.x), float(o.y)).distance_to(want)
+			if d < best:
+				best = d
+				made = o
+	print("TOUCH SELFTEST placement lift: finger %s (world %s), ghost point world %s: placing %s, new structure %s at %.1f from the ghost point, %.1f from the finger" % [
+		finger, under, want, hud.get_placement().placing, made.get("template", "none"),
+		best, Vector2(float(made.get("x", 0)), float(made.get("y", 0))).distance_to(under) if not made.is_empty() else -1.0])
+	if hud.get_placement().placing:
+		out.append("placement: the legal lift did not place (the placement is still on)")
+	# tolerance: the site is the terrain point of the click's pixel; the logic may move a structure a little onto its footprint's cell grid
+	if made.is_empty() or best > 12.0:
+		out.append("placement: no new structure at the ghost's point %s (nearest %.1f away)" % [want, best])
+	return out
+
+
+## lane IOS-23: a wall span by finger: a Men wall hub (MenWallHubSmall, test_qa2fix_walls.cpp's) made for the local player, Begin Wall Span tapped, a drag
+## shows the span's ghost segments from the hub to the ghost's point, the lift builds the span. SKIPs, saying so, where the test hooks refuse
+func _wall_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	if world == null or int(game.get("_local_index")) < 0 or not hud.has_method("touch_placement_at"):
+		print("TOUCH SELFTEST wall: SKIP (no game world / local player)")
+		return out
+	var local := str(game.get("_local_name"))
+	var size := get_viewport().get_visible_rect().size
+	# the hub on open ground: the first of a few points whose ground has none of the player's objects near (the fortress sits left of the middle)
+	var hub_px := Vector2.INF
+	var hub_at := Vector2.INF
+	for c in [Vector2(0.55, 0.3), Vector2(0.7, 0.3), Vector2(0.45, 0.25), Vector2(0.6, 0.45), Vector2(0.75, 0.5), Vector2(0.8, 0.25), Vector2(0.4, 0.75),
+			Vector2(0.85, 0.65)]:
+		var px: Vector2 = size * c
+		var at: Vector2 = hud.pixel_to_world(px)
+		var clear := at.is_finite() and _on_world(hud, px)
+		for o in world.get_player_objects(local):
+			if clear and Vector2(float(o.x), float(o.y)).distance_to(at) < 70.0:
+				clear = false
+		print("TOUCH SELFTEST wall: hub site %s (world %s): %s" % [px, at, "open" if clear else "taken"])
+		if clear:
+			hub_px = px
+			hub_at = at
+			break
+	if not hub_px.is_finite():
+		print("TOUCH SELFTEST wall: SKIP (no open ground on screen for the hub)")
+		return out
+	var hub := int(world.create_object("MenWallHubSmall", int(game.get("_local_index")), hub_at.x, hub_at.y, 0.0))
+	if hub <= 0:
+		print("TOUCH SELFTEST wall: SKIP (create_object refused: %s)" % str(world.call("get_command_errors") if world.has_method("get_command_errors") else ""))
+		return out
+	await _wait(0.5)
+	hud.select_object_with_message(hub)
+	await _wait(1.5)
+	# a structure's command buttons are radial bubbles over it (HUD-6): Begin Wall Span is the hub's DOZER_CONSTRUCT bubble
+	var bubble := {}
+	for b in hud.get_hud6_state().get("radial", {}).get("buttons", []):
+		if str(b.command) == "DOZER_CONSTRUCT":
+			bubble = b
+			break
+	if bubble.is_empty():
+		out.append("wall: the hub shows no Begin Wall Span (DOZER_CONSTRUCT) bubble: %s" % JSON.stringify(hud.get_hud6_state().get("radial", {}).get("buttons", [])))
+		return out
+	var rect: Rect2 = bubble.rect
+	var at_bubble := rect.position + rect.size * 0.5
+	print("TOUCH SELFTEST wall: %s bubble at %s for a finger: %s" % [bubble.name, at_bubble, JSON.stringify(hud.touch_button_at(at_bubble))])
+	await _tap(at_bubble)
+	await _wait(0.8)
+	var probe: Dictionary = hud.touch_placement_at(size * Vector2(0.6, 0.6))
+	print("TOUCH SELFTEST wall: hub %d at %s (pixel %s), %s tapped: %s" % [hub, hub_at, hub_px, bubble.name, JSON.stringify(probe)])
+	if not probe.get("placing", false) or not probe.get("line_build", false):
+		out.append("wall: %s started no line build" % bubble.name)
+		if probe.get("placing", false):
+			await _hold(size * Vector2(0.5, 0.35))
+		return out
+	var off := Vector2(0.0, _controls.GHOST_OFFSET_PT * _controls._scale)
+	var ids0 := _object_ids(world, local)
+	# the finger starts with the ghost just right of the hub and drags it along; first legal span wins (every tile's code 0)
+	var finger := hub_px + Vector2(60, 0) + off
+	_touch(0, finger, true)
+	await _wait(0.3)
+	var good := false
+	var tiles := 0
+	var shot := false
+	var reach := minf(320.0, size.x * 0.25)  # a span the view holds in portrait too
+	for end in [hub_px + Vector2(reach, 0), hub_px + Vector2(reach, -120), hub_px + Vector2(reach, 120), hub_px + Vector2(0, -220), hub_px + Vector2(-reach, 0)]:
+		var to: Vector2 = end + off
+		if not get_viewport().get_visible_rect().has_point(to):
+			continue  # a finger stays on the screen
+		await _finger_to(finger, to, 14)
+		finger = to
+		await _wait(0.5)
+		var ghost: Dictionary = hud.get_placement_ghost_state()
+		var icons: Array = ghost.get("icons", [])
+		var worst := 0
+		for i in icons:
+			worst = maxi(worst, int(i.get("code", 0)))
+		tiles = icons.size()
+		print("TOUCH SELFTEST wall drag: ghost point %s: %d ghost segments, worst code %d" % [_controls.ghost_point(finger), tiles, worst])
+		if not shot and tiles >= 2:
+			shot = true
+			_mark(finger)
+			await _shot("14-wall-preview")
+			_mark(Vector2.INF)
+		if tiles >= 2 and worst == 0 and _on_world(hud, _controls.ghost_point(finger)):
+			good = true
+			break
+	var want: Vector2 = hud.pixel_to_world(_controls.ghost_point(finger))
+	_mark(finger)
+	await _shot("15-wall-before-lift")
+	_mark(Vector2.INF)
+	_touch(0, finger, false)
+	await _wait(2.0)
+	await _shot("16-wall-after-lift")
+	var walls := 0
+	var far := 0.0
+	for o in world.get_player_objects(local):
+		if not ids0.has(int(o.id)) and int(o.id) != hub:
+			walls += 1
+			far = maxf(far, Vector2(float(o.x), float(o.y)).distance_to(hub_at))
+	var span := hub_at.distance_to(want)
+	print("TOUCH SELFTEST wall lift: span %s -> %s (%.0f long), %d segments shown, legal %s: placing %s, %d new objects, the farthest %.0f from the hub" % [
+		hub_at, want, span, tiles, good, hud.get_placement().placing, walls, far])
+	if tiles < 2:
+		out.append("wall: the drag showed no wall line (%d ghost segments)" % tiles)
+	if not good:
+		out.append("wall: no legal span along the drag")
+		if hud.get_placement().placing:
+			await _hold(size * Vector2(0.5, 0.35))
+		return out
+	if hud.get_placement().placing:
+		out.append("wall: the lift did not build (the placement is still on)")
+	# tolerance: the span ends on a whole tile, at most a tile (the segment's length, ~ 40) short of or past the ghost's point
+	if walls < 2 or absf(far - span) > 60.0:
+		out.append("wall: the span was not built to the ghost's point (%d new objects, farthest %.0f, span %.0f)" % [walls, far, span])
 	return out
 
 
