@@ -674,9 +674,11 @@ func settings_hits() -> void:
 		if tab == "Controls":
 			check("Controls: the hot key list is shown (read only)", page().has("list"), "")
 		elif tab == DESKTOP_TAB:
-			# lane IOS-24: text rows and one button, which is not pressed here (it would write a 6.5 GB file); its box is checked
+			# lane IOS-24: text rows and one button, which is not pressed here (it would write a 6.5 GB file); its box is checked (the page
+			# state reports a Button row's kind as "mesh" (seen 2026-11-04, the engine's naming; not compared here))
 			var action: Dictionary = rows.get("Prepare.action", {})
-			check("%s at %s: the PREPARE button has its box" % [tab, size_tag], action.get("kind", "") == "button" and action.has("rect"), str(action))
+			var box: Rect2 = action.get("rect", Rect2())
+			check("%s at %s: the PREPARE button has its box" % [tab, size_tag], action.get("enabled", false) and box.size == Vector2(170, 26), str(action))
 		elif n == 0 and greyed > 0 and bad.is_empty():
 			check("%s: every row is greyed here (%d), nothing to press" % [tab, greyed], true, "")
 		else:
