@@ -72,6 +72,13 @@ extends Node
 ##   a mouse (IOS-14) ........... its first motion ends the wait: the mouse has the pointer, and a mouse click places as retail's does
 ## A finger on ✓ / ✕ presses it (the disc shrinks); lifting on it activates it, sliding off and lifting does nothing, a second finger cancels it.
 ##
+## Lane IOS-36, after daisyhasacat/openbfme-godot facef81b ("Deselect iOS builders after issuing construction orders", GPL-3.0): once a ✓ was
+## accepted (the placement ended and InGameHudNode.touch_placement_at's "builds" count went up: the construct order or the wall span was issued),
+## builders are deselected (InGameHudNode.deselect_builders: only when every selected object is a builder), so the next finger on the world is not
+## another order to the builder. A refused ✓ (the placement and the buttons stay), ✕, a hold or the game cancelling it deselect nothing; a mouse's
+## placement (IOS-14, not this layer) keeps retail's selection. Daisy deselects in the engine after every placement; here only the touch layer's ✓.
+## deselect_builders_after_build turns it off (an option for the owner to decide, COMBINE.md Q3).
+##
 ## Lane IOS-35 (the owner's request, 2026-11-04: the one-finger pan of daisyhasacat/openbfme-godot as an OPTION; scheme after daisyhasacat/openbfme-godot
 ## 607d6406 "Add finger navigation and Pencil selection for touch devices", GPL-3.0; no code copied: Daisy's lives in the engine's InGameHudNode, ours
 ## here): Options > Interface > "One finger drag" (game_options.gd OpenBFMETouchDrag, set_drag_mode). "select" (the default) keeps the gestures above.
@@ -165,7 +172,7 @@ var _scroll_row := 0.0           # stage pixels of finger travel per notch (the 
 var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "twists": 0, "assisted_taps": 0,
 	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
 	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0, "place_taps": 0, "place_confirms": 0, "place_cancels": 0,
-	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0}
+	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0, "place_accepted": 0, "builder_deselects": 0}
 var drag_mode := DRAG_SELECT     # lane IOS-35: OpenBFMETouchDrag (set_drag_mode)
 var _pan_world := false          # lane IOS-35: in pan mode the one-finger gesture began on the battlefield (a drag pans, a hold arms the box)
 var _pan_last := Vector2.ZERO    # lane IOS-35: the finger's pixel at the last camera step
@@ -180,6 +187,8 @@ var _confirm_poll_ms := 0
 var _track_until := 0
 var _committed_ms := -1          # ✓ tapped on a legal ghost: the buttons went; they come back if the placement is still on CONFIRM_RETRY_MS later
 var _pressed := ""               # the button a CONFIRM gesture's finger pressed
+var deselect_builders_after_build := true  # lane IOS-36: an accepted ✓ deselects the builders
+var _builds_at_confirm := -1     # lane IOS-36: touch_placement_at's "builds" when ✓ was last tapped (-1: no ✓ waiting, or an extension without it)
 var _waiting := {}               # lane IOS-21: a tap on an autocast ability waiting for a second one: {"at": the press point, "due": msec, "second":
                                  # a finger came down on it in time (its tap is the second, however long it stays)}
 var _touch_help := -1            # lane IOS-21: the touch help the HUD was last given (-1: none yet)
@@ -661,6 +670,9 @@ func _refresh_validity() -> void:
 ## sound and the mode stays). On a legal ghost the buttons go at once; a ✓ the game did not take brings them back (_poll_confirm)
 func _confirm_build() -> void:
 	var legal: bool = _confirm.build_enabled()
+	var hud := _game_hud()
+	if hud != null and hud.has_method("touch_placement_at"):
+		_builds_at_confirm = int(hud.touch_placement_at(_ghost_px).get("builds", -1))  # lane IOS-36: did the game take it? (_end_confirm)
 	_click(MOUSE_BUTTON_LEFT, _ghost_px)
 	stats.place_confirms += 1
 	Input.vibrate_handheld(10)
@@ -679,6 +691,7 @@ func _confirm_cancel() -> void:
 func _end_confirm() -> void:
 	if not _confirming:
 		return
+	_after_placement()
 	_confirming = false
 	_anchor = Vector2.INF
 	_ghost_px = Vector2.INF
@@ -686,6 +699,22 @@ func _end_confirm() -> void:
 	_track_until = 0
 	if _confirm != null:
 		_confirm.hide_now()
+
+
+## lane IOS-36 (after daisyhasacat/openbfme-godot facef81b), as the wait ends: a ✓ was tapped, the placement is over and the game's count of issued
+## construction orders went up since: it took the ✓, so the builders are deselected. A refusal, ✕ or a cancel leave the count (and the selection)
+func _after_placement() -> void:
+	var before := _builds_at_confirm
+	_builds_at_confirm = -1
+	var hud := _game_hud()
+	if before < 0 or hud == null or not hud.has_method("touch_placement_at"):
+		return
+	var r: Dictionary = hud.touch_placement_at(Vector2.ZERO)
+	if bool(r.get("placing", false)) or int(r.get("builds", -1)) <= before:
+		return
+	stats.place_accepted += 1
+	if deselect_builders_after_build and hud.has_method("deselect_builders") and bool(hud.deselect_builders()):
+		stats.builder_deselects += 1
 
 
 ## lane IOS-26, while the ghost waits: the placement still on (else the wait ends: placed, cancelled by a key or the game, the builder gone), the ghost
