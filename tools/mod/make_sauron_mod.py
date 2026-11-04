@@ -22,16 +22,16 @@ never commit it (the commit gate refuses .big files anyway). Nothing is read fro
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
-import shutil
-import struct
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-POLICY = ROOT / "engine" / "data" / "retail-archives" / "rotwk-201-english-archives.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from modkit import (POLICY, ROOT, ModError, RetailArchives, copy_mod, find_case_insensitive, inside_repository, key,  # noqa: E402,F401
+                    read_big_index, write_big, write_mod_folder)
+from modkit import find_block as _block  # noqa: E402
+from modkit import split_comment as _split_comment  # noqa: E402
 
 MOD_NAME = "SauronAtTheFortress"
 TITLE = "Sauron at the fortress"
@@ -44,111 +44,9 @@ HERO = "MordorSauron"
 FORTRESS_SET = "MordorFortressCommandSet"
 
 
-class ModError(RuntimeError):
-    pass
-
-
 # ---------------------------------------------------------------------------------------------------------------------------------
-# BIG archives
+# the INI change (BIG reading / writing and the line helpers: modkit.py, shared with make_ini_mods.py)
 # ---------------------------------------------------------------------------------------------------------------------------------
-def read_big_index(path: Path) -> list[tuple[str, int, int]]:
-    """[(name, offset, size)] of a BIGF / BIG4 archive (count and offsets big-endian, as Win32BIGFileSystem reads them)"""
-    with open(path, "rb") as f:
-        head = f.read(16)
-        if len(head) < 16 or head[:4] not in (b"BIGF", b"BIG4"):
-            raise ModError(f"{path}: not a .big archive")
-        count = struct.unpack(">I", head[8:12])[0]
-        index_end = struct.unpack(">I", head[12:16])[0]
-        index = f.read(max(0, index_end - 16))
-    out, at = [], 0
-    for _ in range(count):
-        if at + 8 > len(index):
-            raise ModError(f"{path}: the index is cut short")
-        off, size = struct.unpack(">II", index[at:at + 8])
-        end = index.find(b"\0", at + 8)
-        if end < 0:
-            raise ModError(f"{path}: an index name has no end")
-        out.append((index[at + 8:end].decode("latin-1"), off, size))
-        at = end + 1
-    return out
-
-
-def write_big(path: Path, files: list[tuple[str, bytes]]) -> None:
-    """a BIGF archive: magic, the archive's size (little-endian, as the 2.01 patch archives), count and the first data offset
-    (big-endian), the index {offset, size, NUL-terminated name}, then the data in index order"""
-    index_size = sum(8 + len(n.encode("latin-1")) + 1 for n, _ in files)
-    at = 16 + index_size
-    entries, body = b"", b""
-    for name, data in files:
-        entries += struct.pack(">II", at + len(body), len(data)) + name.encode("latin-1") + b"\0"
-        body += data
-    path.write_bytes(b"BIGF" + struct.pack("<I", 16 + len(entries) + len(body)) + struct.pack(">II", len(files), 16 + len(entries)) + entries + body)
-
-
-def key(name: str) -> str:
-    return name.replace("/", "\\").lower()
-
-
-def find_case_insensitive(folder: Path, rel: str) -> Path:
-    cur = folder
-    for part in rel.replace("\\", "/").split("/"):
-        hits = [x for x in os.listdir(cur) if x.lower() == part.lower()] if cur.is_dir() else []
-        if not hits:
-            raise ModError(f"{rel} is not in {folder}")
-        cur = cur / hits[0]
-    return cur
-
-
-class RetailArchives:
-    """the RotWK 2.01 archives in the pinned policy's order; the FIRST archive holding a path wins it (as the retail mount)"""
-
-    def __init__(self, rotwk: Path, policy: Path = POLICY):
-        self.files: dict[str, tuple[Path, str, int, int]] = {}
-        names = [a["path"] for a in json.loads(policy.read_text())["archives"]]
-        for rel in names:
-            archive = find_case_insensitive(rotwk, rel)
-            for name, off, size in read_big_index(archive):
-                self.files.setdefault(key(name), (archive, name, off, size))
-
-    def read(self, path: str) -> tuple[str, bytes, str]:
-        """(the archive's own spelling of the path, the bytes, the archive's file name)"""
-        hit = self.files.get(key(path))
-        if hit is None:
-            raise ModError(f"{path} is in none of the RotWK archives")
-        archive, name, off, size = hit
-        with open(archive, "rb") as f:
-            f.seek(off)
-            data = f.read(size)
-        if len(data) != size:
-            raise ModError(f"{archive.name}: {path} is cut short")
-        return name, data, archive.name
-
-
-# ---------------------------------------------------------------------------------------------------------------------------------
-# the INI change
-# ---------------------------------------------------------------------------------------------------------------------------------
-def _split_comment(value: str) -> tuple[str, str]:
-    """(the value, the comment with its marker) of an INI value; ';' and '//' start a comment"""
-    cut = len(value)
-    for marker in (";", "//"):
-        i = value.find(marker)
-        if 0 <= i < cut:
-            cut = i
-    return value[:cut], value[cut:]
-
-
-def _block(lines: list[str], kind: str, name: str) -> tuple[int, int]:
-    """(first, end) line indices of the block "<kind> <name>" .. "End" (end = the End line)"""
-    head = re.compile(r"^\s*" + re.escape(kind) + r"\s+" + re.escape(name) + r"\s*(?:;.*|//.*)?$", re.IGNORECASE)
-    for i, line in enumerate(lines):
-        if head.match(line):
-            for j in range(i + 1, len(lines)):
-                if re.match(r"^\s*End\b", lines[j], re.IGNORECASE):
-                    return i, j
-            raise ModError(f"{kind} {name} has no End")
-    raise ModError(f"there is no {kind} {name}")
-
-
 def heroes_of(text: str, faction: str = FACTION) -> list[str]:
     lines = text.splitlines()
     first, end = _block(lines, "PlayerTemplate", faction)
@@ -186,10 +84,6 @@ def generic_slots(text: str, command_set: str = FORTRESS_SET) -> int:
     return sum(1 for l in lines[first + 1:end] if re.search(r"=\s*Command_GenericReviveSlot\d+\b", _split_comment(l)[0]))
 
 
-def mod_info_text() -> str:
-    return f"Title = {TITLE}\nDescription = {DESCRIPTION}\n"
-
-
 def make(rotwk: Path, out: Path, policy: Path = POLICY) -> dict:
     """writes <out>/SauronAtTheFortress/{SauronAtTheFortress.big, mod.txt}; returns what it did"""
     archives = RetailArchives(rotwk, policy)
@@ -205,12 +99,8 @@ def make(rotwk: Path, out: Path, policy: Path = POLICY) -> dict:
     if len(others) + 1 > slots:
         raise ModError(f"{FORTRESS_SET} has {slots} hero slots and {FACTION} already fills {len(others)}: no room for {HERO}")
     patched = add_hero(text).encode("latin-1")
-    folder = out / MOD_NAME
-    folder.mkdir(parents=True, exist_ok=True)
-    big = folder / (MOD_NAME + ".big")
-    write_big(big, [(name, patched)])
-    (folder / "mod.txt").write_text(mod_info_text(), encoding="utf-8")
-    return {"folder": folder, "archive": big, "file": name, "from": source, "heroes": heroes + [HERO], "slots": slots}
+    r = write_mod_folder(out, MOD_NAME, [(name, patched)], TITLE, DESCRIPTION)
+    return {"folder": r["folder"], "archive": r["archive"], "file": name, "from": source, "heroes": heroes + [HERO], "slots": slots}
 
 
 def main(argv: list[str]) -> int:
@@ -223,7 +113,7 @@ def main(argv: list[str]) -> int:
         print("make_sauron_mod: no RotWK install: pass --rotwk or set ROTWK_INSTALL", file=sys.stderr)
         return 2
     out = Path(a.out).resolve()
-    if out == ROOT or ROOT in out.parents:
+    if inside_repository(out):
         print(f"make_sauron_mod: {out} is inside the repository; the mod holds bytes of your game files, write it elsewhere", file=sys.stderr)
         return 2
     try:
@@ -234,11 +124,7 @@ def main(argv: list[str]) -> int:
     print(f"make_sauron_mod: {r['archive']}: {r['file']} (from {r['from']}), {FACTION} heroes now {' '.join(r['heroes'])} "
           f"({len(r['heroes']) - 1} heroes in the fortress' {r['slots']} generic hero slots)")
     for dest in a.copy_to:
-        target = Path(dest) / MOD_NAME
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(r["folder"], target)
-        print(f"make_sauron_mod: copied to {target}")
+        print(f"make_sauron_mod: copied to {copy_mod(r['folder'], Path(dest))}")
     return 0
 
 
