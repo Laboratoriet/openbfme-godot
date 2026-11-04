@@ -49,6 +49,13 @@ func _init() -> void:
 		pos += size
 	if checked != 5:
 		fails.append("ICNS needs five frame sizes")
+	# the script compiles on a thread with a small stack: a Godot thread gets the platform's default secondary stack (512 KiB on macOS and iOS),
+	# and a constant written as a chain of ~800 "+" overflowed it in GDScriptAnalyzer::reduce_binary_op (this process then dies, no FAIL line)
+	var loader := Thread.new()
+	loader.start(_compile_and_decode)
+	var width: int = loader.wait_to_finish()
+	if width != 256:
+		fails.append("compiled on a thread, the icon decodes to width %d" % width)
 	if AppIcon.apply() != "":
 		fails.append("apply: " + AppIcon.apply())
 	var game := FileAccess.get_file_as_string("res://scripts/game.gd")
@@ -60,3 +67,12 @@ func _init() -> void:
 	else:
 		print("APP ICON FAIL ", "; ".join(fails))
 		quit(1)
+
+
+## a fresh compile of scripts/app_icon.gd (not the cached one the preload made) and the width of its image; -1 when it does not load or decode
+func _compile_and_decode() -> int:
+	var script: GDScript = ResourceLoader.load("res://scripts/app_icon.gd", "", ResourceLoader.CACHE_MODE_IGNORE)
+	if script == null:
+		return -1
+	var img: Image = script.call("image")
+	return img.get_width() if img != null else -1
