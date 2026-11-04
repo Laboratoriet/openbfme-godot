@@ -1235,6 +1235,7 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("set_touch_help", "on"), &InGameHudNode::set_touch_help);           // lane IOS-21
 	ClassDB::bind_method(D_METHOD("hold_help", "on"), &InGameHudNode::hold_help);                     // lane IOS-21
 	ClassDB::bind_method(D_METHOD("touch_button_at", "pixel"), &InGameHudNode::touch_button_at);      // lane IOS-21
+	ClassDB::bind_method(D_METHOD("touch_placement_at", "pixel"), &InGameHudNode::touch_placement_at); // lane IOS-23
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
 	ClassDB::bind_method(D_METHOD("world_to_radar_pixel", "world_xy"), &InGameHudNode::world_to_radar_pixel);
 	ClassDB::bind_method(D_METHOD("create_radar_event", "world_xy", "type", "jump_to"), &InGameHudNode::create_radar_event, DEFVAL(false));
@@ -4561,6 +4562,27 @@ Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
 	r["kind"] = b.kind == InGameHud::TouchButton::Movie ? String("movie") : b.kind == InGameHud::TouchButton::Radial ? String("radial") : String();
 	r["target"] = toGodot(b.target);
 	r["autocast"] = b.autocast;
+	return r;
+}
+
+// lane IOS-23 (GodotInGameHud.h): the touch layer's placement drag asks this as a finger comes down (and where it lifts)
+Dictionary InGameHudNode::touch_placement_at(const Vector2 &pixel)
+{
+	waitLogic(d.get());
+	Dictionary r;
+	r["placing"] = false;
+	r["line_build"] = false;
+	r["world"] = false;
+	if (!d->ready || !d->hud)
+	{
+		return r;
+	}
+	const auto worldContext = d->hud->enterContext();
+	const InGameUI &ui = d->hud->input().ui();
+	r["placing"] = ui.isPlacing();
+	r["line_build"] = ui.isLineBuildStarted();
+	const bool menu = !d->ownsPlayer && d->player && d->player->modal_menu(); // the quit menu, Options, the save screen over the game
+	r["world"] = !menu && !d->hud->isOverGui((int)pixel.x, (int)pixel.y);
 	return r;
 }
 

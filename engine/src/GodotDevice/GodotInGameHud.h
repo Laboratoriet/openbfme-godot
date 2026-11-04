@@ -175,6 +175,10 @@ public:
 	void set_touch_help(bool on);
 	void hold_help(bool on);
 	Dictionary touch_button_at(const Vector2 &pixel);
+	// lane IOS-23 (OpenBFME, not retail; touch only): whether a finger at window `pixel` aims a building's placement: { placing (a build button waits for
+	// its site, InGameUI::isPlacing), line_build (a wall span from a hub, InGameUI::isLineBuildStarted), world (the pixel is on the world: not on the HUD,
+	// the radar, a radial bubble or a menu over the game, InGameHud::isOverGui) }
+	Dictionary touch_placement_at(const Vector2 &pixel);
 	// lane SPELL-2: a MappedImage of the HUD's collection as its texture and the source rectangle in texture pixels { found, texture, region } (the spell
 	// book screens draw the command buttons' ButtonImage with it)
 	Dictionary get_mapped_image(const String &name);
