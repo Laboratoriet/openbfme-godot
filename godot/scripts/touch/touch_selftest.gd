@@ -10,6 +10,9 @@ extends Node
 ## at the ghost's point, not under the finger. Then a wall: a Men wall hub (made for the test), Begin Wall Span, a drag shows the span's ghost
 ## segments from the hub to the ghost's point, the lift builds them. The pictures of the drags mark the finger (a ring) and the ghost's point (a dot),
 ## drawn by this test only.
+## Lane IOS-26: a lift no longer places: it shows ✓ / ✕ beside the ghost (off the HUD), and ✓ builds. On the fortress ✓ is dimmed and a tap on it is
+## refused (the placement and the buttons stay); ✕ there cancels the placement (the build button starts it again). Pictures of the waiting ghost:
+## touch-confirm-*.png.
 
 var _out := ""
 var _controls: Node
@@ -447,13 +450,40 @@ func _placement_check(hud: Node) -> PackedStringArray:
 		_touch(0, fort + off, false)
 		await _wait(0.8)
 		var still: bool = hud.get_placement().placing
-		print("TOUCH SELFTEST placement on the fortress: ghost code %d, lifted: placing %s, lifts +%d" % [legal, still, int(_controls.stats.place_lifts) - lifts0])
+		var waiting := _confirm_state()
+		print("TOUCH SELFTEST placement on the fortress: ghost code %d, lifted: placing %s, lifts +%d, confirm %s" % [legal, still,
+			int(_controls.stats.place_lifts) - lifts0, JSON.stringify(waiting)])
+		await _shot("confirm-invalid")
 		if legal == 0:
 			out.append("placement: the ghost on the fortress was judged legal")
 		if not still:
 			out.append("placement: a lift on an invalid site ended the placement")
 		if int(_controls.stats.place_lifts) != lifts0 + 1:
 			out.append("placement: the lift on the fortress was no placement lift")
+		out.append_array(_confirm_check(hud, waiting, fort, "on the fortress"))
+		if waiting.get("build_enabled", true):
+			out.append("placement: ✓ is not dimmed on the fortress (ghost code %d)" % legal)
+		# lane IOS-26: ✓ on the red ghost: retail's refusal, the placement and the buttons stay
+		if waiting.get("shown", false):
+			await _tap(waiting.build)
+			await _wait(0.8)
+			var after := _confirm_state()
+			print("TOUCH SELFTEST ✓ on the fortress: placing %s, confirm shown %s" % [hud.get_placement().placing, after.get("shown")])
+			if not hud.get_placement().placing:
+				out.append("placement: ✓ on the fortress ended the placement")
+			if not after.get("shown", false):
+				out.append("placement: ✓ / ✕ went after a refused ✓")
+			# ✕ cancels the placement; the build button starts it again
+			await _tap(after.get("cancel", waiting.cancel))
+			await _wait(0.8)
+			print("TOUCH SELFTEST ✕: placing %s, confirm shown %s" % [hud.get_placement().placing, _confirm_state().get("shown")])
+			if hud.get_placement().placing:
+				out.append("placement: ✕ did not cancel the placement")
+			await _tap(button.position)
+			await _wait(0.8)
+			if not hud.get_placement().placing:
+				out.append("placement: the build button did not start the placement again after ✕")
+				return out
 	else:
 		print("TOUCH SELFTEST placement on the fortress: SKIP (the fortress at %s is not on screen with a finger below it)" % fort)
 
@@ -494,8 +524,21 @@ func _placement_check(hud: Node) -> PackedStringArray:
 	await _shot("12-place-before-lift")
 	_mark(Vector2.INF)
 	_touch(0, finger, false)
+	await _wait(0.8)
+	# lane IOS-26: the lift places nothing; ✓ / ✕ wait beside the ghost
+	var waiting := _confirm_state()
+	var code := int(hud.get_placement().legal)  # the ghost's own judgement now (a unit may have walked onto the site since the drag)
+	await _shot("confirm-legal")
+	print("TOUCH SELFTEST placement lift: placing %s, ghost code %d, confirm %s" % [hud.get_placement().placing, code, JSON.stringify(waiting)])
+	if not hud.get_placement().placing:
+		out.append("placement: the lift placed the building without ✓")
+	out.append_array(_confirm_check(hud, waiting, _controls.ghost_point(finger), "on a legal site"))
+	if bool(waiting.get("build_enabled", false)) != (code == 0):
+		out.append("placement: ✓ %s while the ghost's code is %d" % ["enabled" if waiting.get("build_enabled", false) else "dimmed", code])
+	if waiting.get("shown", false):
+		await _tap(waiting.build)
 	await _wait(1.5)
-	await _shot("13-place-after-lift")
+	await _shot("13-place-after-confirm")
 	if not legal_at.is_finite():
 		out.append("placement: no legal site for %s along the drag" % template)
 		if hud.get_placement().placing:
@@ -615,8 +658,20 @@ func _wall_check(hud: Node) -> PackedStringArray:
 	await _shot("15-wall-before-lift")
 	_mark(Vector2.INF)
 	_touch(0, finger, false)
+	await _wait(0.8)
+	# lane IOS-26: the lift builds nothing; ✓ / ✕ wait beside the span's end (✓ never dimmed for a span)
+	var waiting := _confirm_state()
+	await _shot("confirm-wall")
+	print("TOUCH SELFTEST wall lift: placing %s, confirm %s" % [hud.get_placement().placing, JSON.stringify(waiting)])
+	if not hud.get_placement().placing:
+		out.append("wall: the lift built the span without ✓")
+	out.append_array(_confirm_check(hud, waiting, _controls.ghost_point(finger), "for a wall span"))
+	if not waiting.get("build_enabled", false):
+		out.append("wall: ✓ is dimmed for a span")
+	if waiting.get("shown", false):
+		await _tap(waiting.build)
 	await _wait(2.0)
-	await _shot("16-wall-after-lift")
+	await _shot("16-wall-after-confirm")
 	var walls := 0
 	var far := 0.0
 	for o in world.get_player_objects(local):
@@ -638,6 +693,35 @@ func _wall_check(hud: Node) -> PackedStringArray:
 	# tolerance: the span ends on a whole tile, at most a tile (the segment's length, ~ 40) short of or past the ghost's point
 	if walls < 2 or absf(far - span) > 60.0:
 		out.append("wall: the span was not built to the ghost's point (%d new objects, farthest %.0f, span %.0f)" % [walls, far, span])
+	return out
+
+
+## lane IOS-26: the confirm buttons' state ({} before the touch layer made them)
+func _confirm_state() -> Dictionary:
+	return _controls._confirm.state() if _controls._confirm != null else {}
+
+
+## lane IOS-26: ✓ / ✕ show beside the waiting ghost at `ghost` (window pixels), at least 44 pt, inside the view and off the HUD (their centres and
+## their discs' edges)
+func _confirm_check(hud: Node, s: Dictionary, ghost: Vector2, where: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	if not s.get("shown", false):
+		out.append("placement %s: no ✓ / ✕ after the lift" % where)
+		return out
+	# tolerance: the ghost's pixel is its ground point's round trip through the drawn camera (world_to_pixel's whole pixels)
+	if Vector2(s.ghost).distance_to(ghost) > 2.0:
+		out.append("placement %s: the buttons wait at %s, not at the ghost %s" % [where, s.ghost, ghost])
+	var px: float = _controls._scale
+	if float(s.hit_radius) * 2.0 < 44.0 * px:
+		out.append("placement %s: the buttons' targets are under 44 pt" % where)
+	var r := float(s.diameter) * 0.5
+	var view := get_viewport().get_visible_rect()
+	for k in ["build", "cancel"]:
+		var c: Vector2 = s[k]
+		for p in [c, c + Vector2(r, 0), c - Vector2(r, 0), c + Vector2(0, r), c - Vector2(0, r)]:
+			if not view.has_point(p) or not bool(hud.touch_placement_at(p).get("world", false)):
+				out.append("placement %s: %s at %s reaches off the view or onto the HUD (%s)" % [where, k, c, p])
+				break
 	return out
 
 
