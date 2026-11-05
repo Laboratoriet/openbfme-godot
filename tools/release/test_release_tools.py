@@ -1194,7 +1194,7 @@ def test_the_game_presets_filters_cannot_reorder_the_pack():
     for value in re.findall(r'^exclude_filter="(.*)"$', text, re.M):
         assert value == "", f"exclude_filter={value!r}: its erases follow the directory order"
     includes = re.findall(r'^include_filter="(.*)"$', text, re.M)
-    assert len(includes) == 4, "Linux, Windows, universal macOS and Apple Silicon macOS presets"
+    assert len(includes) == 5, "Linux, Windows, universal macOS, Apple Silicon macOS and iOS presets"
     for value in includes:
         patterns = [p.strip().lower() for p in value.split(",") if p.strip()] + ["*.ico", "*.icns"]  # Godot adds the icons the same way
         matched = [f for f in files if any(fnmatch.fnmatchcase(f.lower(), p) for p in patterns)]  # Godot's matchn: * spans folders
