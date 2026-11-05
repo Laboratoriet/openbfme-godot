@@ -1,8 +1,7 @@
 # iOS and iPadOS
 
-OpenBFME builds for iPhone and iPad (arm64, iOS 17 or newer) from a Mac. This page covers the build and the export. The game still needs
-the player's own game files on the device, and input other than Godot's own (touch controls, a mouse or trackpad as a mouse) is not
-part of this step.
+OpenBFME builds for iPhone and iPad (arm64, iOS 17 or newer) from a Mac. This page covers the build, the export and the game files on the
+device. Input other than Godot's own (touch controls, a mouse or trackpad as a mouse) is not part of this step.
 
 ## Build and export
 
@@ -58,9 +57,22 @@ The device build also links **MetalFX** into the extension (`engine/CMakeLists.t
 a run-time class lookup, and its iOS export links no MetalFX framework, so without the link the lookup fails, Godot reports "MetalFX
 spatial upscaling is not supported" and the 3D view is scaled bilinear. The simulator SDK has no MetalFX.
 
+## Game files on the device
+
+An iOS app can only read its own folders, so the game files have to be inside the app. Copy each game's whole folder (the one that holds
+its `.big` files, with every folder inside it) into the app's Documents folder, named **RotWK** and **BFME2**:
+
+- from a Mac: connect the device, select it in Finder, open *Files* and drag both folders onto OpenBFME;
+- or in the Files app: copy them from iCloud Drive or a USB drive into *On My iPhone* (or *iPad*) › *OpenBFME*.
+
+The game looks there on every start, when neither `ROTWK_INSTALL` / `BFME2_INSTALL` nor `install-paths.cfg` names the folders
+(`InstallLocator::configured`, source `documents`), and mounts them with the usual size and MD5 checks. They are not remembered as
+paths: iOS moves the app's data container on an update or a restore. Until both are there, the first-run screen says how to copy them
+and looks again when the app comes back to the front. The user data folder (Options.ini, saves, maps) is the app's own writable folder,
+and the movies are read from the RotWK folder the game mounted.
+
 ## Not covered here
 
-- **Game files on the device**: an iOS app can only read its own folders, so the game files have to be copied into the app.
 - **Touch controls**, the on-screen keyboard and the HUD for small screens.
 - **The simulator**: the official 4.7.2 template's simulator library holds x86_64 code only, so an Apple silicon simulator needs a
   Godot library built from source. `build_ios.sh simulator` builds the extension's slice for it.

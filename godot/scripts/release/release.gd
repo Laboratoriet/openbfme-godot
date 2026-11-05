@@ -24,7 +24,8 @@
 ##  * --crash-test / --crash-test-worker (debug builds): deliberate native main/worker crashes once the menus are up.
 ##  * the game folders: mount_retail(fs) mounts the retail archives from ROTWK_INSTALL / BFME2_INSTALL (a developer / test override) or the folders
 ##    remembered in user://install-paths.cfg; when neither exists, or the remembered folders stopped working, the first-run screen
-##    (scripts/release/first_run.gd) lets the player choose them, checks them and remembers them.
+##    (scripts/release/first_run.gd) lets the player choose them, checks them and remembers them. On iOS the folders the player
+##    copied into the app's Documents folder as RotWK and BFME2 take the remembered folders' place; the first-run screen says how to copy them.
 ##  * updates (lane ONEZIP-1): a game the player starts directly from the combined package asks the OpenBFME Launcher beside it which
 ##    version to play and for an update check (update_handover(), scripts/release/update_handover.gd); the check's state is one line
 ##    under the version in the menus' corner ("UPDATE ..." in the log).
@@ -560,6 +561,14 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 		if mount.ok:
 			return mount
 		problem = "The game folders chosen before do not work any more:\n" + "\n".join(mount.errors)
+		printerr("RELEASE ", problem)
+	# on iOS, with nothing set or remembered, the RotWK and BFME2 folders the player copied into the app's Documents folder
+	# (InstallLocator.h "iOS"). The mount checks every archive like any other pick; a failure is shown on the first-run screen.
+	if conf.source == "documents" and test_pick.is_empty():
+		var mount: Dictionary = fs.mount_retail_paths(conf.rotwk, conf.bfme2)
+		if mount.ok:
+			return mount
+		problem = "The RotWK and BFME2 folders in OpenBFME's Files folder could not be used:\n" + "\n".join(mount.errors)
 		printerr("RELEASE ", problem)
 	if _headless() and test_pick.is_empty():
 		var why := problem if not problem.is_empty() else "no game folders chosen yet"

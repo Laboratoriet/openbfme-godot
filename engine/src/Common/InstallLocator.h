@@ -74,6 +74,7 @@ struct DiscoveryEnvironment
 	std::vector<std::string> drives;        // Windows: the fixed drive roots ("C:\", "D:\")
 	RegistryReader registry;                // Windows only (empty elsewhere)
 	std::string downloadedMarker;           // lane AIO-1: the launcher's record of the folders it downloaded ("" = none; see readDownloaded)
+	std::string appDocuments;               // iOS only, the app's Documents folder (user://); "" elsewhere (see appDocumentsFolder)
 
 	// The machine this runs on.
 	static DiscoveryEnvironment host();
@@ -106,6 +107,20 @@ struct Downloaded
 
 // Reads the marker. False with `error` when it cannot be read or lacks a key (an unknown key is an error too: a newer launcher's file).
 bool readDownloaded(const std::string &markerPath, Downloaded &out, std::string *error);
+
+// ---- iOS: the app's Documents folder ----
+
+// An iPhone / iPad app can only read its own folders, and Godot's folder dialog cannot pick a folder outside the app, so the player copies
+// both installs into the app's Documents folder (user://, shown as "On My iPhone > OpenBFME" in the Files app and in Finder's device file
+// sharing: tools/release/package_ios.py) as RotWK and BFME2. OpenBFME's own convention, not a retail fact. discover() offers those folders
+// (and nothing else: no registry, no Wine) when DiscoveryEnvironment::appDocuments is set; configured() uses them when nothing is set or
+// remembered. The mount still verifies every archive's size and md5 (PLAN rule 10).
+extern const char *const kAppDocumentsRotwk; // "RotWK"
+extern const char *const kAppDocumentsBfme2; // "BFME2"
+
+// <documents>/RotWK or <documents>/BFME2, the name matched case-insensitively (iOS file systems are case-sensitive; a player may type
+// "Rotwk"). "" when `documents` is empty, `game` is neither kRotwk nor kBfme2, or the folder does not exist.
+std::string appDocumentsFolder(const std::string &documents, const std::string &game);
 
 // ---- Wine helpers (exposed for tests) ----
 
@@ -151,14 +166,15 @@ std::vector<InstallCheck> checkPair(const std::string &rotwkRoot, const std::str
 
 struct Configured
 {
-	std::string source; // "env" (ROTWK_INSTALL / BFME2_INSTALL both set), "config" (both from the file), "none"
+	std::string source; // "env" (ROTWK_INSTALL / BFME2_INSTALL both set), "config" (both from the file), "documents", "none"
 	std::string rotwk;
 	std::string bfme2;
 };
 
 // Both installs from the environment (developer / test override) or both from the config file; a half-configured
-// state is "none" with what was found filled in.
-Configured configured(const std::string &configPath);
+// state is "none" with what was found filled in. With `appDocuments` (iOS: user://) and nothing set or remembered, both
+// appDocumentsFolder()s when both exist ("documents"). Empty `appDocuments` (every desktop) leaves the result as it was.
+Configured configured(const std::string &configPath, const std::string &appDocuments = std::string());
 
 // Writes ROTWK_INSTALL= / BFME2_INSTALL= to the config file (replaced atomically: temp file + rename).
 bool remember(const std::string &configPath, const std::string &rotwkRoot, const std::string &bfme2Root, std::string *error);

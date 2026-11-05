@@ -7743,7 +7743,7 @@ Dictionary AptMenuPlayer::create_a_hero_save_folder(const String &rotwkInstall) 
 	Dictionary out;
 	out["ok"] = false;
 	std::string leaf, error;
-	const std::string userData = UserDataFolder::userDataFolderOfInstall(toNative(rotwkInstall), toNative(OS::get_singleton()->get_data_dir()), '/', &leaf, &error);
+	const std::string userData = UserDataFolder::userDataFolderOfInstall(toNative(rotwkInstall), RetailFileSystem::applicationDataFolder(), '/', &leaf, &error);
 	if (userData.empty())
 	{
 		out["error"] = toGodot(error);

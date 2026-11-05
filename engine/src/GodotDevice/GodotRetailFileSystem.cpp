@@ -54,9 +54,15 @@ std::string toNative(const String &s)
 // RW 0x70254F's "Maps"); "" + `error` when the install's gi.dat cannot be read
 std::string userMapFolderOf(const std::string &rotwkRoot, std::string &error)
 {
-	const std::string userData = UserDataFolder::userDataFolderOfInstall(rotwkRoot, toNative(OS::get_singleton()->get_data_dir()), '/', nullptr, &error);
+	const std::string userData = UserDataFolder::userDataFolderOfInstall(rotwkRoot, RetailFileSystem::applicationDataFolder(), '/', nullptr, &error);
 	return userData.empty() ? std::string() : UserDataFolder::userMapFolder(userData);
 }
+}
+
+std::string RetailFileSystem::applicationDataFolder()
+{
+	OS *os = OS::get_singleton();
+	return toNative(os->has_feature("ios") ? os->get_user_data_dir() : os->get_data_dir());
 }
 
 RetailFileSystem::RetailFileSystem() = default;
@@ -675,6 +681,7 @@ Dictionary RetailFileSystem::mountFrom(const std::string &rotwkRoot, const std::
 			m_fs = std::move(fs);
 			m_mounted = true;
 			m_installRoot = bfme2Root;
+			m_rotwkRoot = rotwkRoot;
 			m_mountedArchives = m_installModReport.ok ? m_installModReport.merged : report.mounted; // MP-1 (MODS-2: the merged order of an install mod)
 			// PLAN rule 7 / stop S-039: loose map files in the install folders are contamination; they are
 			// reported by the mount and by every map build, never read.
@@ -768,7 +775,7 @@ void RetailFileSystem::mountMods(const std::string &rotwkRoot, PackedStringArray
 			const std::string leaf = UserDataFolder::leafName(bytes, &leafError);
 			if (!leaf.empty())
 			{
-				userData = UserDataFolder::userDataFolder(toNative(OS::get_singleton()->get_data_dir()), leaf, '/');
+				userData = UserDataFolder::userDataFolder(RetailFileSystem::applicationDataFolder(), leaf, '/');
 			}
 		}
 	}

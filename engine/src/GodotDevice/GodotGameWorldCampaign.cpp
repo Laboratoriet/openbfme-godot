@@ -583,6 +583,7 @@ Dictionary GameWorld::get_movie(const String &title)
 	std::string root, error;
 	const std::string config = n(ProjectSettings::get_singleton()->globalize_path("user://install-paths.cfg"));
 	if (m_fs.is_valid() && m_fs->is_bfme1()) root = m_fs->bfme1_root();
+	else if (m_fs.is_valid() && !m_fs->rotwkRoot().empty()) root = m_fs->rotwkRoot(); // the install the game mounted (found any way)
 	else if (!ResolveInstallPath("ROTWK_INSTALL", config, root, &error))
 	{
 		d["error"] = g(error);

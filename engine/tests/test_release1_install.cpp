@@ -425,6 +425,46 @@ TEST_CASE("release1: remembering the pick")
 	CHECK(configured(cfg).rotwk == "/env/rotwk");
 }
 
+TEST_CASE("release1: the folders copied into the app's Documents folder (iOS)")
+{
+	TempDir t("documents");
+	EnvGuard r("ROTWK_INSTALL", nullptr);
+	EnvGuard b("BFME2_INSTALL", nullptr);
+	const fs::path documents = t.path / "Documents";
+	const std::string cfg = (documents / "install-paths.cfg").u8string();
+	fs::create_directories(documents / "RotWK");
+	// without the Documents folder (every desktop) nothing changes
+	CHECK(configured(cfg).source == "none");
+	CHECK(appDocumentsFolder("", kRotwk).empty());
+	// one folder is not enough to start; discovery offers it (and nothing else: no registry, no Wine prefix)
+	CHECK(configured(cfg, documents.u8string()).source == "none");
+	DiscoveryEnvironment env;
+	env.home = (t.path / "emptyhome").u8string();
+	env.appDocuments = documents.u8string() + "/";
+	std::vector<Candidate> found = discover(env);
+	REQUIRE(found.size() == 1);
+	CHECK(found[0].game == kRotwk);
+	CHECK(found[0].source == "copied into the app's Documents folder (Files: On My iPhone > OpenBFME > RotWK)");
+	// the name in any case (iOS file systems are case-sensitive; equivalent(), not the spelling: the test host's may not be)
+	fs::create_directories(documents / "bfme2");
+	REQUIRE_FALSE(appDocumentsFolder(documents.u8string(), kBfme2).empty());
+	CHECK(fs::equivalent(appDocumentsFolder(documents.u8string(), kBfme2), documents / "bfme2"));
+	CHECK(appDocumentsFolder(documents.u8string(), "bfme1").empty());
+	found = discover(env);
+	REQUIRE(found.size() == 2);
+	CHECK(found[1].game == kBfme2);
+	Configured c = configured(cfg, documents.u8string());
+	CHECK(c.source == "documents");
+	CHECK(fs::equivalent(c.rotwk, documents / "RotWK"));
+	CHECK(fs::equivalent(c.bfme2, documents / "bfme2"));
+	// a remembered pick and the environment still come first
+	std::string error;
+	REQUIRE(remember(cfg, "/games/rotwk", "/games/bfme2", &error));
+	CHECK(configured(cfg, documents.u8string()).source == "config");
+	r.set("/env/rotwk");
+	CHECK(configured(cfg, documents.u8string()).source == "env");
+}
+
 TEST_CASE("release1: the registry names match retail (gi.dat and the binary)")
 {
 	const std::string rotwkDir = std::getenv("ROTWK_INSTALL") ? std::getenv("ROTWK_INSTALL") : "";
