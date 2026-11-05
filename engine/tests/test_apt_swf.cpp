@@ -231,6 +231,107 @@ TEST_CASE("apt-swf: two triangles of a square become one clockwise outline")
 	CHECK(loops[0] == want);
 }
 
+namespace
+{
+
+// The synthetic square as another encoder might write it: wider bit fields, general-line edges for straight ones, the
+// selection in a record of its own. `dx` moves the second corner.
+std::vector<std::uint8_t> squareReencoded(std::uint16_t id, std::int32_t dx)
+{
+	SwfWriter w;
+	w.u16(id);
+	w.rect(0, 200, 0, 200);
+	w.u8(0);
+	w.u8(0);
+	w.ub(4, 0);
+	w.ub(4, 0);
+	// new styles: one solid red fill, no lines
+	w.ub(6, 0x10);
+	w.u8(1);
+	w.u8(0x00);
+	w.u8(255);
+	w.u8(0);
+	w.u8(0);
+	w.u8(255);
+	w.u8(0);
+	w.ub(4, 1);
+	w.ub(4, 0);
+	// move to (0, 0) with 12-bit fields, then select fill style 1 without moving
+	w.ub(6, 0x01);
+	w.ub(5, 12);
+	w.sb(12, 0);
+	w.sb(12, 0);
+	w.ub(6, 0x04);
+	w.ub(1, 1);
+	const std::int32_t pts[4][2] = { { 200 + dx, 0 }, { 200, 200 }, { 0, 200 }, { 0, 0 } };
+	std::int32_t x = 0, y = 0;
+	for (const auto &p : pts)
+	{
+		w.ub(2, 3);  // edge, straight
+		w.ub(4, 12); // 14-bit deltas
+		w.ub(1, 1);  // general line
+		w.sb(14, p[0] - x);
+		w.sb(14, p[1] - y);
+		x = p[0];
+		y = p[1];
+	}
+	w.ub(6, 0);
+	w.align();
+	return w.bytes;
+}
+
+} // namespace
+
+TEST_CASE("apt-swf: a re-encoded shape is recognised as the same drawing, a moved point is not")
+{
+	SyntheticMovie movie;
+	ExportResult r;
+	exportOf(movie.files, r);
+	const std::vector<std::uint8_t> &ours = r.tags[0].body;
+	REQUIRE(r.tags[0].code == SWF_TAG_DEFINESHAPE3);
+	const std::vector<std::uint8_t> same = squareReencoded((std::uint16_t)movie.shapeId, 0);
+	CHECK(same != ours);
+	std::string why;
+	CHECK(shapesEquivalent(ours, same, 2, &why));
+	CHECK_FALSE(shapesEquivalent(ours, squareReencoded((std::uint16_t)movie.shapeId, 20), 2, &why));
+	CHECK(why == "layer 0: path 0 changed");
+}
+
+TEST_CASE("apt-swf: the standard tags' structure does not depend on whether the textures load")
+{
+	SyntheticMovie movie;
+	// a textured style whose image id 3 the image map sends to texture 1
+	movie.files.files[2].bytes = bytesOf("3->1\r\n");
+	movie.files.files[3].bytes = bytesOf("c\r\ns tc:255:255:255:255:3:1:0:0:1:0:0\r\nt 0:0:10:0:10:10\r\n");
+	ExportOptions with;
+	with.textures = [](const std::string &name, AptTexture &out, std::string *) {
+		CHECK(name == "apt_Test_1.tga");
+		out.width = 2;
+		out.height = 1;
+		out.rgba = { 255, 0, 0, 255, 0, 0, 255, 128 };
+		return true;
+	};
+	ExportResult a, b;
+	std::string error;
+	REQUIRE_MESSAGE(exportStandardTags(movie.files, with, a, &error), error);
+	REQUIRE_MESSAGE(exportStandardTags(movie.files, ExportOptions(), b, &error), error);
+	const std::vector<const SwfTag *> fa = flattenTags(a.tags), fb = flattenTags(b.tags);
+	REQUIRE(fa.size() == fb.size());
+	std::size_t differing = 0;
+	for (std::size_t i = 0; i < fa.size(); ++i)
+	{
+		CHECK(fa[i]->code == fb[i]->code);
+		differing += fa[i]->body != fb[i]->body ? 1 : 0;
+	}
+	CHECK(differing == 1); // the bitmap's pixels only
+	REQUIRE(fa[0]->code == SWF_TAG_DEFINEBITSLOSSLESS2);
+	// 2 x 1 premultiplied ARGB: (255, 255, 0, 0) and (128, 0, 0, 128)
+	std::vector<std::uint8_t> pixels;
+	REQUIRE(zlibInflate(fa[0]->body.data() + 7, fa[0]->body.size() - 7, pixels, &error));
+	const std::vector<std::uint8_t> want = { 255, 255, 0, 0, 128, 0, 0, 128 };
+	CHECK(pixels == want);
+}
+
 TEST_CASE("apt-swf: a synthetic movie exports to the expected standard tags")
 {
 	SyntheticMovie movie;
