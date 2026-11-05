@@ -412,6 +412,13 @@ Dictionary Hud6Draw::state() const
 			sc.push_back(toGodot(c));
 		}
 		side["calls"] = sc;
+		// lane IOS-38 (prototype): what the portrait layout prototype in effect placed (AptPalantir::portraitReport; empty without one)
+		Dictionary portrait;
+		for (const auto &kv : p->portraitReport())
+		{
+			portrait[toGodot(kv.first)] = kv.second;
+		}
+		out["portrait"] = portrait;
 	}
 	out["side_bar"] = side;
 	out["message_top"] = m_messageTop;

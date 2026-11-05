@@ -12,6 +12,7 @@
 #include "GameClient/GameText.h"
 #include "GameClient/GUI/GameTextSource.h"
 #include "GameClient/GUI/PlacementTextStyle.h"
+#include "GameClient/GUI/PortraitLayout.h" // lane IOS-38
 #include "GameClient/GlobalLanguage.h"
 #include "GameLogic/BeaconCommands.h"
 #include "GameClient/GameTextTableSource.h"
@@ -347,6 +348,7 @@ struct HudDevice : public AptNativeHook
 	Ref<Font> messageFont(int width, int &size) const;
 	// lane IOS-27: how far down from the window's top the six message lines reach (MessagePosition's y plus kMaxLines lines), window pixels
 	float messageBandBottom(int width, int height) const;
+	float portraitStripBottom() const; // lane IOS-38
 	Rect2 placeTextRect;
 	std::string resourceDecalError;
 	void drawResourceFeedback();
@@ -1518,7 +1520,12 @@ Ref<Font> HudDevice::messageFont(int width, int &size) const
 		return Ref<Font>();
 	}
 	const InGameUIMessageSettings &ms = hud->messageLines().settings();
-	const int px = std::max(1, GlobalLanguage::adjustFontSize(ms.pointSize, width));
+	int px = std::max(1, GlobalLanguage::adjustFontSize(ms.pointSize, width));
+	if (hudLayout.portraitPrototype(hud->windowWidth(), hud->windowHeight()))
+	{
+		// lane IOS-38 (prototype): the message lines at least PortraitLayout::kTextPt tall
+		px = std::max(px, (int)std::ceil(PortraitLayout::kTextPt * (hudLayout.pointPx > 0.0f ? hudLayout.pointPx : PortraitLayout::kDefaultPointPx)));
+	}
 	float drawSize = (float)px;
 	Ref<Font> font = player ? player->font_for(ms.font, (float)px, &drawSize) : Ref<Font>();
 	if (font.is_valid() && player)
@@ -1542,7 +1549,28 @@ float HudDevice::messageBandBottom(int width, int height) const
 	int size = 1;
 	const Ref<Font> font = messageFont(width, size);
 	const int lineH = font.is_valid() ? std::max(1, (int)std::ceil(font->get_height(size))) : 0;
-	return (float)(InGameUIMessages::screenY(height, hud->messageLines().settings().positionY) + InGameUIMessages::kMaxLines * lineH);
+	return (float)(std::max((float)InGameUIMessages::screenY(height, hud->messageLines().settings().positionY), portraitStripBottom()) +
+		InGameUIMessages::kMaxLines * lineH);
+}
+
+// lane IOS-38 (prototype): the window y below the toolbar strip a portrait prototype keeps free at the safe area's top (PortraitLayout::kToolbarPt);
+// 0 without a prototype in effect
+float HudDevice::portraitStripBottom() const
+{
+	if (!hud || !hudLayout.portraitPrototype(hud->windowWidth(), hud->windowHeight()))
+	{
+		return 0.0f;
+	}
+	const float strip = hudLayout.safeInsets[1] + PortraitLayout::kToolbarPt * (hudLayout.pointPx > 0.0f ? hudLayout.pointPx : PortraitLayout::kDefaultPointPx);
+	if (const AptPalantir *p = hud->palantir())
+	{
+		const auto it = p->portraitReport().find("messages_top"); // C: below the minimap globe in the top-right corner
+		if (it != p->portraitReport().end())
+		{
+			return std::max(strip, it->second);
+		}
+	}
+	return strip;
 }
 
 void HudDevice::drawMessageLines()
@@ -1555,6 +1583,22 @@ void HudDevice::drawMessageLines()
 	if (!hud || !iconItem.is_valid())
 	{
 		return;
+	}
+	if (const AptPalantir *p = hud->palantir())
+	{
+		// lane IOS-38 (prototype): the resource bar moved to the top-left left its frame (PalantirFrame's bottom band) behind: a plate in the game's
+		// dark and gold under it (this canvas item is drawn below the HUD's movies)
+		const std::map<std::string, float> &r = p->portraitReport();
+		const auto x0 = r.find("resources_x0"), y0 = r.find("resources_y0"), x1 = r.find("resources_x1"), y1 = r.find("resources_y1");
+		if (x0 != r.end() && y0 != r.end() && x1 != r.end() && y1 != r.end())
+		{
+			RenderingServer *rs = RenderingServer::get_singleton();
+			const Rect2 plate(x0->second, y0->second, x1->second - x0->second, y1->second - y0->second);
+			const float line = std::max(1.0f, std::round(hudLayout.pointPx > 0.0f ? hudLayout.pointPx : PortraitLayout::kDefaultPointPx));
+			const Color gold(0.72f, 0.60f, 0.36f, 0.9f);
+			rs->canvas_item_add_rect(iconItem, plate.grow(line), gold);
+			rs->canvas_item_add_rect(iconItem, plate, Color(0.03f, 0.03f, 0.03f, 0.82f));
+		}
 	}
 	const InGameUIMessageSettings &ms = hud->messageLines().settings();
 	const int width = hud->windowWidth(), height = hud->windowHeight();
@@ -1596,7 +1640,7 @@ void HudDevice::drawMessageLines()
 		}
 	}
 	const int x0 = InGameUIMessages::screenX(width, ms.positionX);
-	int y = InGameUIMessages::screenY(height, ms.positionY);
+	int y = std::max(InGameUIMessages::screenY(height, ms.positionY), (int)std::ceil(portraitStripBottom())); // lane IOS-38: below the toolbar strip
 	const float ascent = font->get_ascent(size);
 	const int lineH = std::max(1, (int)std::ceil(font->get_height(size)));
 	for (const L &l : lines)
@@ -4067,6 +4111,33 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 			d->hud->setHudLayout(d->hudLayout);
 		}
 	}
+	if (o.has("point_px"))
+	{
+		const double px = o["point_px"];
+		d->hudLayout.pointPx = px > 0.0 && px <= 8.0 ? (float)px : 0.0f; // lane IOS-38: 0 = PortraitLayout::kDefaultPointPx
+	}
+	if (o.has("portrait_layout"))
+	{
+		// lane IOS-38 (a PROTOTYPE behind a developer switch, not retail): the portrait layout to try (PortraitLayout.h); a value it does not know is
+		// refused (reported, the layout kept)
+		PortraitLayout::Id id = PortraitLayout::Today;
+		if (PortraitLayout::parse(std::string(String(o["portrait_layout"]).utf8().get_data()), id))
+		{
+			d->hudLayout.portraitLayout = (int)id;
+			if (d->cam)
+			{
+				d->cam->setPortraitHorizontalFov(PortraitLayout::spec(id).hfovDeg * 3.14159265f / 180.0f);
+			}
+		}
+		else
+		{
+			r["portrait_layout_error"] = "portrait_layout " + String(o["portrait_layout"]) + " is not default, a, b or c";
+		}
+		if (d->hud)
+		{
+			d->hud->setHudLayout(d->hudLayout);
+		}
+	}
 	if (o.has("free_camera") && d->cam)
 	{
 		d->cam->setFreeCamera((bool)o["free_camera"]);
@@ -4085,6 +4156,8 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 	r["ui_scale"] = d->uiScale;
 	r["hud_scale"] = d->hudLayout.scale;
 	r["round_hud"] = d->hudLayout.uniform(); // lane IOS-29: the rule in effect
+	r["portrait_layout"] = String(PortraitLayout::spec((PortraitLayout::Id)d->hudLayout.portraitLayout).key); // lane IOS-38
+	r["point_px"] = d->hudLayout.pointPx > 0.0f ? d->hudLayout.pointPx : PortraitLayout::kDefaultPointPx;
 	return r;
 }
 

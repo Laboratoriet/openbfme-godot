@@ -897,6 +897,10 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 	{
 		return;
 	}
+	if (layoutPortraitPrototype(root, width, height, layout))
+	{
+		return; // lane IOS-38 (prototype, AptPalantirPortrait.cpp): a portrait layout prototype placed every clip
+	}
 	const float scale = std::min(1.0f, ((float)height / stageHeight) / ((float)width / stageWidth));
 	// lane IOS-3 (OpenBFME presentation, not retail): a portrait viewport (a phone or tablet held upright) is the widescreen case turned on its
 	// side: the stage's Y scale outgrows its X scale and the Palantir would stretch tall. The HUD then takes the width-derived scale in both
