@@ -873,6 +873,10 @@
    "reason": "lane RELEASE-1: the Godot view of the install finder, the version and the session log file; client only, never simulation state"
   },
   {
+   "glob": "src/GodotDevice/GodotIOSFiles.cpp",
+   "reason": "iOS: the Files document picker and the backup exclusion of the game folders (IOSFilesBridge.mm); client only, never simulation state"
+  },
+  {
    "glob": "src/GameClient/GameLODManager.cpp",
    "reason": "PLAY-2: the StaticGameLOD presets and the Options screen's advanced settings (render detail levels written to Options.ini); client-side user interface, never read by the logic"
   },

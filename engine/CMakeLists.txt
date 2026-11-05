@@ -723,6 +723,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     if(OPENBFME_IOS_SDK STREQUAL "iphoneos")
         target_link_libraries(openbfme PRIVATE "-framework MetalFX")
     endif()
+    # Files' document picker ("Choose game file..." on the welcome screen) and backup exclusion: the IOSFiles class (registered under
+    # OPENBFME_IOS_FILES only), after daisyhasacat/openbfme-godot's GodotIOSAssets.mm. Objective-C++ with ARC, given to every Objective-C++
+    # file of the target (no per-file property lists: tools/weapon/test_weapon_no_libm.py).
+    enable_language(OBJCXX)
+    target_sources(openbfme PRIVATE src/GodotDevice/IOSFilesBridge.mm src/GodotDevice/GodotIOSFiles.cpp)
+    target_compile_options(openbfme PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+    target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_FILES=1)
+    target_link_libraries(openbfme PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers" "-framework Foundation")
 endif()
 endif()
 

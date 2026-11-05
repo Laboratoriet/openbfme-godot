@@ -49,6 +49,7 @@ in your Apple account. A free personal team works; its apps expire after 7 days.
 |---|---|---|
 | Info.plist | `UIRequiresFullScreen` = NO | A resizable app gets the window it is shown in, at the screen's own pixels. An app that requires full screen runs in a compatibility mode on a larger screen (an iPad, a foldable's inner screen): drawn at another size and scaled. |
 | Info.plist | `UIFileSharingEnabled`, `LSSupportsOpeningDocumentsInPlace` = YES | The app's Documents folder (Godot's `user://`) shows in Finder's device window and in the Files app (*On My iPhone › OpenBFME*), so files can be copied there. |
+| Info.plist | `LSApplicationQueriesSchemes` = `shareddocuments` | The welcome screen's *Open in Files* opens the app's folder in the Files app; iOS refuses a scheme the app does not list. |
 | Info.plist | `UIApplicationSupportsIndirectInputEvents` = YES | A mouse or trackpad click arrives as a pointer touch with its button, not as a finger. |
 | Entitlements | `com.apple.developer.kernel.increased-memory-limit` | A skirmish holds about 1 GB of video memory besides the game's archives, close to iOS's default per-app limit on phones. Xcode's automatic signing adds the capability to the App ID. |
 | Icons | `icons/icon_1024x1024` | Made at export time from the 256 px frame of `godot/assets/app_icon/openbfme.ico`, so no extra image is committed. |
@@ -70,6 +71,21 @@ The game looks there on every start, when neither `ROTWK_INSTALL` / `BFME2_INSTA
 paths: iOS moves the app's data container on an update or a restore. Until both are there, the first-run screen says how to copy them
 and looks again when the app comes back to the front. The user data folder (Options.ini, saves, maps) is the app's own writable folder,
 and the movies are read from the RotWK folder the game mounted.
+
+### One game file
+
+Copying two folders of about 8.5 GB file by file is slow and easy to get wrong, so the game files can also travel as **one file**,
+`OpenBFME-GameData.obfme` (about 6.5 GB for the English RotWK 2.01 and BFME2 1.06):
+
+- make it on the desktop with *Options › iPhone / iPad › PREPARE* (from the folders the game has mounted), or with
+  `python3 tools/ios/make_game_file.py --rotwk <RotWK folder> --bfme2 <BFME2 folder>`; both check every file first;
+- on the device, the welcome screen's **Choose game file…** opens Files' document picker: the file is read **where it is** (iCloud
+  Drive, Downloads, a drive), with no copy into the app first. Or copy it into *OpenBFME*'s folder (Finder, AirDrop) and the screen
+  offers it by itself;
+- **Install** unpacks it into `RotWK` and `BFME2`, checking every file's MD5. It resumes after an interruption and needs about 9 GB free.
+
+The game folders are left out of iCloud and computer backups: they can be sent again. The file holds the player's own game files, so it
+is never committed or shared (`.gitignore` refuses `*.obfme`).
 
 ## Not covered here
 

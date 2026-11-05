@@ -97,6 +97,7 @@ def scripts(names: str) -> set[str]:
 # frame-delay assumptions. Each must finish within 20 s on a 6-core/6-GiB host.
 ALLOWLIST = {
     "app_icon_test.gd": "bundled application icon resources",
+    "game_file_pack_test.gd": "the iPhone / iPad game file: packer -> importer round trip on generated folders",
     "bfme1_launch_args_test.gd": "command-line parsing only; no game is started",
     "cah_camera_test.gd": "camera geometry against synthetic bounds",
     "menustyle_settings_test.gd": "temporary Options.ini and shell/game spies",

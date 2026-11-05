@@ -246,7 +246,7 @@ func page_check() -> void:
 	await shot("opts4-2-openbfme-master-volume")
 	# every drop-down of every tab: opened by its arrow, on top, closed again without a choice
 	var opened := 0
-	for tab in screen.TABS:
+	for tab in screen.tabs():
 		await click_tab(tab)
 		var rows: Dictionary = page().get("rows", {})
 		for key in rows.keys():
@@ -315,7 +315,7 @@ func click_stage(p: Vector2) -> void:
 
 func click_tab(tab: String) -> void:
 	var tabs: Array = page().get("tabs", [])
-	var i: int = screen.TABS.find(tab)
+	var i: int = screen.tabs().find(tab)
 	if i < 0 or i >= tabs.size():
 		check("the tab %s is on the page" % tab, false, str(tabs))
 		return

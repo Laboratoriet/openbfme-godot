@@ -81,6 +81,7 @@ def test_the_info_plist_keys_keep_the_templates_own(tmp_path):
         "UIFileSharingEnabled": True,
         "LSSupportsOpeningDocumentsInPlace": True,
         "UIApplicationSupportsIndirectInputEvents": True,
+        "LSApplicationQueriesSchemes": ["shareddocuments"],
     }
     first = info.read_bytes()
     assert package_ios.patch_plist(info, package_ios.INFO_PLIST) == []  # a second run changes nothing

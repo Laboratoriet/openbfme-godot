@@ -45,6 +45,9 @@ INFO_PLIST = {
     "LSSupportsOpeningDocumentsInPlace": True,
     # a mouse or trackpad click reaches the app as an indirect pointer touch (UIEvent.buttonMask tells its button), not as a finger
     "UIApplicationSupportsIndirectInputEvents": True,
+    # the welcome screen's Open in Files opens shareddocuments://<the app's Documents folder> (first_run.gd): Godot's OS.shell_open asks
+    # canOpenURL first, which answers NO for a scheme the app does not list here
+    "LSApplicationQueriesSchemes": ["shareddocuments"],
 }
 # The app's entitlements. The increased memory limit: a skirmish holds about 1 GB of video memory besides the game's archives, close to
 # iOS's default per-app limit on phones; Xcode's automatic signing adds the capability to the App ID.

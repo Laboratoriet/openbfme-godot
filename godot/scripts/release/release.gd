@@ -25,7 +25,8 @@
 ##  * the game folders: mount_retail(fs) mounts the retail archives from ROTWK_INSTALL / BFME2_INSTALL (a developer / test override) or the folders
 ##    remembered in user://install-paths.cfg; when neither exists, or the remembered folders stopped working, the first-run screen
 ##    (scripts/release/first_run.gd) lets the player choose them, checks them and remembers them. On iOS the folders the player
-##    copied into the app's Documents folder as RotWK and BFME2 take the remembered folders' place; the first-run screen says how to copy them.
+##    copied into the app's Documents folder as RotWK and BFME2 take the remembered folders' place; the first-run screen says how to copy them,
+##    or installs them from one game file (scripts/release/game_file_import.gd).
 ##  * updates (lane ONEZIP-1): a game the player starts directly from the combined package asks the OpenBFME Launcher beside it which
 ##    version to play and for an update check (update_handover(), scripts/release/update_handover.gd); the check's state is one line
 ##    under the version in the menus' corner ("UPDATE ..." in the log).
@@ -35,6 +36,7 @@ const UpdateHandover := preload("res://scripts/release/update_handover.gd")
 const CrashClient := preload("res://scripts/crash/crash_client.gd")
 const GameOptions := preload("res://scripts/game_options.gd")
 const LanguageWarning := preload("res://scripts/release/language_warning.gd")
+const GameFileImport := preload("res://scripts/release/game_file_import.gd")
 const UPDATE_POLL_SECONDS := 1.0
 const UPDATE_NOTE_SECONDS := 15.0   # how long "Up to date" stays in the corner
 const UPDATE_WATCH_SECONDS := 3 * 3600.0
@@ -66,6 +68,7 @@ var _handover: RefCounted   # UpdateHandover of this start (null: the launcher w
 var _update_note: Label
 var _update_timer: Timer
 var _update_watched := 0.0
+var last_mount := {}        # the mount report of this start (mount_retail): the Options page's "iPhone / iPad" tab packs its archives
 
 
 func _init() -> void:
@@ -466,6 +469,8 @@ func mount_retail(fs: RefCounted) -> Dictionary:
 		_write_asset_pack_report(fs) # lane SDK-1b (b)
 	if mount.get("ok", false) and await language_warning(mount):
 		mount["quit"] = true # --language-warning-shot: the capture is saved, the game quits (game.gd)
+	if mount.get("ok", false):
+		last_mount = mount
 	return mount
 
 
@@ -564,9 +569,12 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 		printerr("RELEASE ", problem)
 	# on iOS, with nothing set or remembered, the RotWK and BFME2 folders the player copied into the app's Documents folder
 	# (InstallLocator.h "iOS"). The mount checks every archive like any other pick; a failure is shown on the first-run screen.
-	if conf.source == "documents" and test_pick.is_empty():
+	# Not while an install from the game file is unfinished (its list is there): the folders hold part of the files, and the mount would
+	# refuse them as a broken copy; the first-run screen offers to carry on instead (scripts/release/game_file_import.gd)
+	if conf.source == "documents" and test_pick.is_empty() and not GameFileImport.pending():
 		var mount: Dictionary = fs.mount_retail_paths(conf.rotwk, conf.bfme2)
 		if mount.ok:
+			exclude_from_backup([conf.rotwk, conf.bfme2])
 			return mount
 		problem = "The RotWK and BFME2 folders in OpenBFME's Files folder could not be used:\n" + "\n".join(mount.errors)
 		printerr("RELEASE ", problem)
@@ -578,6 +586,19 @@ func _mount_retail_folders(fs: RefCounted) -> Dictionary:
 	var result: Dictionary = await screen.run(fs, setup, problem, test_pick)
 	screen.queue_free()
 	return result
+
+
+# After daisyhasacat/openbfme-godot's GodotIOSAssets.mm (exclude_from_backup, applied there to her download folder): the game folders in the
+# app's Documents (installed from the game file or copied by hand) are left out of iCloud and computer backups, 8.5 GB the player can send
+# again (Apple's data storage guidelines: data that can be recreated is not backed up). The extension's IOSFiles exists on iOS only:
+# elsewhere nothing happens. Marked on every mount (cheap, and it covers folders copied in by hand); a failure is logged, never in the
+# player's way
+func exclude_from_backup(folders: Array) -> void:
+	if not ClassDB.class_exists("IOSFiles"):
+		return
+	for folder in folders:
+		var r: Dictionary = Callable(ClassDB, "class_call_static").callv(["IOSFiles", "exclude_from_backup", str(folder)])
+		print(info.redact("RELEASE excluded from backups: %s%s" % [folder, "" if r.ok else " FAILED: " + str(r.error)]))
 
 
 # lane MODS-1: the -mod operands in command-line order: "-mod PATH" (retail's spelling), "--mod=PATH", and OPENBFME_MOD before them. A relative
