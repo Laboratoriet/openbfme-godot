@@ -68,6 +68,44 @@ float anchorOf(float lo, float hi, float extent)
 }
 } // namespace
 
+float AptUniformHud::matrixAspect(const AptMatrix &m)
+{
+	const float sx = scaleOfX(m), sy = scaleOfY(m);
+	// a turned clip (its x axis not along the stage's) has no single x / y ratio on the screen
+	const bool turned = std::fabs(m.b) > 1e-4f * sx || std::fabs(m.c) > 1e-4f * sy;
+	return sx > 0.0f && sy > 0.0f && !turned ? sx / sy : 0.0f;
+}
+
+float AptUniformHud::widescreenBuild(const AptSpriteInst &root)
+{
+	std::vector<float> ratios;
+	for (const AptCharacterInst *c : root.children())
+	{
+		const float r = matrixAspect(c->matrix);
+		if (r > 0.0f)
+		{
+			ratios.push_back(r);
+		}
+	}
+	if (ratios.empty())
+	{
+		return 1.0f;
+	}
+	std::nth_element(ratios.begin(), ratios.begin() + ratios.size() / 2, ratios.end());
+	const float median = ratios[ratios.size() / 2];
+	return ratioOff(median, 1.0f) <= kTolerance ? 1.0f : median;
+}
+
+float AptUniformHud::builtStretch(float build, const AptCharacterInst &child)
+{
+	if (build == 1.0f)
+	{
+		return 1.0f;
+	}
+	const float own = matrixAspect(child.matrix);
+	return own <= 0.0f || ratioOff(own, 1.0f) <= kTolerance ? 1.0f : build; // uniform (or turned): not squeezed by the build
+}
+
 bool AptUniformHud::Menus::has(int level) const
 {
 	return std::find(levels.begin(), levels.end(), level) != levels.end();
@@ -81,12 +119,13 @@ void AptUniformHud::safeCentre(const AptStageMapping &mapping, const float safeI
 }
 
 AptMatrix AptUniformHud::correction(const AptCharacterInst &unit, const AptMatrix &parentChain, const AptStageMapping &mapping, float &fixX, float &fixY,
-	const float *centre)
+	const float *centre, float built)
 {
 	fixX = fixY = 1.0f;
 	// the presentation scale above the unit: the mapping, the parents' viewport / present transforms (parentChain's scale: the authored matrices of
 	// a level's root and its children are 1 in the HUD movies; INFERENCE: a rotated or scaled authored parent would count here as well)
-	const float ex = mapping.scaleX() * scaleOfX(parentChain) * scaleOfX(unit.viewportTransform);
+	// lane IOS-39: and the stretch a widescreen build of the movie bakes into the unit's own matrix (builtStretch; 1 for RotWK's)
+	const float ex = mapping.scaleX() * scaleOfX(parentChain) * scaleOfX(unit.viewportTransform) * built;
 	const float ey = mapping.scaleY() * scaleOfY(parentChain) * scaleOfY(unit.viewportTransform);
 	if (!(ex > 0.0f) || !(ey > 0.0f) || ratioOff(ex, ey) <= kTolerance)
 	{
@@ -181,10 +220,11 @@ void AptUniformHud::apply(Apt &apt, const AptStageMapping &mapping, bool enabled
 			root->presentTransform = correction(*root, AptMatrix(), mapping, fx, fy, menus.has(level) ? centre : nullptr);
 		}
 		const AptMatrix rootChain = root->globalMatrix();
+		const float build = perChild ? widescreenBuild(*root) : 1.0f; // lane IOS-39
 		const bool rootFixed = enabled && !perChild && !isIdentity(root->presentTransform);
 		for (AptCharacterInst *c : root->children())
 		{
-			c->presentTransform = enabled && perChild ? correction(*c, rootChain, mapping, fx, fy) : AptMatrix();
+			c->presentTransform = enabled && perChild ? correction(*c, rootChain, mapping, fx, fy, nullptr, builtStretch(build, *c)) : AptMatrix();
 			if (rootFixed)
 			{
 				c->presentTransform = backdrop(*root, *c, mapping);
@@ -206,15 +246,19 @@ void AptUniformHud::audit(Apt &apt, const AptStageMapping &mapping, std::vector<
 		// the walk: the presentation scale (the present and viewport transforms' x / y scales) down to each instance
 		struct Walk
 		{
-			static void go(AptCharacterInst *inst, float px, float py, int depth, int level, bool perChild, const AptStageMapping &m, std::vector<Entry> &out)
+			static void go(AptCharacterInst *inst, float px, float py, int depth, int level, bool perChild, const AptStageMapping &m, std::vector<Entry> &out,
+				float build)
 			{
 				if (!inst || !inst->defined() || !inst->visible)
 				{
 					return;
 				}
-				const float kx = px * scaleOfX(inst->presentTransform) * scaleOfX(inst->viewportTransform);
-				const float ky = py * scaleOfY(inst->presentTransform) * scaleOfY(inst->viewportTransform);
 				const bool unit = perChild ? depth == 1 : depth == 0;
+				// lane IOS-39: a laid-out root child counts with the stretch a widescreen build bakes into it (builtStretch; 1 for RotWK's movies), and its
+				// content inherits it
+				const float built = unit && perChild ? builtStretch(build, *inst) : 1.0f;
+				const float kx = px * scaleOfX(inst->presentTransform) * scaleOfX(inst->viewportTransform) * built;
+				const float ky = py * scaleOfY(inst->presentTransform) * scaleOfY(inst->viewportTransform);
 				if (unit || !isIdentity(inst->viewportTransform) || !isIdentity(inst->presentTransform))
 				{
 					float x0, y0, x1, y1;
@@ -250,12 +294,12 @@ void AptUniformHud::audit(Apt &apt, const AptStageMapping &mapping, std::vector<
 				{
 					for (AptCharacterInst *c : s->children())
 					{
-						go(c, kx, ky, depth + 1, level, perChild, m, out);
+						go(c, kx, ky, depth + 1, level, perChild, m, out, build);
 					}
 				}
 			}
 		};
-		Walk::go(root, 1.0f, 1.0f, 0, level, perChild, mapping, out);
+		Walk::go(root, 1.0f, 1.0f, 0, level, perChild, mapping, out, perChild ? widescreenBuild(*root) : 1.0f);
 	}
 }
 

@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+class AptCharacterInst;
 class AptSpriteInst;
 
 class AptPalantir : public AptScreen
@@ -61,6 +62,8 @@ public:
 		Count
 	};
 	float hudGroupScale(HudGroup g) const { return m_groupScale[(int)g]; }
+	// lane IOS-39: the group a top-level clip of the root is anchored with (RotWK's clip names, else the clip's place on the stage; see the .cpp)
+	static HudGroup hudGroupOf(AptCharacterInst &child, float stageWidth, float stageHeight);
 	// lane IOS-27 (OpenBFME presentation, not retail; HUD size above 100 % only): the side command bar's buttons at the HUD size times kSideBarBoost
 	// (125 % -> 140 %). Landscape: a block in the safe area's bottom-right corner; more than kSideBarMaxRows buttons, or a column taller than the safe
 	// area at that size, wrap into two columns (column-major: the first, left column top to bottom, then the second), each column with its own frame

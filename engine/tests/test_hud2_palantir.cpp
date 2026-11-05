@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <map>
 #include <set>
 #include <variant>
@@ -1529,5 +1530,126 @@ TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD d
 		DrawableIconUI::markScale(1335, 939, 1.0f, false, vx, vy);
 		CHECK(vx == (1335.0f / 1024.0f) * 0.5f);
 		CHECK(vy == (939.0f / 768.0f) * 0.5f);
+	}
+}
+
+// lane IOS-39 (OpenBFME presentation, not retail): a widescreen build of the Palantir movie (Edain 4.8.5.4's ___edain_apt_widescreen.big: Palantir.apt's
+// top-level clips placed at x 0.75 about their screen edge, for retail's stretch of the 4:3 stage to a 16:9 window) is drawn as the RotWK movie is:
+// round, in the same place, landscape, portrait and 4:3, at 100 % and 125 %. Synthetic: RotWK's own movie with that squeeze put on its top-level
+// clips' matrices (no mod bytes). Before IOS-39 the layout's widescreen correction narrowed such a build a second time (the Duo's oval Palantir)
+TEST_CASE("hud2 palantir: a widescreen build of the movie (top-level clips squeezed in x about their edge) is drawn round and in place (IOS-39 guard)")
+{
+	if (!haveWorld("hud2 widescreen build"))
+	{
+		return;
+	}
+	PalantirRig hud(shared());
+	hud.frames(30);
+	Object *builder = hud.rig.make("MenPorter", 2800, 1400);
+	REQUIRE(builder != nullptr);
+	hud.hud->input().ui().selectObject(builder->getID());
+	hud.frames(40);
+	REQUIRE(hud.hud->palantir()->sideBarShown());
+	AptSpriteInst *root = hud.hud->apt().level(hud.hud->palantir()->level());
+	REQUIRE(root != nullptr);
+	const std::string palantir = "_level" + std::to_string(hud.hud->palantir()->level());
+	// the clips compared: the Palantir's frame, a button on its rim, the side bar
+	const char *const kClips[] = { "PalantirFrame", "PalantirButtons.Buttons.Options", "SideCommandBar" };
+	struct Size
+	{
+		int w, h;
+		float scale;
+	};
+	const Size sizes[] = { { 1335, 939, 1.0f }, { 1335, 939, 1.25f }, { 939, 1335, 1.0f }, { 939, 1335, 1.25f }, { 1024, 768, 1.25f } };
+	// laid out without advancing the movie (its matrices stay the ones squeezed below)
+	auto layOut = [&](const Size &s) {
+		AptPalantir::HudLayout layout;
+		layout.scale = s.scale;
+		layout.roundHud = true;
+		hud.hud->setWindowSize(s.w, s.h);
+		hud.hud->setHudLayout(layout);
+	};
+	auto boxes = [&](const Size &s, std::vector<std::array<float, 4>> &out) {
+		AptStageMapping m;
+		m.windowW = (float)s.w;
+		m.windowH = (float)s.h;
+		out.clear();
+		for (const char *path : kClips)
+		{
+			AptCharacterInst *c = hud.hud->apt().resolvePath(root, path);
+			REQUIRE_MESSAGE(c != nullptr, path);
+			std::array<float, 4> b{};
+			globalBox(c, m, b.data());
+			out.push_back(b);
+		}
+	};
+	// RotWK's movie as drawn: the reference boxes
+	std::vector<std::vector<std::array<float, 4>>> reference;
+	for (const Size &s : sizes)
+	{
+		layOut(s);
+		reference.emplace_back();
+		boxes(s, reference.back());
+	}
+	// the squeeze a widescreen build bakes in: each top-level clip at x 0.75 about its group's edge (the left clips about x 0, the side bar about the
+	// stage's right edge, the planning indicator about its centre)
+	const float stageW = (float)root->timelineFile->width, stageH = (float)root->timelineFile->height;
+	// RotWK's top-level clips keep the groups they had by name before IOS-39 (the side bar, the planning indicator, every other clip with the
+	// Palantir), and none bakes in a stretch
+	for (AptCharacterInst *c : root->children())
+	{
+		INFO(c->instName());
+		const AptPalantir::HudGroup named = c->instName() == "SideCommandBar" ? AptPalantir::HudGroup::BottomRight
+			: (c->instName() == "planningModeUI" ? AptPalantir::HudGroup::TopCentre : AptPalantir::HudGroup::BottomLeft);
+		CHECK(AptPalantir::hudGroupOf(*c, stageW, stageH) == named);
+		CHECK(AptUniformHud::builtStretch(AptUniformHud::widescreenBuild(*root), *c) == 1.0f); // the globe swirls are drawn at x / y 0.93 on purpose: not a build's stretch
+	}
+	CHECK(AptUniformHud::widescreenBuild(*root) == 1.0f);
+	int squeezed = 0;
+	for (AptCharacterInst *c : root->children())
+	{
+		const AptPalantir::HudGroup g = AptPalantir::hudGroupOf(*c, stageW, stageH);
+		const float edge = g == AptPalantir::HudGroup::BottomRight ? stageW : (g == AptPalantir::HudGroup::TopCentre ? stageW * 0.5f : 0.0f);
+		AptMatrix squeeze;
+		squeeze.a = 0.75f;
+		squeeze.tx = edge * 0.25f;
+		c->matrix = squeeze.concat(c->matrix);
+		++squeezed;
+	}
+	REQUIRE(squeezed > 3); // tolerance: the movie's top-level clips (frame, buttons, side bar, spell book ...), however many it has
+	CHECK(AptUniformHud::widescreenBuild(*root) == doctest::Approx(0.75f)); // tolerance: float products of the squeeze
+	for (size_t i = 0; i < std::size(sizes); ++i)
+	{
+		const Size &s = sizes[i];
+		INFO(s.w, "x", s.h, " at ", s.scale);
+		layOut(s);
+		std::vector<AptUniformHud::Entry> audit;
+		hud.hud->hudScaleAudit(audit);
+		for (const AptUniformHud::Entry &e : audit)
+		{
+			INFO(e.path, " sx ", e.sx, " sy ", e.sy);
+			CHECK_FALSE(e.squashes());
+		}
+		CHECK(auditEntry(audit, palantir + ".PalantirFrame") != nullptr);
+		std::vector<std::array<float, 4>> now;
+		boxes(s, now);
+		for (size_t k = 0; k < std::size(kClips); ++k)
+		{
+			INFO(kClips[k], " now ", now[k][0], " ", now[k][1], " ", now[k][2], " ", now[k][3]);
+			for (int j = 0; j < 4; ++j)
+			{
+				CHECK(std::fabs(now[k][j] - reference[i][k][j]) < 0.05f); // tolerance: float products of the squeeze and its inverse, a twentieth of a pixel
+			}
+		}
+		// a press at the drawn centre of the Palantir's Options button reaches it
+		AptButtonInst *b = firstButton(hud.hud->apt().resolvePath(root, "PalantirButtons.Buttons.Options"));
+		REQUIRE(b != nullptr);
+		AptStageMapping m;
+		m.windowW = (float)s.w;
+		m.windowH = (float)s.h;
+		float box[4], sx, sy;
+		globalBox(b, m, box);
+		m.windowToStage((box[0] + box[2]) * 0.5f, (box[1] + box[3]) * 0.5f, sx, sy);
+		CHECK(hud.hud->apt().input().hitTestButtons(sx, sy) == b);
 	}
 }
