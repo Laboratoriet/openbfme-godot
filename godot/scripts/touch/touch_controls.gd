@@ -81,7 +81,7 @@ extends Node
 ##
 ## Lane IOS-35 (the owner's request, 2026-11-04: the one-finger pan of daisyhasacat/openbfme-godot as an OPTION; scheme after daisyhasacat/openbfme-godot
 ## 607d6406 "Add finger navigation and Pencil selection for touch devices", GPL-3.0; no code copied: Daisy's lives in the engine's InGameHudNode, ours
-## here): Options > Interface > "One finger drag" (game_options.gd OpenBFMETouchDrag, set_drag_mode). "select" (the default) keeps the gestures above.
+## here): Options > Touch > "One finger drag" (game_options.gd OpenBFMETouchDrag, set_drag_mode). "select" (the default) keeps the gestures above.
 ## "pan", for a finger that comes down on the battlefield (the world: not the HUD, the radar, a menu over the game) with no placement waiting:
 ##   one finger, drag ........... moves the camera: the ground under the finger stays under it (the two-finger pan's rule, from the touch-down point).
 ##                                OpenBFMEInvertDragScroll is not applied: it is the right-button drag's option, and the ground under the finger is the
@@ -99,7 +99,7 @@ extends Node
 ## a 1x screen, and the same physical size on every screen).
 ##
 ## Lane IOS-40 (the owner's decision, 2026-11-05: "hold kind of works, but in most cases click once to see name/info and twice to build is better"), tap to
-## preview, tap again to use. Options > Interface > "Button taps" (game_options.gd OpenBFMETouchButtonTaps, set_button_taps):
+## preview, tap again to use. Options > Touch > "Button taps" (game_options.gd OpenBFMETouchButtonTaps, set_button_taps):
 ##   "costs" (the touch default) a HUD button whose press costs (touch_button_at's "costs": ControlBar::pressCosts, from the button's Command: build,
 ##                               recruit, upgrades, revive, castles, the spell book's purchases and powers, abilities) is previewed; every other button (stop,
 ##                               guard, formations, stances, rally points, gates, the portrait, the hero bar, the Palantir's keys) acts at once
@@ -118,7 +118,7 @@ extends Node
 ## tap, tap queues three. A quick double tap toggles autocast only from the unarmed state (after a use, quick taps are uses); the toggle disarms.
 ##
 ## Lane IOS-37 (the owner's decisions, 2026-11-05), the touch command toolbar and two touch gaps:
-##   the toolbar ................ command_toolbar.gd: a strip of round buttons along the top edge (Options > Interface > "Command toolbar",
+##   the toolbar ................ command_toolbar.gd: a strip of round buttons along the top edge (Options > Touch > "Command toolbar",
 ##                                OpenBFMETouchToolbar, set_toolbar). A finger that comes down on it is the toolbar's: a tap presses the button (its command,
 ##                                the keyboard's way), a hold shows what it does and presses nothing (IOS-21), a hold on a control group makes the group (a
 ##                                ring fills, then flashes), sliding off and lifting does nothing, a second finger cancels. Shown in a game with no menu over
@@ -131,6 +131,25 @@ extends Node
 ##                                units in its queue, a reviving hero) shows a small ✕ beside its ring (armed_ring.gd); a tap on ✕ is the button's right press,
 ##                                retail's cancel of one (the button stays armed: tap it to queue one more, ✕ to take one off). The two-finger tap on the
 ##                                bubble (IOS-21) still cancels too, and is the way with "Act at once"
+##
+## Lane IOS-42 (the owner, 2026-11-05: "It would be nice if you could toggle on/off and check what works best"): every touch behaviour with a switch is
+## a row of Options > Touch (openbfme_options_screen.gd; game_options.gd's OpenBFMETouch* keys, apply_options below). Each default is the behaviour
+## described above; each is read by the gesture that uses it, so a change applies at once, in a game too:
+##   OpenBFMETouchListScroll ...... "no": a drag on a menu list is the mouse's press-and-drag (IOS-10's list scrolling off; --no-list-scroll wins)
+##   OpenBFMETouchTapAssist ....... "no": a tap presses only what is under it (IOS-10's tap assist off; --no-tap-assist wins)
+##   OpenBFMETouchHoldButton ...... "right": a hold on a HUD button is the right click there (IOS-2's hold), not its help (IOS-21)
+##   OpenBFMETouchAutocastTap ..... "no": no double tap toggles autocast; a tap on an autocast ability presses at once (no DOUBLE_TAP_MS wait), and with
+##                                  "Button taps" previewing, a quick second tap uses it. The two-finger tap on it (its right press) still toggles
+##   OpenBFMETouchPlacement ....... "confirm": IOS-26's ✓ / ✕. "lift": IOS-23 as it was: lifting after a drag places at the ghost (a lift with the
+##                                  ghost on the HUD places nothing), a tap places under the finger. "tap": the touch layer leaves placement alone:
+##                                  a tap is the left click (it places, as a mouse click does), a drag the left drag (retail's press, turn, release)
+##   OpenBFMETouchGhostAbove ...... "no": the ghost goes under the finger, not GHOST_OFFSET_PT above it (IOS-23)
+##   OpenBFMETouchPlaceTwist ...... "camera": while ✓ / ✕ wait a two-finger twist turns the camera, as elsewhere (not the ghost, IOS-37)
+##   OpenBFMETouchDeselectBuilders  "no": an accepted placement keeps the builders selected (IOS-36). With "lift" and "tap" the placing click counts as
+##                                  the ✓ (the deselect waits for the game to take it, PLACE_WATCH_MS at most)
+## Not switches (no row): the thresholds (TAP_MAX_MS, LONG_PRESS_MS, SLOP_PT, DOUBLE_TAP_MS, TWIST_START_DEG, ARM_MS), the two-finger camera gestures,
+## the vibrations, an Apple Pencil's box (IOS-35) and the mouse / keyboard bridge (IOS-14): a number to tune or a device's own behaviour, not a choice
+## between two ways to play.
 ##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
 ## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
@@ -190,6 +209,10 @@ enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM, PAN
 # TOOLBAR: lane IOS-37, a finger on the command toolbar; UNQUEUE: lane IOS-37, a finger on the armed button's ✕ (the production cancel)
 const DRAG_SELECT := "select"    # lane IOS-35: OpenBFMETouchDrag's values
 const DRAG_PAN := "pan"
+const PLACE_CONFIRM := "confirm" # lane IOS-42: OpenBFMETouchPlacement's values
+const PLACE_LIFT := "lift"
+const PLACE_TAP := "tap"
+const PLACE_WATCH_MS := 1500     # lane IOS-42: how long a "lift" or "tap" placement's click waits for the game to take it (the builders' deselect)
 
 var active := false
 var _gesture := Gesture.NONE
@@ -239,8 +262,18 @@ var _confirm_poll_ms := 0
 var _track_until := 0
 var _committed_ms := -1          # ✓ tapped on a legal ghost: the buttons went; they come back if the placement is still on CONFIRM_RETRY_MS later
 var _pressed := ""               # the button a CONFIRM gesture's finger pressed
-var deselect_builders_after_build := true  # lane IOS-36: an accepted ✓ deselects the builders
+var deselect_builders_after_build := true  # lane IOS-36: an accepted ✓ deselects the builders (IOS-42: OpenBFMETouchDeselectBuilders)
 var _builds_at_confirm := -1     # lane IOS-36: touch_placement_at's "builds" when ✓ was last tapped (-1: no ✓ waiting, or an extension without it)
+var placement_mode := PLACE_CONFIRM  # lane IOS-42: OpenBFMETouchPlacement
+var ghost_above := true          # lane IOS-42: OpenBFMETouchGhostAbove (IOS-23's GHOST_OFFSET_PT)
+var hold_shows_info := true      # lane IOS-42: OpenBFMETouchHoldButton "info" (IOS-21); false: "right", IOS-2's right click
+var twist_turns_ghost := true    # lane IOS-42: OpenBFMETouchPlaceTwist "building" (IOS-37); false: "camera"
+var autocast_double_tap := true  # lane IOS-42: OpenBFMETouchAutocastTap (IOS-21 / IOS-40)
+var _no_tap_assist_flag := false # lane IOS-42: --no-tap-assist / --no-list-scroll win over the options for the run
+var _no_list_scroll_flag := false
+var _place_watch_until := 0      # lane IOS-42: a "lift" / "tap" placement's click waits until then for the game to take it (_watch_placement)
+var _tap_placing := false        # lane IOS-42: "tap": the finger came down on the world while a placement waited (its click places, as a mouse's)
+var _tap_place_builds := -1      # ... and touch_placement_at's "builds" then (-1: an extension without it)
 var _waiting := {}               # lane IOS-21: a tap on an autocast ability waiting for a second one: {"at": the press point, "due": msec, "second":
                                  # a finger came down on it in time (its tap is the second, however long it stays)}
 var _touch_help := -1            # lane IOS-21: the touch help the HUD was last given (-1: none yet)
@@ -265,8 +298,10 @@ func _ready() -> void:
 		return
 	Input.emulate_mouse_from_touch = false  # this node makes the mouse events; Godot's own translation would make a second set
 	_scale = maxf(1.0, DisplayServer.screen_get_scale())
-	tap_assist = not OS.get_cmdline_user_args().has("--no-tap-assist")
-	list_scroll = not OS.get_cmdline_user_args().has("--no-list-scroll")
+	_no_tap_assist_flag = OS.get_cmdline_user_args().has("--no-tap-assist")
+	_no_list_scroll_flag = OS.get_cmdline_user_args().has("--no-list-scroll")
+	tap_assist = not _no_tap_assist_flag
+	list_scroll = not _no_list_scroll_flag
 	print("TOUCH controls on (%s), %.1f px per point" % ["mobile" if OS.has_feature("mobile") else "--touch", _scale])
 	print("TOUCH arguments: engine %s, game %s" % [OS.get_cmdline_args(), OS.get_cmdline_user_args()])
 	print("TOUCH tap assist %s (%.0f pt), list scrolling %s, twist turns the camera (IOS-15)" % ["on" if tap_assist else "off", ASSIST_PT, "on" if list_scroll else "off"])
@@ -313,6 +348,38 @@ func set_toolbar(on: bool) -> void:
 		print("TOUCH IOS-37 command toolbar: %s" % ("on" if on else "off"))
 	toolbar_enabled = on
 	_toolbar_poll_ms = 0
+
+
+## lane IOS-42: Options > Touch as game_options.gd applies it (`values`: Options.ini's text, game_options.gd current()). Every switch is read by the gesture
+## that uses it, so each applies at once; a key `values` lacks keeps its default. Kept on a desktop without touch too, where nothing reads them
+func apply_options(values: Dictionary) -> void:
+	set_drag_mode(str(values.get("OpenBFMETouchDrag", DRAG_SELECT)))
+	set_button_taps(str(values.get("OpenBFMETouchButtonTaps", TAPS_COSTS)))
+	set_toolbar(str(values.get("OpenBFMETouchToolbar", "yes")) == "yes")
+	var was := switches()
+	list_scroll = str(values.get("OpenBFMETouchListScroll", "yes")) == "yes" and not _no_list_scroll_flag
+	tap_assist = str(values.get("OpenBFMETouchTapAssist", "yes")) == "yes" and not _no_tap_assist_flag
+	hold_shows_info = str(values.get("OpenBFMETouchHoldButton", "info")) != "right"
+	autocast_double_tap = str(values.get("OpenBFMETouchAutocastTap", "yes")) == "yes"
+	var place := str(values.get("OpenBFMETouchPlacement", PLACE_CONFIRM))
+	placement_mode = place if place in [PLACE_CONFIRM, PLACE_LIFT, PLACE_TAP] else PLACE_CONFIRM
+	ghost_above = str(values.get("OpenBFMETouchGhostAbove", "yes")) == "yes"
+	twist_turns_ghost = str(values.get("OpenBFMETouchPlaceTwist", "building")) != "camera"
+	deselect_builders_after_build = str(values.get("OpenBFMETouchDeselectBuilders", "yes")) == "yes"
+	if placement_mode != PLACE_CONFIRM:
+		_end_confirm()  # a ghost waiting for ✓ / ✕ stays where it is (the placement goes on); the next finger places by the new mode
+	if not autocast_double_tap:
+		_press_waiting()  # a tap waiting for its second presses now
+	var now := switches()
+	if now != was and active:
+		print("TOUCH IOS-42 switches: %s" % JSON.stringify(now))
+
+
+## lane IOS-42: the Touch tab's switches in effect (the log line, the self-test, the tests)
+func switches() -> Dictionary:
+	return {"list_scroll": list_scroll, "tap_assist": tap_assist, "hold": "info" if hold_shows_info else "right", "autocast_double_tap": autocast_double_tap,
+		"placement": placement_mode, "ghost_above": ghost_above, "twist": "building" if twist_turns_ghost else "camera",
+		"deselect_builders": deselect_builders_after_build}
 
 
 ## lane IOS-15: a mouse or trackpad is in use (a Mac running the iPhone build has one). IOS-17: only once its pointer showed itself (hovered,
@@ -381,13 +448,15 @@ func _process(_delta: float) -> void:
 		_toolbar_hold(Time.get_ticks_msec() - int(_fingers[_first].at))
 	if _confirming:
 		_poll_confirm(Time.get_ticks_msec())
+	if _place_watch_until > 0:
+		_poll_placement_watch(Time.get_ticks_msec())
 	# the hold: a still finger that stays down becomes a right click while it is still down (the player feels it fire); lane IOS-21: on a HUD button
-	# it shows the button's help instead, until the finger lifts
+	# it shows the button's help instead, until the finger lifts (lane IOS-42: unless Hold a button is "Right-click")
 	if _gesture == Gesture.PENDING and _fingers.has(_first) and Time.get_ticks_msec() - int(_fingers[_first].at) >= LONG_PRESS_MS:
 		var at: Vector2 = _fingers[_first].pos
 		_press_waiting()
 		_disarm("hold")  # lane IOS-40: a hold is IOS-21's own preview (on the armed button too); it never uses the button
-		var button := _hud_button(at)
+		var button := _hud_button(at) if hold_shows_info else {}
 		if not button.is_empty():
 			_move(button.position)  # the pointer on the button (the tap assist's point): the help box's provider is the button under it
 			_hud.hold_help(true)
@@ -447,7 +516,9 @@ func _touch(e: InputEventScreenTouch) -> void:
 					_confirm.set_pressed(on)
 					return
 				_placing = _placement_drag_at(e.position)
-				_pan_world = drag_mode == DRAG_PAN and not _placing and not _pencil_touches.has(e.index) and _on_battlefield(e.position)  # IOS-35
+				_tap_placing = _tap_placement_at(e.position)  # lane IOS-42: "Place on tap": this finger's click (or drag) places
+				_pan_world = drag_mode == DRAG_PAN and not _placing and not _tap_placing and not _pencil_touches.has(e.index) \
+					and _on_battlefield(e.position)  # IOS-35
 				if _confirming:
 					if _placing:
 						_confirm.hide_now()  # the finger moves the ghost again; the buttons come back where it stops
@@ -489,14 +560,24 @@ func _touch(e: InputEventScreenTouch) -> void:
 	match _gesture:
 		Gesture.PENDING:
 			if _placing:
-				_offer_confirm(e.position)  # lane IOS-26: a tap puts the ghost under the tap point and waits for ✓ / ✕
+				if placement_mode == PLACE_LIFT:
+					_place_now(e.position)  # lane IOS-42 "Place when you lift": IOS-23's tap, the building under the tap point at once
+				else:
+					_offer_confirm(e.position)  # lane IOS-26: a tap puts the ghost under the tap point and waits for ✓ / ✕
 				stats.place_taps += 1
 			else:
 				_tap(e.position, now)  # up before the hold fired and without moving: a tap
+				if _tap_placing:
+					_watch_placement(_tap_place_builds)  # lane IOS-42 "Place on tap": the left click placed (or the game refused it)
 		Gesture.DRAG:
 			_button(MOUSE_BUTTON_LEFT, false, e.position)
+			if _tap_placing:
+				_watch_placement(_tap_place_builds)  # lane IOS-42 "Place on tap": retail's press, turn and release placed
 		Gesture.PLACE:
-			if _offer_confirm(ghost_point(e.position)):  # lane IOS-26: lifting leaves the ghost there and waits for ✓ / ✕
+			if placement_mode == PLACE_LIFT:
+				if _place_now(ghost_point(e.position)):  # lane IOS-42 "Place when you lift": IOS-23's lift places at the ghost
+					stats.place_lifts += 1
+			elif _offer_confirm(ghost_point(e.position)):  # lane IOS-26: lifting leaves the ghost there and waits for ✓ / ✕
 				stats.place_lifts += 1
 		Gesture.CONFIRM:
 			if _confirm.hit(e.position) == _pressed:  # lifted on the button it pressed (sliding off and lifting does nothing)
@@ -534,6 +615,7 @@ func _touch(e: InputEventScreenTouch) -> void:
 		_gesture = Gesture.NONE
 		_first = -1
 		_placing = false
+		_tap_placing = false
 		_pan_world = false
 		_pressed = ""
 		if camera_gesture and _confirming:
@@ -635,7 +717,7 @@ func _tap(at: Vector2, now: int) -> void:
 			_last_tap_ms = -100000
 			return
 		_press_waiting()
-	if not double and _hud_button(at, assist.position).get("autocast", false):
+	if autocast_double_tap and not double and _hud_button(at, assist.position).get("autocast", false):  # lane IOS-42: the switch
 		_waiting = {"at": assist.position, "due": now + DOUBLE_TAP_MS}
 		stats.waited_taps += 1
 		stats.taps += 1
@@ -672,7 +754,7 @@ func _preview_tap(b: Dictionary, now: int) -> void:
 	stats.taps += 1
 	_last_tap_ms = -100000  # no world double click across a HUD button
 	if not _armed.is_empty() and str(_armed.key) == _button_key(b) and str(_armed.name) == str(b.get("name", "")) and now <= int(_armed.until):
-		if now - int(_armed.tapped) <= DOUBLE_TAP_MS and bool(b.get("autocast", false)):
+		if autocast_double_tap and now - int(_armed.tapped) <= DOUBLE_TAP_MS and bool(b.get("autocast", false)):  # lane IOS-42: the switch
 			_click(MOUSE_BUTTON_RIGHT, at)  # IOS-21's double tap: the autocast toggles (a setting, not a use: the arm goes)
 			stats.autocast_taps += 1
 			stats.double_taps += 1
@@ -865,6 +947,8 @@ func _hud_button(at: Vector2, assisted := Vector2.INF) -> Dictionary:
 ## lane IOS-23: a finger coming down at `at` drags a placement's ghost: a build button waits for its site and the finger is on the world (not on the
 ## HUD, the radar or a menu over the game). An extension without the query (built before lane IOS-23) keeps the old gestures
 func _placement_drag_at(at: Vector2) -> bool:
+	if placement_mode == PLACE_TAP:
+		return false  # lane IOS-42: "Place on tap" leaves the placement to the mouse's clicks (_tap_placement_at)
 	var hud := _game_hud()
 	if hud == null or not hud.has_method("touch_placement_at"):
 		return false
@@ -872,10 +956,65 @@ func _placement_drag_at(at: Vector2) -> bool:
 	return bool(r.get("placing", false)) and bool(r.get("world", false))
 
 
+## lane IOS-42 "Place on tap": a finger coming down at `at` is on the world while a placement waits (its tap, or its drag's release, is the mouse's
+## placing click); remembers the game's count of issued placements for the builders' deselect (_watch_placement)
+func _tap_placement_at(at: Vector2) -> bool:
+	_tap_place_builds = -1
+	if placement_mode != PLACE_TAP:
+		return false
+	var hud := _game_hud()
+	if hud == null or not hud.has_method("touch_placement_at"):
+		return false
+	var r: Dictionary = hud.touch_placement_at(at)
+	if not bool(r.get("placing", false)) or not bool(r.get("world", false)):
+		return false
+	_tap_place_builds = int(r.get("builds", -1))
+	return true
+
+
+## lane IOS-42 "Place when you lift" (IOS-23 as it was before IOS-26): the left click at `at` places the building (PlaceEventTranslator: the press
+## anchors, the release places, or refuses with retail's message and the placement stays). A point on the HUD clicks nothing: the placement stays
+func _place_now(at: Vector2) -> bool:
+	var hud := _game_hud()
+	if hud == null or not hud.has_method("touch_placement_at"):
+		return false
+	var r: Dictionary = hud.touch_placement_at(at)
+	if not bool(r.get("world", false)):
+		stats.place_lifts_on_hud += 1
+		return false
+	var builds := int(r.get("builds", -1))
+	_click(MOUSE_BUTTON_LEFT, at)
+	_watch_placement(builds)
+	return true
+
+
+## lane IOS-42: a "lift" or "tap" placement's click was sent with the game's count of issued placements at `builds`: the builders' deselect (IOS-36's
+## _after_placement) waits up to PLACE_WATCH_MS for the game to take it (the click reaches the logic a frame or more later)
+func _watch_placement(builds: int) -> void:
+	if builds < 0:
+		return  # an extension without the count
+	_builds_at_confirm = builds
+	_place_watch_until = Time.get_ticks_msec() + PLACE_WATCH_MS
+
+
+func _poll_placement_watch(now: int) -> void:
+	var hud := _game_hud()
+	if hud == null or _confirming or not hud.has_method("touch_placement_at"):
+		_place_watch_until = 0
+		return
+	var r: Dictionary = hud.touch_placement_at(Vector2.ZERO)
+	if not bool(r.get("placing", false)) or int(r.get("builds", -1)) > _builds_at_confirm:
+		_place_watch_until = 0
+		_after_placement()
+	elif now >= _place_watch_until:
+		_place_watch_until = 0
+		_builds_at_confirm = -1  # the game kept the placement (refused: a bad site, no money): nothing to deselect
+
+
 ## lane IOS-23: where a finger at `at` puts a placement's ghost: GHOST_OFFSET_PT above it, kept inside the view (a finger near the top edge holds
-## the ghost at the edge; the sides and the bottom cannot be left, as the offset is straight up)
+## the ghost at the edge; the sides and the bottom cannot be left, as the offset is straight up). Lane IOS-42: under the finger with "Above the finger" off
 func ghost_point(at: Vector2) -> Vector2:
-	var p := at - Vector2(0.0, GHOST_OFFSET_PT * _scale)
+	var p := at - Vector2(0.0, GHOST_OFFSET_PT * _scale if ghost_above else 0.0)
 	var size := get_viewport().get_visible_rect().size
 	return p.clamp(Vector2(GHOST_INSET_PX, GHOST_INSET_PX), size - Vector2(GHOST_INSET_PX, GHOST_INSET_PX))
 
@@ -1160,8 +1299,8 @@ func _two_finger_move() -> void:
 			_twisting = true
 			_twist_base = _finger_angle()
 			turn = 0.0
-		if _twisting and turn != 0.0 and _confirming and not _confirm_line and hud.has_method("set_placement_angle"):
-			# lane IOS-37: while ✓ / ✕ wait the twist turns the building's ghost, not the camera
+		if _twisting and turn != 0.0 and _confirming and twist_turns_ghost and not _confirm_line and hud.has_method("set_placement_angle"):
+			# lane IOS-37: while ✓ / ✕ wait the twist turns the building's ghost, not the camera (lane IOS-42: unless the switch says the camera)
 			if _turn_ghost(hud, turn):
 				stats.ghost_turns += 1
 			_twist_base = _finger_angle()

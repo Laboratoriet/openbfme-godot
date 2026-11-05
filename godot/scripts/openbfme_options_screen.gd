@@ -29,6 +29,8 @@ const DisplaySettings := preload("res://scripts/display_settings.gd")
 const PrepareMobileTab := preload("res://scripts/release/prepare_mobile_tab.gd") # lane IOS-24
 const ModsTab := preload("res://scripts/release/mods_tab.gd") # lane IOS-28
 const TABS := ["Display", "Graphics", "Audio", "Camera", "Interface", "Online", "Performance", "Controls"]
+## lane IOS-42: the tab of the touch controls' switches, after Interface, where the touch controls are on (game_options.gd touch_available)
+const TOUCH_TAB := "Touch"
 ## lane OPTS-5: the tab the menu shows first when the main menu's CUSTOM SETTINGS opened it
 const DETAIL_TAB := "Graphics"
 const SOCIAL_CHOICES := {
@@ -80,8 +82,21 @@ const HELP := {
 	"OpenBFMEMuteUnfocused": "No sound while another window has the focus.",
 	"OpenBFMEAudioDevice": "The speakers or headphones the game plays through.",
 	"OpenBFMETouchDrag": "Selection box: one finger draws a box, two fingers move the view. Move the view: one finger moves it; to draw a box, hold the finger still for a moment, then drag. An Apple Pencil always draws a box.", # lane IOS-35
-	"OpenBFMETouchButtonTaps": "Preview what costs: the first tap on a build, recruit, upgrade, power or ability button shows what it is and marks it in gold; tap it again within 3 seconds to use it, and again for one more (a ✕ beside it takes one off a queue). Quick commands act at once. Preview all: every button so. Act at once: every tap presses. A quick double tap on an ability with autocast turns its autocast on or off.", # lane IOS-40
+	# lane IOS-40 (IOS-42: shortened to the help line's three lines; the autocast double tap has its own row)
+	"OpenBFMETouchButtonTaps": "Preview what costs: the first tap on a build, recruit, upgrade, power or ability button shows what it is; tap it again within 3 seconds to use it (a ✕ beside it takes one off a queue). Preview all: every button so. Act at once: every tap presses.",
 	"OpenBFMETouchToolbar": "A strip of buttons along the top of the screen: select your army, attack move, stop, deselect, your base, the last event, the menu, and control groups (tap a number to select its group, hold it to make one from the selection). Hold a button to see what it does.", # lane IOS-37
+	# lane IOS-42: the Touch tab (the three rows above moved there from Interface; the help lines in a player's words)
+	"OpenBFMETouchListScroll": "Dragging a finger on a list in the menus scrolls it. Off: the drag works like a mouse (press, drag, let go).",
+	"OpenBFMETouchTapAssist": "A tap just beside a button still presses it. Off: a tap presses only what is under your finger.",
+	"OpenBFMETouchHoldButton": "Shows its info: holding a finger on a button of the bottom panel shows what it does, without pressing it. Right-click: a hold is the right mouse button there (on a recruit button it takes one off the queue).",
+	"OpenBFMETouchAutocastTap": "A quick double tap on an ability that can cast by itself turns that on or off. Off: every tap uses the ability; a two-finger tap on it still turns autocast on or off.",
+	"OpenBFMETouchPlacement": "Confirm first: the building waits where you put it, with ✓ and ✕ beside it; tap ✓ to build. When you lift: it is built where your finger lets go. On tap: as with a mouse, a tap builds at once.",
+	"OpenBFMETouchGhostAbove": "While you place a building it floats a little above your finger, so the finger does not hide it. Off: right under your finger.",
+	"OpenBFMETouchPlaceTwist": "While a building waits for ✓, turning two fingers turns the building. Turns camera: two fingers always turn the view.",
+	"OpenBFMETouchDeselectBuilders": "Once a building is placed, the builders are no longer selected, so your next tap does not send them somewhere. Off: they stay selected.",
+	"OpenBFMEPortraitLayout": "How the screen is arranged when you hold the phone upright. A: the most map; its bottom panel grows with the HUD size. B: every button in reach of one thumb. C: the map and the panels split. Classic: the first upright layout.",
+	"OpenBFMETouchSideBar": "With the phone on its side. One column: the original column of buttons on the right edge, sized with the HUD size. Two columns: above 100 % the buttons are larger, in a block of one or two columns.",
+	"note:Touch": "Every switch applies at once, in a game too. Tap a row's name for what it does.",
 	"OpenBFMEIOSSilentSound": "Play the game's sound even when the phone is in silent mode. Music from other apps keeps playing either way.", # lane IOS-20
 	"note:Display": "Renderer: %s (%s). Point at a setting for what it does.",
 	"note:Graphics": "Left: the original game's detail settings (a level, or Custom). Right: OpenBFME's own.",
@@ -122,6 +137,12 @@ const PING_KEY_ITEMS := [["g", "G (hold)"], ["altg", "Alt+G"], ["j", "J"], ["mou
 const TOUCH_DRAG_ITEMS := [["select", "Selection box"], ["pan", "Move the view"]]
 ## lane IOS-40: OpenBFMETouchButtonTaps (touch only)
 const BUTTON_TAPS_ITEMS := [["costs", "Preview what costs"], ["all", "Preview all"], ["act", "Act at once"]]
+## lane IOS-42: the Touch tab's choices (game_options.gd EXTRAS: the values, in this order)
+const HOLD_ITEMS := [["info", "Shows its info"], ["right", "Right-click"]]
+const PLACEMENT_ITEMS := [["confirm", "Confirm first"], ["lift", "When you lift"], ["tap", "On tap"]]
+const TWIST_ITEMS := [["building", "Turns building"], ["camera", "Turns camera"]]
+const PORTRAIT_ITEMS := [["a", "A: More map"], ["b", "B: One hand"], ["c", "C: Split"], ["default", "Classic"]]
+const SIDE_BAR_ITEMS := [["one", "One column"], ["two", "Two columns"]]
 const BARS_ITEMS := [["retail", "Selected (original)"], ["damaged", "Selected and damaged"], ["always", "Always (all players)"]]
 
 var shell: Node2D                  # the AptMenuPlayer
@@ -234,9 +255,14 @@ func _exit_tree() -> void:
 	_prepare.stop() # lane IOS-24: a game file being written is stopped and its half-written file deleted
 
 
-## The tabs the page shows: TABS, "Mods" (lane IOS-28), and on a desktop the "iPhone / iPad" tab (lane IOS-24) last
+## The tabs the page shows: TABS, "Mods" (lane IOS-28), and on a desktop the "iPhone / iPad" tab (lane IOS-24) last. Lane IOS-42: where the touch controls
+## are on, "Touch" after Interface instead of "iPhone / iPad" (a desktop run with --touch: the tab bar holds ten tabs, kTabPitch in OpenBFMEOptionsPage.h)
 func tabs() -> Array:
-	return TABS + [ModsTab.TAB] + ([PrepareMobileTab.TAB] if PrepareMobileTab.available() else [])
+	var out: Array = TABS.duplicate()
+	var touch: bool = game_options != null and game_options.touch_available()
+	if touch:
+		out.insert(out.find("Interface") + 1, TOUCH_TAB)
+	return out + [ModsTab.TAB] + ([PrepareMobileTab.TAB] if PrepareMobileTab.available() and not touch else [])
 
 
 func open(first_tab := 0) -> void:
@@ -478,6 +504,8 @@ func _spec() -> Dictionary:
 			rows = _camera_rows()
 		"Interface":
 			rows = _interface_rows()
+		TOUCH_TAB:
+			rows = _touch_rows()
 		"Audio":
 			rows = _audio_rows()
 		"Online":
@@ -646,42 +674,58 @@ func _camera_rows() -> Array:
 	])
 
 
-## lane IOS-37: on touch the touch rows (One finger drag, Button taps, Command toolbar) are a second column, as Graphics' OpenBFME column: the page's one
-## column holds ten rows above its footer (OpenBFMEOptionsPage::show refuses more), and a desktop's Interface tab stays as it was
+## lane IOS-42: the touch rows are the Touch tab's (IOS-37 had them in a second column here); on touch the HUD size goes with them, so this tab is one
+## column everywhere
 func _interface_rows() -> Array:
-	var rows := _present([
+	return _present([
 		_extra_choice("OpenBFMEMainMenuStyle", "Main menu style", game_options.MENU_STYLES, HELP.OpenBFMEMainMenuStyle),
 		_retail_row("Retail.HealthBars"),
 		_extra_choice("OpenBFMEHealthBars", "Health bars", BARS_ITEMS, HELP.OpenBFMEHealthBars),
 		_extra_check("AlternateMouseSetup", "Alternate mouse setup", HELP.AlternateMouseSetup),
 		_extra_check("OpenBFMEGameClock", "Show the game clock", HELP.OpenBFMEGameClock),
 		_extra_choice("OpenBFMEUIScale", "Interface scale", UI_SCALE_ITEMS, HELP.OpenBFMEUIScale),
-		_hud_size_row(), # lane IOS-18
+		null if game_options.touch_available() else _hud_size_row(), # lane IOS-18 (IOS-42: on touch on the Touch tab)
 		_extra_check("OpenBFMEPingWheel", "Ping wheel", HELP.OpenBFMEPingWheel),
 		_extra_choice("OpenBFMEPingKey", "Ping key", PING_KEY_ITEMS, HELP.OpenBFMEPingKey),
 		# lane CRASHACT-1: here, not on Online (that tab's rows already fill the page above its footer)
 		_extra_check("OpenBFMECrashReports", "Send crash reports automatically", HELP.OpenBFMECrashReports),
 	])
-	for r in _present([_touch_drag_row(), _touch_row("OpenBFMETouchButtonTaps"), _touch_row("OpenBFMETouchToolbar")]): # lanes IOS-35, IOS-40, IOS-37
+
+
+## lane IOS-42 (the owner, 2026-11-05: "toggle on/off and check what works best"): the Touch tab, where the touch controls are on (tabs()). Every touch
+## behaviour with a switch, each default today's, grouped Gestures, Buttons (left), Placing, Layout (right): eighteen rows with the headings, more
+## than one column holds above the footer (ten), so two columns as Graphics'
+func _touch_rows() -> Array:
+	var left := [
+		_section("GESTURES"),
+		_extra_choice("OpenBFMETouchDrag", "One finger drag", TOUCH_DRAG_ITEMS, HELP.OpenBFMETouchDrag), # lane IOS-35
+		_extra_check("OpenBFMETouchListScroll", "Scroll lists", HELP.OpenBFMETouchListScroll), # lane IOS-10
+		_section("BUTTONS"),
+		_extra_choice("OpenBFMETouchButtonTaps", "Button taps", BUTTON_TAPS_ITEMS, HELP.OpenBFMETouchButtonTaps), # lane IOS-40
+		_extra_choice("OpenBFMETouchHoldButton", "Hold a button", HOLD_ITEMS, HELP.OpenBFMETouchHoldButton), # lane IOS-21
+		_extra_check("OpenBFMETouchAutocastTap", "Autocast tap", HELP.OpenBFMETouchAutocastTap), # lanes IOS-21, IOS-40
+		_extra_check("OpenBFMETouchTapAssist", "Tap assist", HELP.OpenBFMETouchTapAssist), # lane IOS-10
+	]
+	var right := [
+		_section("PLACING"),
+		_extra_choice("OpenBFMETouchPlacement", "Place buildings", PLACEMENT_ITEMS, HELP.OpenBFMETouchPlacement), # lanes IOS-23, IOS-26
+		_extra_check("OpenBFMETouchGhostAbove", "Above the finger", HELP.OpenBFMETouchGhostAbove), # lane IOS-23
+		_extra_choice("OpenBFMETouchPlaceTwist", "Two-finger twist", TWIST_ITEMS, HELP.OpenBFMETouchPlaceTwist), # lane IOS-37
+		_extra_check("OpenBFMETouchDeselectBuilders", "Deselect builders", HELP.OpenBFMETouchDeselectBuilders), # lane IOS-36
+		_section("LAYOUT"),
+		_extra_check("OpenBFMETouchToolbar", "Command toolbar", HELP.OpenBFMETouchToolbar), # lane IOS-37
+		_hud_size_row(), # lane IOS-18
+		_extra_choice("OpenBFMETouchSideBar", "Side bar", SIDE_BAR_ITEMS, HELP.OpenBFMETouchSideBar), # lane IOS-27 / IOS-42 (landscape)
+		_extra_choice("OpenBFMEPortraitLayout", "Portrait layout", PORTRAIT_ITEMS, HELP.OpenBFMEPortraitLayout), # lane IOS-38
+	]
+	for r in right:
 		r["column"] = 1
-		rows.append(r)
-	return rows
+	return left + right
 
 
-## lane IOS-35: "One finger drag" (OpenBFMETouchDrag) where the touch controls are on (game_options.gd touch_available); null elsewhere (_present drops it)
-func _touch_drag_row():
-	if not game_options.touch_available():
-		return null
-	return _extra_choice("OpenBFMETouchDrag", "One finger drag", TOUCH_DRAG_ITEMS, HELP.OpenBFMETouchDrag)
-
-
-## lane IOS-40 / IOS-37: "Button taps" (OpenBFMETouchButtonTaps) and "Command toolbar" (OpenBFMETouchToolbar) where the touch controls are on; null elsewhere
-func _touch_row(key: String):
-	if not game_options.touch_available():
-		return null
-	if key == "OpenBFMETouchButtonTaps":
-		return _extra_choice(key, "Button taps", BUTTON_TAPS_ITEMS, HELP[key])
-	return _extra_check(key, "Command toolbar", HELP[key])
+## lane IOS-42: a heading inside the panel (OpenBFMEOptionsPage's Section row: its label only, no key, no gadget)
+static func _section(label: String) -> Dictionary:
+	return {"kind": "section", "label": label}
 
 
 ## lane IOS-18: OpenBFMEHudScale (game_options.gd EXTRAS: "100" .. "150") on a slider of HUD_STEP-percent steps

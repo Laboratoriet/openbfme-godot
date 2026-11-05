@@ -34,7 +34,7 @@ const REQUIRED_ROWS := {
 		"Retail.MovieVolume", "Retail.MusicVolume", "Retail.SoundFxVolume", "Retail.VoiceVolume"],
 	"Camera": ["OpenBFMEConfineMouse", "OpenBFMEEdgeScroll", "OpenBFMEFreeCamera", "OpenBFMEIntroMovies", "OpenBFMEInvertDragScroll", "OpenBFMEMaxZoomOut",
 		"OpenBFMERotateSpeed", "Retail.ScrollSpeed"], # lane IOS-16 put the intro movies' row on this tab
-	"Interface": ["AlternateMouseSetup", "OpenBFMECrashReports", "OpenBFMEGameClock", "OpenBFMEHealthBars", "OpenBFMEHudScale", "OpenBFMEMainMenuStyle", "OpenBFMEPingKey", "OpenBFMEPingWheel", "OpenBFMEUIScale", "Retail.HealthBars"],
+	"Interface": ["AlternateMouseSetup", "OpenBFMECrashReports", "OpenBFMEGameClock", "OpenBFMEHealthBars", "OpenBFMEMainMenuStyle", "OpenBFMEPingKey", "OpenBFMEPingWheel", "OpenBFMEUIScale", "Retail.HealthBars"],
 	"Online": ["OpenBFMEShareResults", "OpenBFMEShowPing", "Retail.OnlineIp", "Retail.OnlinePortNum", "Retail.RefreshNat", "Retail.SendDelay",
 		"Social.challenges", "Social.hidden", "Social.invites", "Social.presence", "Social.requests"], # ONLINEMENU-1: who may ask, invite, challenge, see you
 	"Performance": ["OpenBFMEUberPerformance"],
@@ -42,8 +42,13 @@ const REQUIRED_ROWS := {
 }
 ## lane IOS-20: rows a tab shows on iOS only (the extension's IOSAudioSession class exists there only; game_options.gd ios_audio_available)
 const REQUIRED_ROWS_IOS := {"Audio": ["OpenBFMEIOSSilentSound"]}
-## lane IOS-35: rows a tab shows only where the touch controls are on (a phone or tablet, or --touch; game_options.gd touch_available)
-const REQUIRED_ROWS_TOUCH := {"Interface": ["OpenBFMETouchDrag"]}
+## lane IOS-35: rows a tab shows only where the touch controls are on (a phone or tablet, or --touch; game_options.gd touch_available). Lane IOS-42: they
+## are the Touch tab's (shown there only, after Interface), the HUD size with them; elsewhere the HUD size stays on Interface
+const TOUCH_TAB := "Touch"
+const REQUIRED_ROWS_TOUCH := {"Touch": ["OpenBFMEHudScale", "OpenBFMEPortraitLayout", "OpenBFMETouchAutocastTap", "OpenBFMETouchButtonTaps",
+	"OpenBFMETouchDeselectBuilders", "OpenBFMETouchDrag", "OpenBFMETouchGhostAbove", "OpenBFMETouchHoldButton", "OpenBFMETouchListScroll",
+	"OpenBFMETouchPlaceTwist", "OpenBFMETouchPlacement", "OpenBFMETouchSideBar", "OpenBFMETouchTapAssist", "OpenBFMETouchToolbar"]}
+const REQUIRED_ROWS_NOT_TOUCH := {"Interface": ["OpenBFMEHudScale"]}
 ## lane IOS-24: the tab a desktop shows last (prepare_mobile_tab.gd: the game file for the iPhone / iPad) and its rows before a file is made
 const DESKTOP_TAB := "iPhone / iPad"
 const DESKTOP_ROWS := ["Prepare.action", "Prepare.file", "Prepare.folders", "Prepare.state"]
@@ -639,12 +644,17 @@ func rest_window() -> Vector2:
 	return shell.stage_to_window(Vector2(512, 200))
 
 
+## lane IOS-35 / IOS-42: the touch controls are on (game_options.gd touch_available's rule)
+static func _touch() -> bool:
+	return OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
+
+
 func settings_hits() -> void:
 	for tab in screen.tabs():
 		await click_tab_named(tab)
 		var rows: Dictionary = page().get("rows", {})
 		var tab_rows: Array = REQUIRED_ROWS.get(tab, []) + (REQUIRED_ROWS_IOS.get(tab, []) if ClassDB.class_exists("IOSAudioSession") else []) \
-			+ (REQUIRED_ROWS_TOUCH.get(tab, []) if OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch") else [])
+			+ (REQUIRED_ROWS_TOUCH.get(tab, []) if _touch() else REQUIRED_ROWS_NOT_TOUCH.get(tab, []))
 		if tab == DESKTOP_TAB:
 			tab_rows = DESKTOP_ROWS
 		elif tab == MODS_TAB:
@@ -698,7 +708,8 @@ func settings_hits() -> void:
 			check("%s: every row is greyed here (%d), nothing to press" % [tab, greyed], true, "")
 		else:
 			check("%s at %s: %d controls react just inside their drawn shape and not just outside" % [tab, size_tag, n], n > 0 and bad.is_empty(), "; ".join(bad))
-	var required_tabs: Array = REQUIRED_TABS + [MODS_TAB] + ([DESKTOP_TAB] if not OS.has_feature("mobile") else [])
+	# lane IOS-42: Touch after Interface where the touch controls are on, and then no "iPhone / iPad" tab (the tab bar holds ten)
+	var required_tabs: Array = REQUIRED_TABS + [MODS_TAB] + ([TOUCH_TAB] if _touch() else []) + ([DESKTOP_TAB] if not OS.has_feature("mobile") and not _touch() else [])
 	check_inventory("the tab bar", required(required_tabs), shown(Array(screen.tabs())))
 	check("the page offers a tab bar box for each of the %d required tabs" % required_tabs.size(), page().get("tabs", []).size() == required_tabs.size(), str(page().get("tabs", []).size()))
 	check_inventory("the bottom bar", required(REQUIRED_BAR), shown(page().get("buttons", {}).keys()))

@@ -76,10 +76,29 @@ const EXTRAS := {
 	# lane IOS-37 (the owner's decision 2026-11-05: a top-edge strip, after daisyhasacat/openbfme-godot's classic-HUD touch toolbar): touch only: the
 	# command toolbar along the top edge (scripts/touch/command_toolbar.gd)
 	"OpenBFMETouchToolbar": {"default": "yes", "choices": ["yes", "no"]},
-	# lane IOS-38 (a PROTOTYPE for the owner's choice, a developer switch: no Options row): the portrait layout to try in a portrait window, "default"
-	# today's (IOS-3 / 18 / 27), "a" More map, "b" One hand, "c" Split (engine/src/GameClient/GUI/PortraitLayout.h); game.gd's --portrait-layout wins
+	# lane IOS-38 (a PROTOTYPE for the owner's choice): the portrait layout to try in a portrait window, "default" today's (IOS-3 / 18 / 27), "a" More
+	# map, "b" One hand, "c" Split (engine/src/GameClient/GUI/PortraitLayout.h); game.gd's --portrait-layout wins. Lane IOS-42: a row of the Touch tab;
+	# A on a phone or tablet (MOBILE_DEFAULTS: the owner's pick, 2026-11-05)
 	"OpenBFMEPortraitLayout": {"default": "default", "choices": ["default", "a", "b", "c"]},
+	# lane IOS-42 (the owner, 2026-11-05: "toggle on/off and check what works best"): touch only (touch_available), the Touch tab's switches for the touch
+	# behaviours that had none. Each default is today's behaviour; scripts/touch/touch_controls.gd apply_options reads them, live
+	"OpenBFMETouchListScroll": {"default": "yes", "choices": ["yes", "no"]},     # IOS-10: a drag on a menu list scrolls it
+	"OpenBFMETouchTapAssist": {"default": "yes", "choices": ["yes", "no"]},      # IOS-10: a tap just beside a button presses it
+	"OpenBFMETouchHoldButton": {"default": "info", "choices": ["info", "right"]}, # IOS-21: a hold on a HUD button shows its help; "right": IOS-2's right click
+	"OpenBFMETouchAutocastTap": {"default": "yes", "choices": ["yes", "no"]},    # IOS-21 / IOS-40: a quick double tap on an autocast ability toggles it
+	# IOS-26's ✓ / ✕ ("confirm"), IOS-23's lift ("lift"), or the mouse's click as retail places ("tap")
+	"OpenBFMETouchPlacement": {"default": "confirm", "choices": ["confirm", "lift", "tap"]},
+	"OpenBFMETouchGhostAbove": {"default": "yes", "choices": ["yes", "no"]},     # IOS-23: a placement's ghost 60 pt above the finger
+	"OpenBFMETouchPlaceTwist": {"default": "building", "choices": ["building", "camera"]}, # IOS-37: the twist while ✓ / ✕ wait
+	"OpenBFMETouchDeselectBuilders": {"default": "yes", "choices": ["yes", "no"]}, # IOS-36: an accepted placement deselects the builders
+	# the landscape side bar: "two" IOS-27's block of one or two columns above 100 %; "one" the retail column at the HUD size (the owner's choice for a
+	# phone, MOBILE_DEFAULTS). Reaches the HUD (view_options side_bar_one_column), live
+	"OpenBFMETouchSideBar": {"default": "two", "choices": ["one", "two"]},
 }
+## lane IOS-42: the Touch tab's keys that touch_controls.gd apply_options reads (the HUD size and the portrait layout reach the HUD, view_options)
+const TOUCH_KEYS := ["OpenBFMETouchDrag", "OpenBFMETouchListScroll", "OpenBFMETouchTapAssist", "OpenBFMETouchButtonTaps", "OpenBFMETouchHoldButton",
+	"OpenBFMETouchAutocastTap", "OpenBFMETouchPlacement", "OpenBFMETouchGhostAbove", "OpenBFMETouchPlaceTwist", "OpenBFMETouchDeselectBuilders",
+	"OpenBFMETouchToolbar"]
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
 	# the Scroll Speed slider: any text (RW 0x6E59A9: atoi, below 0 -> 1, above 100 -> 100, * 0.02); "" = no entry, GlobalData + 0xAFC's default (the
@@ -96,7 +115,9 @@ const RETAIL_KEYS := {
 ## change: the scale does not reach the Palantir, its buttons or the side bar (they follow the stage mapping, AptPalantir::setViewportSize).
 ## lane IOS-18 (the owner's decision 2026-11-03: a HUD size setting, about 1.25x on a phone): OpenBFMEHudScale 125 is that touch-target change, the
 ## Palantir and the side bar grown about their corners inside the safe area (the side bar, nearly the screen's height in landscape, by about 10 %)
-const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150", "OpenBFMEIntroMovies": "no", "OpenBFMEHudScale": "125"} # lane IOS-16: a phone starts at the menu
+## lane IOS-42 (the owner's decisions, 2026-11-05): a phone's HUD size is 100 % again (retail's Palantir, the round-HUD rule; 105 .. 150 % stay
+## choices), its landscape side bar the retail column (OpenBFMETouchSideBar one) and its portrait layout A "More map"
+const MOBILE_DEFAULTS := {"OpenBFMEUIScale": "150", "OpenBFMEIntroMovies": "no", "OpenBFMETouchSideBar": "one", "OpenBFMEPortraitLayout": "a"} # lane IOS-16: a phone starts at the menu
 ## lane IOS-20: the extension's class that sets the iOS audio session (engine/src/GodotDevice/IOSAudioSessionBridge.mm); it exists in iOS builds only
 const IOS_AUDIO_CLASS := "IOSAudioSession"
 const AA_LABELS := {"off": "Off", "fxaa": "FXAA", "msaa2": "MSAA 2x", "msaa4": "MSAA 4x", "taa": "TAA"}
@@ -308,16 +329,10 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 		_apply_ios_audio(values.OpenBFMEIOSSilentSound)
 		done.append("sound in silent mode " + values.OpenBFMEIOSSilentSound)
 	var touch := get_node_or_null("/root/TouchControls") if is_inside_tree() else null
-	if touch != null and touch.has_method("set_drag_mode"):
-		touch.set_drag_mode(values.OpenBFMETouchDrag) # lane IOS-35 (inert without touch: the touch layer is off)
-		if touch.has_method("set_button_taps"):
-			touch.set_button_taps(values.OpenBFMETouchButtonTaps) # lane IOS-40
-		if touch.has_method("set_toolbar"):
-			touch.set_toolbar(values.OpenBFMETouchToolbar == "yes") # lane IOS-37
+	if touch != null and touch.has_method("apply_options"):
+		touch.apply_options(values) # lanes IOS-35, IOS-37, IOS-40, IOS-42 (inert without touch: the touch layer is off)
 		if touch_available():
-			done.append("one finger drag " + values.OpenBFMETouchDrag)
-			done.append("button taps " + values.OpenBFMETouchButtonTaps)
-			done.append("command toolbar " + values.OpenBFMETouchToolbar)
+			done.append("touch " + ", ".join(TOUCH_KEYS.map(func(k): return "%s %s" % [k.trim_prefix("OpenBFMETouch"), values.get(k, default_of(k))])))
 	apply_brightness()
 	apply_detail()
 	if _hud != null:
@@ -456,6 +471,7 @@ func view_options(values: Dictionary) -> Dictionary:
 		"zoom_out_factor": _zoom_out_factor(values),
 		"widescreen_wider": _widescreen_wider(values),
 		"portrait_layout": _portrait_layout(values), # lane IOS-38 (prototype)
+		"side_bar_one_column": str(values.get("OpenBFMETouchSideBar", default_of("OpenBFMETouchSideBar"))) == "one", # lane IOS-42
 		"point_px": DisplayServer.screen_get_scale() if OS.has_feature("mobile") else 0.0, # lane IOS-38: 0 = the engine's stand-in value (1.5)
 	}
 
@@ -465,7 +481,7 @@ func _portrait_layout(values: Dictionary) -> String:
 	var flag = game.get("_portrait_layout_flag") if game != null else null
 	if flag != null and not str(flag).is_empty():
 		return str(flag)
-	return str(values.get("OpenBFMEPortraitLayout", "default"))
+	return str(values.get("OpenBFMEPortraitLayout", default_of("OpenBFMEPortraitLayout")))
 
 
 ## lane UI-6: the Widescreen view in effect: game.gd's --widescreen=original|wider for a run, else Options.ini OpenBFMEWidescreen

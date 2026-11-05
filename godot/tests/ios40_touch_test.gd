@@ -3,7 +3,8 @@
 ##    (one left press) and it stays armed, so a third is one more use; a tap elsewhere disarms and goes on as its own tap; the arm runs out after ARM_MS; a quick (non-costing) button presses
 ##    at once; a tap on another costing button moves the arm there; the same button holding another command arms again; a hold on the armed button is
 ##    IOS-21's preview and presses nothing; a drag disarms;
-##  * an autocast ability: a quick double tap toggles its autocast (the right press only), "tap, read, tap" uses it (the left press only);
+##  * an autocast ability: a quick double tap toggles its autocast (the right press only), "tap, read, tap" uses it (the left press only); with
+##    lane IOS-42's "Autocast tap" off (OpenBFMETouchAutocastTap = no) the quick double tap arms and uses it;
 ##  * "all" previews the quick button too; "act" presses a costing button on the first tap.
 ## The game's own check is the touch self-test (touch_selftest.gd _preview_check: the builder's real build button); the engine's the unit tests "ios40".
 ##
@@ -203,6 +204,17 @@ func _run() -> int:
 	await _wait(0.3)
 	_check(_presses() == [[MOUSE_BUTTON_LEFT, a]], "tap, read, tap uses the ability: %s" % [_rec.presses])
 	_controls._disarm()
+	_reset()
+	# lane IOS-42: Options > Touch > "Autocast tap" off: a quick double tap on the armed ability is a use, never the toggle
+	_controls.apply_options({"OpenBFMETouchAutocastTap": "no"})
+	await _tap(a)
+	await _wait(0.1)
+	await _tap(a)
+	await _wait(0.25)
+	_check(_presses() == [[MOUSE_BUTTON_LEFT, a]] and int(_controls.stats.autocast_taps) == 1, "IOS-42 Autocast tap off: a quick double tap arms, then uses: %s" % [_rec.presses])
+	_controls._disarm()
+	_controls.apply_options({})
+	_check(_controls.autocast_double_tap, "IOS-42: the key absent is the default (on)")
 	_reset()
 
 	# 10. "all": the quick button too; "act": the costing button at once

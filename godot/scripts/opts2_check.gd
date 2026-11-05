@@ -88,6 +88,7 @@ func run(p_game: Node, p_shots: String) -> int:
 		_text_colours_check(tab)
 		await _green_pixels_check(tab)
 	await _mods_tab_check(root) # lane IOS-28
+	await _touch_tab_check(root) # lane IOS-42
 	await click_tab("Controls") # lane IOS-24: the walk above ends on the desktop's "iPhone / iPad" tab
 	await game._step(8)
 	check("the Controls tab lists the CommandMap's hot keys (%d) in a list box" % screen.hotkey_count(), screen.hotkey_count() >= 20 and page().has("list"),
@@ -400,6 +401,57 @@ func _mods_tab_check(root: Window) -> void:
 	await game._step(10)
 	check("Mods: clicked again, it is off and the state is back (%s)" % state_before, not screen._mods.changed() and
 		str(screen.row("Mods.state").value_text) == state_before, str(screen.row("Mods.state")))
+
+
+## lane IOS-42: the Touch tab, where the touch controls are on (a phone, a tablet or --touch; else it must not be there). Every switch row is there and
+## its help line shows under the pointer and fits the panel: at most three lines at the help's wrap width (OpenBFMEOptionsPage: Albertus MT 14 from
+## kLabelLeft to kGadgetRight; three lines end above the panel's bottom), measured with the shell's own font metrics. Pictures of the longest
+## (opts2-touch-help-<key>-<w>x<h>.png). A switch changed through its gadget reaches the touch layer at once (TouchControls.switches)
+const TOUCH_HELP_WRAP := 578.0 # stage pixels: OpenBFMEOptionsPage::kGadgetRight - kLabelLeft
+func _touch_tab_check(root: Window) -> void:
+	var touch := OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
+	check("the Touch tab is shown exactly where the touch controls are on (%s)" % touch, screen.tabs().has("Touch") == touch, str(screen.tabs()))
+	if not touch:
+		return
+	await click_tab("Touch")
+	await game._step(6)
+	var rows: Dictionary = page().get("rows", {})
+	var bad := PackedStringArray()
+	var widest := []
+	for key in rows:
+		var r: Dictionary = rows[key]
+		if not r.has("label_rect"):
+			continue
+		game._mouse_event((r.label_rect as Rect2).get_center(), false, false)
+		await game._step(3)
+		var help := str(page().get("help", ""))
+		var w := float(shell.font_metrics("Albertus MT", 14, false, help).width)
+		if help.is_empty() or help != str(r.help):
+			bad.append("%s: the help line under the pointer is '%s'" % [key, help])
+		elif w > TOUCH_HELP_WRAP * 3.0 * 0.92: # word wrapping leaves a line short: 8 % slack
+			bad.append("%s: its help is %.0f px, more than three lines of %.0f" % [key, w, TOUCH_HELP_WRAP])
+		widest.append([w, key])
+	check("Touch: every row's help line shows under the pointer and fits three lines", bad.is_empty() and widest.size() >= 14, "; ".join(bad))
+	widest.sort()
+	widest.reverse()
+	for i in mini(3, widest.size()):
+		var key: String = widest[i][1]
+		print("OPTS2 Touch help %s: %.0f px" % [key, widest[i][0]])
+		game._mouse_event((rows[key].label_rect as Rect2).get_center(), false, false)
+		await game._step(4)
+		await shot("opts2-touch-help-%s-%dx%d" % [key.replace("OpenBFMETouch", "").replace("OpenBFME", "").to_lower(), root.size.x, root.size.y])
+	var touch_layer := root.get_node_or_null("TouchControls")
+	if touch_layer != null and touch_layer.has_method("switches"):
+		await select("OpenBFMETouchPlacement", 1) # When you lift
+		await click_row("OpenBFMETouchGhostAbove")
+		var sw: Dictionary = touch_layer.switches()
+		check("Touch: a switch reaches the touch layer at once (placement lift, ghost under the finger)", sw.get("placement") == "lift" and sw.get("ghost_above") == false, str(sw))
+		await select("OpenBFMETouchPlacement", 0)
+		await click_row("OpenBFMETouchGhostAbove")
+		sw = touch_layer.switches()
+		check("Touch: and back (confirm, above the finger)", sw.get("placement") == "confirm" and sw.get("ghost_above") == true, str(sw))
+	else:
+		check("Touch: the touch layer is there (/root/TouchControls)", false, "")
 
 
 ## a choice / slider value through the gadget, the messages a click on it sends (the drop-down's geometry is the gadget layer's)

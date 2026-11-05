@@ -3,6 +3,11 @@
 ##  * two taps on an autocast ability are its right press (the autocast toggle) and nothing else, also when the second finger stays down past the window;
 ##  * one tap on an autocast ability presses it once the double tap's window has passed; a finger elsewhere presses it at once;
 ##  * two taps on any other button stay two left presses (the second a double click: a radial bubble queues two units).
+## Lane IOS-42, the Touch tab's switches (apply_options with Options.ini's keys), each away from today's behaviour:
+##  * "Hold a button" Right-click: a hold on a HUD button is the right click while held, no help;
+##  * "Autocast tap" off: a tap on an autocast ability presses at once (no wait), a double tap is two presses;
+##  * "Tap assist" (on: a tap just beside a button presses the button's centre; off: the tap's own point; --no-tap-assist wins over the option);
+##  * "Scroll lists" (on: a drag on a menu's list scrolls it with wheel notches; off: the mouse's press-drag; --no-list-scroll wins).
 ## The game's own check is the touch self-test (touch_selftest.gd: a real side bar button and the portrait); the engine's is the unit test "ios21 retail".
 ##
 ##   godot --headless --path godot --script res://tests/ios21_touch_test.gd
@@ -15,6 +20,7 @@ const TouchControls := preload("res://scripts/touch/touch_controls.gd")
 const AUTOCAST := Rect2(100, 100, 50, 50)  # an ability whose right press toggles its autocast
 const BUTTON := Rect2(300, 100, 50, 50)    # any other HUD button (a bubble, a build button)
 const WORLD := Vector2(600, 400)
+const NEAR := Vector2(354, 130)            # lane IOS-42: just right of BUTTON, inside the tap assist's reach (ASSIST_PT at 1 px per point)
 
 
 ## InGameHudNode's calls the touch layer makes, answered from the two rects
@@ -30,7 +36,9 @@ class StubHud:
 			return {"kind": "radial", "target": "", "autocast": false}
 		return {"kind": "", "target": "", "autocast": false}
 
-	func nearest_button(p: Vector2, _radius: float) -> Dictionary:
+	func nearest_button(p: Vector2, radius: float) -> Dictionary:
+		if not BUTTON.has_point(p) and BUTTON.grow(radius).has_point(p):
+			return {"snapped": true, "position": BUTTON.get_center(), "reason": "near", "target": "bubble", "distance": 4.0, "runner_up": -1.0}
 		return {"snapped": false, "position": p, "reason": "hit" if AUTOCAST.has_point(p) or BUTTON.has_point(p) else "far", "target": ""}
 
 	func hold_help(on: bool) -> void:
@@ -44,6 +52,20 @@ class StubHud:
 
 	func set_view_options(_options: Dictionary) -> void:
 		pass
+
+
+## lane IOS-42: the shell's menus with a list under every point (AptMenuPlayer's calls the list scrolling makes)
+class StubMenus:
+	extends Node
+
+	func scroll_list_at(_p: Vector2) -> Dictionary:
+		return {"found": true, "row_height": 20}
+
+	func modal_menu() -> bool:
+		return true
+
+	func window_to_stage(p: Vector2) -> Vector2:
+		return p
 
 
 ## the mouse presses the touch layer makes (button, position, double click)
@@ -180,6 +202,77 @@ func _run() -> int:
 	await _wait(0.6)
 	_check(_buttons() == [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_LEFT] and _rec.presses.size() == 2 and not _rec.presses[0][2] and _rec.presses[1][2],
 		"a double tap on another button stays two presses, the second a double click: %s" % [_rec.presses])
+	await _wait(0.5)
+
+	# ---- lane IOS-42: the Touch tab's switches -----------------------------------------------------------------------------------------------------
+	_controls.apply_options({"OpenBFMETouchHoldButton": "right"})
+	var sw: Dictionary = _controls.switches()
+	_check(sw.hold == "right" and sw.tap_assist and sw.list_scroll and sw.autocast_double_tap and sw.placement == "confirm" and sw.ghost_above
+		and sw.twist == "building" and sw.deselect_builders, "IOS-42: Hold a button = right; every key the values lack keeps its default: %s" % [sw])
+	_hud.held.clear()
+	_rec.presses.clear()
+	_down(b)
+	await _wait(0.6)
+	_check(_buttons() == [MOUSE_BUTTON_RIGHT] and Vector2(_rec.presses[0][1]) == b and _hud.held.is_empty(),
+		"IOS-42 Right-click: a hold on a HUD button is the right click there while held, no help: %s %s" % [_rec.presses, _hud.held])
+	_up(b)
+	await _wait(0.5)
+	_check(_buttons() == [MOUSE_BUTTON_RIGHT], "IOS-42 Right-click: lifting adds nothing: %s" % [_rec.presses])
+
+	_controls.apply_options({"OpenBFMETouchAutocastTap": "no"})
+	_check(_controls.hold_shows_info, "IOS-42: the hold is the help again (the key absent)")
+	_rec.presses.clear()
+	await _tap(a)
+	await _wait(0.05)
+	_check(_buttons() == [MOUSE_BUTTON_LEFT], "IOS-42 Autocast tap off: a tap on an autocast ability presses at once: %s" % [_rec.presses])
+	await _wait(0.05)
+	await _tap(a)
+	await _wait(0.5)
+	_check(_buttons() == [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_LEFT], "IOS-42 Autocast tap off: a double tap is two presses, no toggle: %s" % [_rec.presses])
+	_controls.apply_options({})
+	await _wait(0.5)
+
+	# the tap assist: on, a tap just beside the button presses its centre; off, the tap's own point
+	_rec.presses.clear()
+	await _tap(NEAR)
+	await _wait(0.1)
+	_check(_rec.presses.size() == 1 and Vector2(_rec.presses[0][1]) == b and int(_controls.stats.assisted_taps) == 1,
+		"IOS-42 Tap assist on (the default): a tap at %s presses the button's centre %s: %s" % [NEAR, b, _rec.presses])
+	await _wait(0.5)
+	_controls.apply_options({"OpenBFMETouchTapAssist": "no"})
+	_rec.presses.clear()
+	await _tap(NEAR)
+	await _wait(0.1)
+	_check(_rec.presses.size() == 1 and Vector2(_rec.presses[0][1]) == NEAR and int(_controls.stats.assisted_taps) == 1,
+		"IOS-42 Tap assist off: the tap presses its own point: %s" % [_rec.presses])
+	_controls._no_tap_assist_flag = true
+	_controls.apply_options({"OpenBFMETouchTapAssist": "yes"})
+	_check(not _controls.tap_assist, "IOS-42: --no-tap-assist wins over the option")
+	_controls._no_tap_assist_flag = false
+	_controls.apply_options({})
+	await _wait(0.5)
+
+	# list scrolling: on, a drag on a menu's list is wheel notches (no press); off, the mouse's press-drag
+	var menus := StubMenus.new()
+	root.add_child(menus)
+	_controls._menus = menus
+	_rec.presses.clear()
+	await _drag(WORLD, WORLD + Vector2(0, -70))
+	_check(int(_controls.stats.list_scrolls) == 1 and _buttons().filter(func(x): return x == MOUSE_BUTTON_LEFT).is_empty()
+		and _buttons().has(MOUSE_BUTTON_WHEEL_DOWN), "IOS-42 Scroll lists on (the default): the drag scrolls the list: %s" % [_rec.presses])
+	await _wait(0.3)
+	_controls.apply_options({"OpenBFMETouchListScroll": "no"})
+	_rec.presses.clear()
+	await _drag(WORLD, WORLD + Vector2(0, -70))
+	_check(int(_controls.stats.list_scrolls) == 1 and _buttons() == [MOUSE_BUTTON_LEFT] and Vector2(_rec.presses[0][1]) == WORLD,
+		"IOS-42 Scroll lists off: the drag is the mouse's press-drag: %s" % [_rec.presses])
+	_controls._no_list_scroll_flag = true
+	_controls.apply_options({"OpenBFMETouchListScroll": "yes"})
+	_check(not _controls.list_scroll, "IOS-42: --no-list-scroll wins over the option")
+	_controls._no_list_scroll_flag = false
+	_controls.apply_options({})
+	_controls._menus = null
+	menus.queue_free()
 	return 0 if _failures == 0 else 1
 
 
@@ -208,6 +301,17 @@ func _move(at: Vector2) -> void:
 	d.index = 0
 	d.position = at
 	_controls._drag(d)
+
+
+## one finger from `from` to `to` in 6 moves, then lifted
+func _drag(from: Vector2, to: Vector2) -> void:
+	_down(from)
+	await process_frame
+	for i in range(1, 7):
+		_move(from.lerp(to, i / 6.0))
+		await process_frame
+	_up(to)
+	await process_frame
 
 
 func _tap(at: Vector2) -> void:

@@ -13,6 +13,12 @@
 ##  * without a placement a one-finger drag is still the selection box (the left press at the drag's start);
 ##  * IOS-36 (after daisyhasacat/openbfme-godot facef81b): an accepted ✓ (the placement ends, the HUD's "builds" count went up) asks the HUD to deselect
 ##    the builders once; a refused ✓ and ✕ ask nothing; with deselect_builders_after_build off an accepted ✓ asks nothing.
+## Lane IOS-42, the Touch tab's Placing switches (apply_options), each away from today's behaviour:
+##  * "Above the finger" off: the ghost under the finger (a drag and its lift's ✓ / ✕ there);
+##  * "Place buildings" When you lift (IOS-23 as it was): a drag's lift is one left click at the ghost (placed, no ✓ / ✕), a tap one under the finger, a
+##    lift with the ghost on the HUD clicks nothing; the accepted placement deselects the builders (not with "Deselect builders" off);
+##  * "Place buildings" On tap: no ghost offset and no ✓ / ✕: a tap is the left click (placed, the builders deselected), a drag the left press at its
+##    start and the release at its end (retail's press, turn, release).
 ## The game's own check is the touch self-test (touch_selftest.gd: a real building and a wall span, built by ✓).
 ##
 ##   godot --headless --path godot --script res://tests/ios23_touch_test.gd
@@ -444,6 +450,77 @@ func _run() -> int:
 	_check(_rec.buttons == _click_at(MOUSE_BUTTON_LEFT, t + Vector2(100, 0)) and _hud.placed == 3 and not _state().shown,
 		"a mouse click places at once, no ✓ / ✕: %s" % [_rec.buttons])
 	_check(_hud.deselects == 1 and int(_controls.stats.builder_deselects) == 1, "IOS-36: a mouse's placement keeps the selection")
+
+	# ---- lane IOS-42: the Placing switches ---------------------------------------------------------------------------------------------------------
+	_controls._mouse = false
+	_hud.legal = 0
+	_hud.line = false
+	# Above the finger off: the ghost under the finger
+	_controls.apply_options({"OpenBFMETouchGhostAbove": "no"})
+	_hud.placing = true
+	_rec.buttons.clear()
+	_down(f)
+	await process_frame
+	_check(_rec.pointer == f, "IOS-42 Above the finger off: the ghost under the finger %s: %s" % [f, _rec.pointer])
+	await _drag_to(f, g)
+	_up(g)
+	await _wait(0.2)
+	_check(_rec.buttons.is_empty() and _state().shown and _state().ghost == g, "IOS-42 Above the finger off: the lift waits for ✓ / ✕ at the finger %s: %s" % [g, _state()])
+	_controls._end_confirm()
+	# When you lift: the drag's lift places at the ghost (above the finger again: the key absent)
+	_controls.apply_options({"OpenBFMETouchPlacement": "lift"})
+	var placed0 := _hud.placed
+	var desel0 := _hud.deselects
+	_rec.buttons.clear()
+	_down(f)
+	await _drag_to(f, g)
+	_up(g)
+	await _wait(0.15)
+	_check(_rec.buttons == _click_at(MOUSE_BUTTON_LEFT, g - _offset) and _hud.placed == placed0 + 1 and not _controls._confirming and not _state().shown,
+		"IOS-42 When you lift: the lift is one left click at the ghost %s, placed, no ✓ / ✕: %s" % [g - _offset, _rec.buttons])
+	_check(_hud.deselects == desel0 + 1, "IOS-42 When you lift: the accepted placement deselects the builders: %d" % (_hud.deselects - desel0))
+	# a tap places under the finger
+	_hud.placing = true
+	_rec.buttons.clear()
+	await _tap(t)
+	await _wait(0.15)
+	_check(_rec.buttons == _click_at(MOUSE_BUTTON_LEFT, t) and _hud.placed == placed0 + 2 and _hud.deselects == desel0 + 2,
+		"IOS-42 When you lift: a tap places under the finger %s: %s" % [t, _rec.buttons])
+	# the ghost lifted over the HUD: nothing clicked, the placement stays
+	_rec.buttons.clear()
+	_hud.placing = true
+	_down(under)
+	await _drag_to(under, into)
+	_up(into)
+	await _wait(0.1)
+	_check(_rec.buttons.is_empty() and _hud.placing and _hud.placed == placed0 + 2, "IOS-42 When you lift: a lift with the ghost on the HUD clicks nothing: %s" % [_rec.buttons])
+	# Deselect builders off: placed, the builders stay selected
+	_controls.apply_options({"OpenBFMETouchPlacement": "lift", "OpenBFMETouchDeselectBuilders": "no"})
+	await _tap(t)
+	await _wait(0.15)
+	_check(_hud.placed == placed0 + 3 and _hud.deselects == desel0 + 2, "IOS-42 Deselect builders off: placed, nothing deselected: %d" % (_hud.deselects - desel0))
+	# On tap: a tap is the left click where the finger is (no offset, no ✓ / ✕)
+	_controls.apply_options({"OpenBFMETouchPlacement": "tap"})
+	_hud.placing = true
+	_rec.buttons.clear()
+	_down(f)
+	await process_frame
+	_check(_rec.pointer == f, "IOS-42 On tap: no ghost offset: the pointer under the finger %s: %s" % [f, _rec.pointer])
+	_up(f)
+	await _wait(0.15)
+	_check(_rec.buttons == _click_at(MOUSE_BUTTON_LEFT, f) and _hud.placed == placed0 + 4 and not _controls._confirming and _hud.deselects == desel0 + 3,
+		"IOS-42 On tap: the tap is the left click: placed, no ✓ / ✕, the builders deselected: %s" % [_rec.buttons])
+	# a drag: the left press at its start, the release at its end (retail's press, turn, release)
+	_hud.placing = true
+	_rec.buttons.clear()
+	_down(f)
+	await _drag_to(f, g)
+	_up(g)
+	await _wait(0.15)
+	_check(_presses() == [[MOUSE_BUTTON_LEFT, f]] and _rec.buttons[-1] == [MOUSE_BUTTON_LEFT, g, false] and _hud.placed == placed0 + 5,
+		"IOS-42 On tap: a drag is the left press at %s and the release at %s: %s" % [f, g, _rec.buttons])
+	_controls.apply_options({})
+	_check(_controls.placement_mode == "confirm" and _controls.ghost_above and _controls.deselect_builders_after_build, "IOS-42: the defaults again")
 	return 0 if _failures == 0 else 1
 
 

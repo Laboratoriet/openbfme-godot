@@ -8,6 +8,8 @@
 ##  * "pan" leaves alone: a drag or a hold that starts on the HUD (a drag there is the left drag, a hold on a button its help), a placement's ghost drag
 ##    (IOS-23: the ghost moves, not the camera; the lift waits for ✓ / ✕), a drag with no game (the menus), an Apple Pencil's drag (the box: the
 ##    IOS-14 bridge's claim_pencil says it is the Pencil's).
+## Lane IOS-42: Options > Touch > "Two-finger twist": while ✓ / ✕ wait, a twist turns the building's ghost (Turns building, IOS-37's default) and not the
+## camera; with Turns camera (OpenBFMETouchPlaceTwist = camera) the camera and not the ghost.
 ## The game's own check is the touch self-test with OpenBFMETouchDrag = pan (touch_selftest.gd: the camera follows a finger, a hold-drag counts a box).
 ##
 ##   godot --headless --path godot --script res://tests/ios35_touch_test.gd
@@ -29,6 +31,15 @@ class StubHud:
 	var view := Vector2.ZERO
 	var cam := Vector2.ZERO
 	var helps := 0
+	var angle := 0.0      # lane IOS-42: the placement's angle (set_placement_angle)
+	var cam_angle := 0.0  # the camera's (camera_set_angle_pitch)
+
+	func set_placement_angle(a: float) -> bool:
+		angle = a
+		return true
+
+	func camera_set_angle_pitch(a: float, _pitch: float) -> void:
+		cam_angle = a
 
 	func on_hud(p: Vector2) -> bool:
 		return p.y >= view.y - HUD_BAND
@@ -37,7 +48,7 @@ class StubHud:
 		return {"placing": placing, "line_build": false, "world": not on_hud(p)}
 
 	func get_placement() -> Dictionary:
-		return {"placing": placing, "legal": 0}
+		return {"placing": placing, "legal": 0, "angle": angle}
 
 	func get_placement_ghost_state() -> Dictionary:
 		return {"icons": []}
@@ -68,7 +79,7 @@ class StubHud:
 		return w - cam
 
 	func get_camera() -> Dictionary:
-		return {"position": cam, "angle": 0.0, "pitch": 0.0}
+		return {"position": cam, "angle": cam_angle, "pitch": 0.0}
 
 	func camera_look_at(at: Vector2) -> void:
 		cam = at
@@ -282,7 +293,43 @@ func _run() -> int:
 	_rec.buttons.clear()
 	await _finger_drag(f, f + Vector2(120, 60))
 	_check(_controls.drag_mode == "select" and _presses() == [[MOUSE_BUTTON_LEFT, f]] and _hud.cam == cam0, "an unknown value is select: the drag is the box again: %s" % [_rec.buttons])
+	await _wait(0.4)
+
+	# ---- lane IOS-42: Two-finger twist while ✓ / ✕ wait -------------------------------------------------------------------------------------------
+	_hud.placing = true
+	await _tap(f)
+	await _wait(0.25)
+	_check(_controls._confirming, "IOS-42: a tap during a placement waits for ✓ / ✕")
+	await _twist(Vector2(view.x * 0.5, view.y * 0.35), 40.0)
+	_check(absf(_hud.angle) > deg_to_rad(20.0) and _hud.cam_angle == 0.0, "IOS-42 Turns building (the default): the twist turned the ghost %.1f deg, not the camera %.1f deg" % [
+		rad_to_deg(_hud.angle), rad_to_deg(_hud.cam_angle)])
+	_controls.apply_options({"OpenBFMETouchPlaceTwist": "camera"})
+	var turned := _hud.angle
+	await _wait(0.3)
+	await _twist(Vector2(view.x * 0.5, view.y * 0.35), 40.0)
+	_check(_controls._confirming and _hud.angle == turned and absf(_hud.cam_angle) > deg_to_rad(20.0), "IOS-42 Turns camera: the twist turned the camera %.1f deg, not the ghost" % [
+		rad_to_deg(_hud.cam_angle)])
+	_controls._end_confirm()
+	_controls.apply_options({})
+	_hud.placing = false
 	return 0 if _failures == 0 else 1
+
+
+## two fingers 200 px apart about `centre` turned together by `degrees` in 10 frames, then lifted
+func _twist(centre: Vector2, degrees: float) -> void:
+	var r := Vector2(100, 0)
+	_down(centre - r, 0)
+	_down(centre + r, 1)
+	await process_frame
+	for i in range(1, 11):
+		var turned := r.rotated(deg_to_rad(degrees) * i / 10.0)
+		_move(centre - turned, 0)
+		_move(centre + turned, 1)
+		await process_frame
+	var last := r.rotated(deg_to_rad(degrees))
+	_up(centre - last, 0)
+	_up(centre + last, 1)
+	await process_frame
 
 
 ## the presses of the recorded buttons: [button, position]
