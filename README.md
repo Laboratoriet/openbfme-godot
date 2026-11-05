@@ -208,7 +208,8 @@ and 1 for a failure. Overriding `SIM_AUDIT_ARGS=--ast=skip` only warns and
 continues, so a final 0 with that override is not proof of an AST pass. Windows builds
 can also be cross-compiled from Linux with `tools/release/build_windows.sh`;
 see [docs/WINDOWS.md](docs/WINDOWS.md). Packaging and releases are described
-in [docs/RELEASE.md](docs/RELEASE.md).
+in [docs/RELEASE.md](docs/RELEASE.md). Building for iPhone and iPad (from a Mac) is
+described in [docs/IOS.md](docs/IOS.md).
 
 MP3 decoder tests use the reference-machine fixtures (LAME 3.100, matching
 `engine/tests/data/audio/mp3_golden.tsv`). Test-enabled configuration first checks

@@ -58,6 +58,7 @@ SUBSET = [
     "tools/release/test_launcher_tools.py",
     "tools/release/test_net_guard_files.py",
     "tools/release/test_pdb_tools.py",
+    "tools/release/test_package_ios.py",
     "tools/release/test_release_tools.py",
     "tools/release/test_windows_player_walk.py",
     "tools/release/test_wine_suite.py",

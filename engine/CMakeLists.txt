@@ -701,6 +701,29 @@ if(APPLE AND "arm64" IN_LIST CMAKE_OSX_ARCHITECTURES AND "x86_64" IN_LIST CMAKE_
         COMMAND lipo "$<TARGET_FILE:openbfme>" -thin arm64 -output "${OPENBFME_GODOT_BIN}/openbfme.macos.template_debug.arm64.dylib"
         VERBATIM)
 endif()
+# iOS / iPadOS (cmake/toolchains/ios-arm64.cmake): the extension is a dynamic framework, one per SDK (device, simulator), in
+# godot/bin/ios/<sdk>/; tools/release/build_ios.sh joins them into godot/bin/openbfme.ios.xcframework, which godot/openbfme.gdextension
+# names, so Xcode picks the slice itself. Dynamic, not static: a static archive would be linked into the app beside Godot's own
+# libraries, where the extension's (Lua, Luau, ...) could collide with the engine's symbols.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(OPENBFME_IOS_SDK "iphoneos" CACHE STRING "Apple SDK: iphoneos or iphonesimulator")
+    set_target_properties(openbfme PROPERTIES
+        FRAMEWORK TRUE
+        OUTPUT_NAME "openbfme"
+        MACOSX_FRAMEWORK_IDENTIFIER "org.openbfme.engine"
+        MACOSX_FRAMEWORK_SHORT_VERSION_STRING "1.0"
+        MACOSX_FRAMEWORK_BUNDLE_VERSION "1"
+        LIBRARY_OUTPUT_DIRECTORY "$<1:${OPENBFME_GODOT_BIN}/ios/${OPENBFME_IOS_SDK}>"
+        INSTALL_NAME_DIR "@rpath")
+    # MetalFX, for Godot's Metal driver. Its MetalFX check (MTLFX::SpatialScalerDescriptor::supportsDevice in metal-cpp, an Objective-C
+    # class looked up at run time) reads false when no image in the process links MetalFX.framework, and Godot 4.7.2's iOS export links
+    # none (its system frameworks come in by auto-linking, and metal-cpp has none for MetalFX): a device then logs "MetalFX spatial
+    # upscaling is not supported" and scales the 3D view bilinear. The app loads this framework at launch, before the rendering device
+    # starts, so linking it here is enough. Device only: the simulator SDK has no MetalFX.
+    if(OPENBFME_IOS_SDK STREQUAL "iphoneos")
+        target_link_libraries(openbfme PRIVATE "-framework MetalFX")
+    endif()
+endif()
 endif()
 
 # ---- unit tests --------------------------------------------------------------------------
