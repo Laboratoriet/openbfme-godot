@@ -1,6 +1,6 @@
 ## Headless test of lane IOS-40 in the touch layer (scripts/touch/touch_controls.gd, "Button taps"), against a stand-in HUD: no game, no extension needed.
 ##  * "costs" (the touch default): a tap on a costing button shows its help (hold_help on) and arms it (the gold ring) without a press; a second tap uses it
-##    (one left press, the help off); a tap elsewhere disarms and goes on as its own tap; the arm runs out after ARM_MS; a quick (non-costing) button presses
+##    (one left press) and it stays armed, so a third is one more use; a tap elsewhere disarms and goes on as its own tap; the arm runs out after ARM_MS; a quick (non-costing) button presses
 ##    at once; a tap on another costing button moves the arm there; the same button holding another command arms again; a hold on the armed button is
 ##    IOS-21's preview and presses nothing; a drag disarms;
 ##  * an autocast ability: a quick double tap toggles its autocast (the right press only), "tap, read, tap" uses it (the left press only);
@@ -99,7 +99,7 @@ func _run() -> int:
 	_check(_controls.button_taps == "costs", "the default is \"Preview what costs\": %s" % _controls.button_taps)
 	var c := COST.get_center()
 
-	# 1. tap: the help and the ring, no press; tap again: one left press at the button, the help off, the ring gone
+	# 1. tap: the help and the ring, no press; tap again: one left press at the button, still armed; again: a second press (tap, tap, tap queues two)
 	await _tap(c)
 	await _wait(0.25)
 	var armed: Dictionary = _controls.armed_state()
@@ -109,7 +109,15 @@ func _run() -> int:
 	await _tap(c)
 	await _wait(0.3)
 	_check(_presses() == [[MOUSE_BUTTON_LEFT, c]], "the second tap presses it once: %s" % [_rec.presses])
-	_check(_hud.held == [true, false] and not _controls.armed_state().armed, "then the help is off and the arm gone: %s" % [_hud.held])
+	_check(_hud.held == [true] and _controls.armed_state().armed, "and it stays armed, its help on: %s" % [_hud.held])
+	await _tap(c)
+	await _wait(0.1)
+	await _tap(c)
+	await _wait(0.2)
+	_check(_presses() == [[MOUSE_BUTTON_LEFT, c], [MOUSE_BUTTON_LEFT, c], [MOUSE_BUTTON_LEFT, c]], "each further tap is one more use, quick ones too: %s" % [
+		_rec.presses])
+	_controls._disarm()
+	_check(_hud.held == [true, false], "disarmed: the help off: %s" % [_hud.held])
 	_reset()
 
 	# 2. tap, then a tap elsewhere: disarmed, and the other tap is its own (a left click on the world)
@@ -194,6 +202,7 @@ func _run() -> int:
 	await _tap(a)
 	await _wait(0.3)
 	_check(_presses() == [[MOUSE_BUTTON_LEFT, a]], "tap, read, tap uses the ability: %s" % [_rec.presses])
+	_controls._disarm()
 	_reset()
 
 	# 10. "all": the quick button too; "act": the costing button at once

@@ -166,6 +166,12 @@ public:
 		int radialSlot = -1;
 		bool hasRect = false;
 		float rect[4] = { 0, 0, 0, 0 };
+		// lane IOS-37 (the touch production cancel): the units of the button's template in its producer's queue (ControlBarButton::queued: a reviving hero
+		// counts 1), and whether a right press would cancel one now (an arc / side bar button whose rightPressKind is Cancel, a CANCELABLE bubble, with
+		// something queued); `away` the unit direction from the radial ring's centre to the bubble ((0, 0) for a movie button): the side its ✕ goes
+		int queued = 0;
+		bool cancel = false;
+		float away[2] = { 0, 0 };
 	};
 	TouchButton touchButtonAt(int x, int y);
 	// lane IOS-40: the command button whose Apt button path is `path` (touchButtonAt's lookup: the arc / side bar content, a spell book slot); null none

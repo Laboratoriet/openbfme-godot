@@ -439,6 +439,13 @@ TEST_CASE("ios40 retail: touchButtonAt tells each arc button's command, whether 
 		CHECK_MESSAGE(t.costs == ControlBar::pressCosts(*b.button), b.button->m_name);
 		costing += t.costs ? 1 : 0;
 		CHECK(t.radialSlot == -1);
+		// lane IOS-37: the queue and the cancel are the control bar's (nothing is queued on a hero's arc)
+		CHECK(t.queued == b.queued);
+		const bool queuedNow = b.queued != 0;
+		const bool wantCancel = queuedNow && h.hud->controlBar().rightPressKind(b.slot, true) == ControlBar::RightPress::Cancel;
+		CHECK(t.cancel == wantCancel);
+		CHECK(t.away[0] == 0.0f);
+		CHECK(t.away[1] == 0.0f);
 		REQUIRE(t.hasRect);
 		// the rectangle holds the point the finger is on, and is a button's (at most a quarter of the window)
 		// tolerance: containment is the property (the hit box's size is the movie's, not this lane's)

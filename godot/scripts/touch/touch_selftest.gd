@@ -22,7 +22,8 @@ extends Node
 ## once; "Act at once" presses on the first tap. Pictures: touch-preview-*.png. The later steps press costing buttons with two taps (_press).
 ## Lane IOS-37: the command toolbar (inside the safe area at the top, 44 pt cells, off the HUD; each button's command reaches the game as its key's
 ## meta: Select army, Deselect, Stop, Home base, Last event, a control group made by a hold and selected by a tap, the menu; a hold shows the help and
-## presses nothing; hidden under the quit menu). Pictures: touch-toolbar-*.
+## presses nothing; hidden under the quit menu); a two-finger twist turns a waiting ghost, not the camera, and ✓ builds it turned; the armed recruit
+## bubble of the fortress shows ✕ while units are queued and a tap on it takes one off. Pictures: touch-toolbar-*, touch-rotate-*, touch-cancel-*.
 
 var _out := ""
 var _controls: Node
@@ -149,8 +150,10 @@ func _run() -> void:
 	# 7. lane IOS-23: placement by finger, a building and a wall span
 	failures.append_array(await _placement_check(hud))
 	failures.append_array(await _wall_check(hud))
-	# 8. lane IOS-37: the command toolbar
+	# 8. lane IOS-37: the command toolbar, the ghost's twist, the production cancel
 	failures.append_array(await _toolbar_check(hud))
+	failures.append_array(await _cancel_check(hud))  # before the rotate step's farm spends the recruit's money
+	failures.append_array(await _rotate_check(hud))
 	if failures.is_empty():
 		print("TOUCH SELFTEST PASS")
 	else:
@@ -362,8 +365,8 @@ func _preview_check(hud: Node, side: Vector2, portrait: Vector2) -> PackedString
 		int(_controls.stats.armed_uses) - uses0])
 	if not placing:
 		out.append("IOS-40: the second tap did not press the build button (no placement)")
-	if _controls.armed_state().armed or _help(hud).get("shown", false):
-		out.append("IOS-40: the help or the arm stayed after the second tap")
+	if not _controls.armed_state().armed:
+		out.append("IOS-40: the button did not stay armed after its use (a further tap is one more use)")
 	# f. "Act at once": one tap presses (after a hold cancels this placement, and disarms); the pointer the tap leaves on it opens no help
 	await _hold(get_viewport().get_visible_rect().size * Vector2(0.5, 0.35))
 	await _wait(0.5)
@@ -568,6 +571,200 @@ func _toolbar_check(hud: Node) -> PackedStringArray:
 	hud.camera_look_at(cam_back)
 	await _wait(0.5)
 	return out
+
+
+## lane IOS-37: a twist while ✓ / ✕ wait turns the ghost (not the camera), and ✓ builds it turned
+func _rotate_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	if not hud.has_method("set_placement_angle"):
+		out.append("IOS-37: the extension has no set_placement_angle")
+		return out
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	var local := str(game.get("_local_name")) if game != null else ""
+	if world == null or await _select_builder(hud) < 0:
+		print("TOUCH SELFTEST rotate: SKIP (no builder of the local player)")
+		return out
+	var button := _build_button(hud)
+	if button.is_empty():
+		out.append("rotate: no build button")
+		return out
+	await _press(hud, button.position)
+	await _wait(0.8)
+	if not hud.get_placement().placing:
+		out.append("rotate: the build button started no placement")
+		return out
+	var size := get_viewport().get_visible_rect().size
+	var finger := size * Vector2(0.5, 0.62)
+	var ids0 := _object_ids(world, local)
+	_touch(0, finger, true)
+	await _wait(0.3)
+	for c in [finger + Vector2(-260, 20), finger + Vector2(260, 20), finger + Vector2(0, 120), finger + Vector2(-140, -120), finger + Vector2(160, -140)]:
+		await _finger_to(finger, c)
+		finger = c
+		await _wait(0.35)
+		if int(hud.get_placement().legal) == 0 and _on_world(hud, _controls.ghost_point(finger)):
+			break
+	_touch(0, finger, false)
+	await _wait(0.8)
+	var waiting := _confirm_state()
+	if not waiting.get("shown", false):
+		out.append("rotate: no ✓ / ✕ after the lift")
+		await _hold(size * Vector2(0.5, 0.35))
+		return out
+	var a0 := float(hud.get_placement().angle)
+	var cam0 := float(hud.get_camera().angle)
+	await _shot("rotate-before-" + _orient())
+	# the twist about a point beside the ghost (the fingers off ✓ / ✕), 60 degrees
+	var ghost: Vector2 = waiting.ghost
+	var centre := (ghost + Vector2(0, 150)).clamp(Vector2(160, 160), size - Vector2(160, 160))
+	await _twist(centre, 120.0, deg_to_rad(60.0))
+	await _wait(0.8)
+	var a1 := float(hud.get_placement().angle)
+	var cam1 := float(hud.get_camera().angle)
+	await _shot("rotate-after-" + _orient())
+	var turned := absf(angle_difference(a0, a1))
+	print("TOUCH SELFTEST rotate: ghost angle %.3f -> %.3f (turned %.1f degrees for a 60 degree twist), camera %.3f -> %.3f, ghost turns %d" % [a0, a1,
+		rad_to_deg(turned), cam0, cam1, int(_controls.stats.ghost_turns)])
+	# tolerance: the twist's first TWIST_START_DEG (8) only start it; the ghost turns the rest, 52 degrees, give or take the frames' rounding
+	if absf(rad_to_deg(turned) - 52.0) > 4.0:
+		out.append("rotate: the 60 degree twist turned the ghost %.1f degrees, not 52" % rad_to_deg(turned))
+	if absf(angle_difference(cam0, cam1)) > 0.001:
+		out.append("rotate: the twist turned the camera while ✓ / ✕ waited")
+	var after := _confirm_state()
+	# the turned ghost may not fit where it was: a finger moves it (the angle stays with the ghost) to the first legal spot
+	if after.get("shown", false) and not after.get("build_enabled", false):
+		var f := centre
+		_touch(0, f, true)
+		await _wait(0.3)
+		var spots: Array = []
+		for fy in [0.5, 0.65, 0.4, 0.75]:
+			for fx in [0.3, 0.5, 0.7, 0.2, 0.8]:
+				spots.append(size * Vector2(fx, fy))
+		var taken: Array = []
+		for o in world.get_player_objects(local):
+			if o.structure:
+				taken.append(Vector2(float(o.x), float(o.y)))
+		for c in spots:
+			var gp: Vector2 = _controls.ghost_point(c)
+			var ground: Vector2 = hud.pixel_to_world(gp)
+			var near := false
+			for t in taken:
+				near = near or ground.distance_to(t) < 160.0
+			if near:
+				continue  # by a building (behind the fortress the ground may be legal, but the builder cannot reach it): no spot a player picks
+			await _finger_to(f, c)
+			f = c
+			await _wait(0.35)
+			if int(hud.get_placement().legal) == 0 and _on_world(hud, gp):
+				break
+		_touch(0, f, false)
+		await _wait(0.8)
+		after = _confirm_state()
+		print("TOUCH SELFTEST rotate: the turned ghost moved to %s: angle %.3f, %s" % [after.get("ghost"), float(hud.get_placement().angle), JSON.stringify(after)])
+		if absf(angle_difference(float(hud.get_placement().angle), a1)) > 0.001:
+			out.append("rotate: moving the ghost lost its angle (%.3f -> %.3f)" % [a1, float(hud.get_placement().angle)])
+	if after.get("shown", false) and after.get("build_enabled", false):
+		var builds0 := int(hud.touch_placement_at(Vector2.ZERO).get("builds", -1))
+		await _tap(after.build)
+		await _wait(1.5)
+		print("TOUCH SELFTEST rotate: ✓ tapped at %s: construction orders %d -> %d" % [after.build, builds0, int(hud.touch_placement_at(Vector2.ZERO).get("builds", -1))])
+		await _shot("rotate-built-" + _orient())
+		var made := {}
+		for o in world.get_player_objects(local):
+			if not ids0.has(int(o.id)) and o.structure:
+				made = world.get_object(int(o.id))
+		print("TOUCH SELFTEST rotate: built %s (angle %s), placing %s" % [made.get("template", "none"), made.get("angle", "?"), hud.get_placement().placing])
+		if made.is_empty():
+			out.append("rotate: ✓ built nothing after the twist")
+		elif absf(angle_difference(float(made.get("angle", 99.0)), a1)) > 0.01:  # tolerance: the message's float angle through the logic's orientation
+			out.append("rotate: the building stands at %s, the ghost was %.3f" % [made.get("angle"), a1])
+	else:
+		print("TOUCH SELFTEST rotate: the turned ghost is not legal here (%s): cancelled" % JSON.stringify(after))
+		if after.get("shown", false):
+			await _tap(after.cancel)
+		else:
+			await _hold(size * Vector2(0.5, 0.35))
+	await _wait(0.5)
+	return out
+
+
+## lane IOS-37: the fortress's recruit bubble armed and tapped twice queues two; ✕ shows beside it and a tap on ✕ takes one off
+func _cancel_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	var local := str(game.get("_local_name")) if game != null else ""
+	if world == null:
+		print("TOUCH SELFTEST cancel: SKIP (no world)")
+		return out
+	var fort := -1
+	for o in world.get_player_objects(local):
+		if o.commandcenter:
+			fort = int(o.id)
+			hud.camera_look_at(Vector2(float(o.x), float(o.y)))
+			break
+	if fort < 0:
+		print("TOUCH SELFTEST cancel: SKIP (no fortress)")
+		return out
+	await _wait(0.6)
+	hud.select_object_with_message(fort)
+	await _wait(1.5)
+	var bubble := {}
+	for b in hud.get_hud6_state().get("radial", {}).get("buttons", []):
+		if str(b.command) == "UNIT_BUILD":
+			bubble = b
+			break
+	if bubble.is_empty():
+		print("TOUCH SELFTEST cancel: SKIP (the fortress shows no recruit bubble: %s)" % JSON.stringify(hud.get_hud6_state().get("radial", {}).get("buttons", [])))
+		return out
+	var at: Vector2 = Rect2(bubble.rect).get_center()
+	await _tap(at)
+	await _wait(0.5)
+	await _tap(at)
+	await _wait(0.3)
+	await _tap(at)
+	await _wait(1.0)
+	var touched: Dictionary = hud.touch_button_at(at)
+	var ring: Dictionary = _controls.armed_state().get("ring", {})
+	await _shot("cancel-badge-" + _orient())
+	print("TOUCH SELFTEST cancel: %s at %s: queued %d, cancel %s; the ring %s" % [bubble.name, at, int(touched.get("queued", 0)), touched.get("cancel"),
+		JSON.stringify(ring)])
+	var q0 := int(touched.get("queued", 0))
+	if q0 < 1:
+		print("TOUCH SELFTEST cancel: SKIP (nothing queued: money %s)" % str(hud.get_state().get("money", "?")))
+		_controls._disarm()
+		return out
+	if not ring.get("cancel", false):
+		out.append("cancel: no ✕ beside the armed recruit bubble with %d queued" % q0)
+		return out
+	var badge: Vector2 = ring.cancel_at
+	if hud.touch_button_at(badge).get("kind", "") != "" and _button_key_of(hud.touch_button_at(badge)) != _button_key_of(touched):
+		out.append("cancel: ✕ at %s lies on another HUD button" % badge)
+	var reach := float(ring.cancel_hit_radius)
+	if _controls._toolbar != null and Rect2(_controls._toolbar.rect()).intersects(Rect2(badge - Vector2(reach, reach), Vector2(reach, reach) * 2.0)):
+		out.append("cancel: ✕'s touch area at %s reaches onto the command toolbar" % badge)
+	await _tap(badge)
+	await _wait(1.0)
+	var q1 := int(hud.touch_button_at(at).get("queued", 0))
+	await _shot("cancel-after-" + _orient())
+	print("TOUCH SELFTEST cancel: ✕ tapped: queued %d -> %d, queue cancels %d, still armed %s" % [q0, q1, int(_controls.stats.queue_cancels),
+		_controls.armed_state().armed])
+	if q1 != q0 - 1:
+		out.append("cancel: ✕ did not take one off the queue (%d -> %d)" % [q0, q1])
+	# the rest of the queue off with the two-finger tap's right click is IOS-21's; here ✕ again until empty
+	for i in q1:
+		var r: Dictionary = _controls.armed_state().get("ring", {})
+		if not r.get("cancel", false):
+			break
+		await _tap(r.cancel_at)
+		await _wait(0.6)
+	_controls._disarm()
+	return out
+
+
+func _button_key_of(b: Dictionary) -> String:
+	return "%s:%s:%s" % [b.get("kind", ""), b.get("target", ""), b.get("slot", -1)]
 
 
 ## lane IOS-40: a press of the HUD button at `at` as the option has it: two taps on a previewed one, one on any other

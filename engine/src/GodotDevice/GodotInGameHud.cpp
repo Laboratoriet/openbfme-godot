@@ -1289,6 +1289,7 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("deselect_builders"), &InGameHudNode::deselect_builders);            // lane IOS-36
 	ClassDB::bind_method(D_METHOD("deselect_all"), &InGameHudNode::deselect_all);                      // lane IOS-37
 	ClassDB::bind_method(D_METHOD("command_hotkey", "command"), &InGameHudNode::command_hotkey);        // lane IOS-37
+	ClassDB::bind_method(D_METHOD("set_placement_angle", "angle"), &InGameHudNode::set_placement_angle); // lane IOS-37
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
 	ClassDB::bind_method(D_METHOD("world_to_radar_pixel", "world_xy"), &InGameHudNode::world_to_radar_pixel);
 	ClassDB::bind_method(D_METHOD("create_radar_event", "world_xy", "type", "jump_to"), &InGameHudNode::create_radar_event, DEFVAL(false));
@@ -4640,6 +4641,9 @@ Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
 	r["command"] = String();
 	r["slot"] = -1;
 	r["rect"] = Rect2();
+	r["queued"] = 0;
+	r["cancel"] = false;
+	r["away"] = Vector2();
 	if (!d->ready || !d->hud)
 	{
 		return r;
@@ -4655,6 +4659,9 @@ Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
 	r["command"] = b.button ? String(GUICommandName(b.button->m_command)) : String();
 	r["slot"] = b.radialSlot;
 	r["rect"] = b.hasRect ? Rect2(b.rect[0], b.rect[1], b.rect[2] - b.rect[0], b.rect[3] - b.rect[1]) : Rect2();
+	r["queued"] = b.queued; // lane IOS-37: the touch production cancel's ✕
+	r["cancel"] = b.cancel;
+	r["away"] = Vector2(b.away[0], b.away[1]);
 	return r;
 }
 
@@ -4718,6 +4725,24 @@ Dictionary InGameHudNode::command_hotkey(const String &command) const
 	return r;
 }
 
+// lane IOS-37 (GodotInGameHud.h): a touch placement's ghost turned to `angle` while it waits for ✓ / ✕ (not anchored: the ghost keeps its slot's angle from
+// frame to frame, PlaceEventTranslator::handleBuildPlacements, and ✓'s release builds with it)
+bool InGameHudNode::set_placement_angle(double angle)
+{
+	waitLogic(d.get());
+	if (!d->ready || !d->hud || !std::isfinite(angle))
+	{
+		return false;
+	}
+	const auto worldContext = d->hud->enterContext();
+	InGameUI &ui = d->hud->input().ui();
+	if (!ui.isPlacing() || !ui.placeHasGhost() || ui.isPlacementAnchored() || ui.isLineBuildStarted())
+	{
+		return false;
+	}
+	ui.setPlaceGhostPose(ui.placeLocation(), (float)angle, (float)angle);
+	return true;
+}
 
 // lane IOS-23 (GodotInGameHud.h): the touch layer's placement drag asks this as a finger comes down (and where it lifts)
 Dictionary InGameHudNode::touch_placement_at(const Vector2 &pixel)

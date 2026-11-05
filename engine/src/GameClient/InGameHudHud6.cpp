@@ -19,6 +19,7 @@
 #include "Libraries/Source/Apt/AptInput.h"
 
 #include <climits>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -621,6 +622,17 @@ InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
 		out.autocast = m_palantirRef && m_palantirRef->contentSlotAt(out.target, arc, slot) && m_bar->rightPressKind(slot, arc) == ControlBar::RightPress::AutoAbility;
 		out.button = touchCommandAt(out.target);
 		out.costs = out.button && ControlBar::pressCosts(*out.button);
+		if (m_palantirRef && m_palantirRef->contentSlotAt(out.target, arc, slot))
+		{
+			for (const ControlBarButton &c : arc ? m_bar->palantirButtons() : m_bar->sideButtons())
+			{
+				if (c.slot == slot)
+				{
+					out.queued = c.queued;
+					out.cancel = c.queued > 0 && m_bar->rightPressKind(slot, arc) == ControlBar::RightPress::Cancel;
+				}
+			}
+		}
 		// lane IOS-40: the hit area's box (AptMenuPlayer::find_button's rule: the Hit records' placement of the button's bounds, else the bounds), through
 		// the button's global matrix (the HUD size's transform included) to window pixels
 		float x0, y0, x1, y1;
@@ -689,6 +701,17 @@ InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
 				out.rect[2] = (float)(rb.rect.x + rb.rect.w);
 				out.rect[3] = (float)(rb.rect.y + rb.rect.h);
 				out.hasRect = true;
+				// lane IOS-37: the bubble's right press cancels a CANCELABLE button's queue (ControlBarRadialMenu::mouseButton -> cancelQueued)
+				out.queued = rb.source.queued;
+				out.cancel = rb.source.queued > 0 && out.button && out.button->hasOption(COMMAND_OPTION_CANCELABLE);
+				const float dx = (float)rb.rect.x + (float)rb.rect.w * 0.5f - (float)m_radial.layout().centerX();
+				const float dy = (float)rb.rect.y + (float)rb.rect.h * 0.5f - (float)m_radial.layout().centerY();
+				const float len = std::sqrt(dx * dx + dy * dy);
+				if (len > 0.5f)
+				{
+					out.away[0] = dx / len;
+					out.away[1] = dy / len;
+				}
 			}
 		}
 	}

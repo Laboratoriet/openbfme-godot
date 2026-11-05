@@ -173,7 +173,8 @@ public:
 	// lane IOS-21 (OpenBFME, not retail; touch only): the help box without a hover (InGameHud::setTouchHelp / holdHelp), and what a finger at window
 	// `pixel` is on: { kind: "movie" (a Palantir / side bar / spell book / hero bar button) | "radial" (a bubble) | "" , target, autocast }; lane IOS-40:
 	// + { costs (InGameHud::TouchButton: its press spends, ControlBar::pressCosts), name (the CommandButton's, "" none), command (its GUI command's name),
-	// slot (a bubble's, -1 else), rect (the button's window rectangle, Rect2() unmeasured) }
+	// slot (a bubble's, -1 else), rect (the button's window rectangle, Rect2() unmeasured) }; lane IOS-37: + { queued (the units of its template in the
+	// queue), cancel (a right press would cancel one now), away (a bubble's direction from the ring's centre) }
 	void set_touch_help(bool on);
 	void hold_help(bool on);
 	// lane IOS-29 (OpenBFME presentation, not retail): the round-HUD audit (InGameHud::hudScaleAudit): [{ level, path, sx, sy, fix_x, fix_y, unit,
@@ -190,10 +191,13 @@ public:
 	// message (InGameUI::deselectAll: MSG_DESTROY_SELECTED_GROUP after the construct order, so the logic still saw the issuing builder); true when it did
 	bool deselect_builders();
 	// lane IOS-37 (OpenBFME, not retail; touch only: scripts/touch/command_toolbar.gd): the toolbar's Deselect (InGameUI::deselectAll with retail's message;
-	// false when nothing was selected); the hotkey of the selection's button for a GUI command ({ found, key: the HotKeyTranslator's character for the
-	// button's window ("" none), enabled its availability }: Attack Move's, which the toolbar presses as its key)
+	// false when nothing was selected); the hotkey of the selection's button for a GUI command ({ found, key: its DirectInput scan code (0 none), enabled }:
+	// Attack Move's, which the toolbar presses as its key); and a touch placement's ghost turned to `angle` (radians, the SAGE ground's) while it waits for
+	// ✓ / ✕ (a two-finger twist; false when no unanchored, non-line placement has a ghost). command_hotkey's key is the HotKeyTranslator's character for the
+	// button's window ("" none), enabled its availability
 	bool deselect_all();
 	Dictionary command_hotkey(const String &command) const;
+	bool set_placement_angle(double angle);
 	// lane SPELL-2: a MappedImage of the HUD's collection as its texture and the source rectangle in texture pixels { found, texture, region } (the spell
 	// book screens draw the command buttons' ButtonImage with it)
 	Dictionary get_mapped_image(const String &name);
