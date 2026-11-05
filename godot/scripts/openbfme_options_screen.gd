@@ -646,15 +646,14 @@ func _camera_rows() -> Array:
 	])
 
 
+## lane IOS-37: on touch the touch rows (One finger drag, Button taps, Command toolbar) are a second column, as Graphics' OpenBFME column: the page's one
+## column holds ten rows above its footer (OpenBFMEOptionsPage::show refuses more), and a desktop's Interface tab stays as it was
 func _interface_rows() -> Array:
-	return _present([
+	var rows := _present([
 		_extra_choice("OpenBFMEMainMenuStyle", "Main menu style", game_options.MENU_STYLES, HELP.OpenBFMEMainMenuStyle),
 		_retail_row("Retail.HealthBars"),
 		_extra_choice("OpenBFMEHealthBars", "Health bars", BARS_ITEMS, HELP.OpenBFMEHealthBars),
 		_extra_check("AlternateMouseSetup", "Alternate mouse setup", HELP.AlternateMouseSetup),
-		_touch_drag_row(), # lane IOS-35: touch only
-		_touch_row("OpenBFMETouchButtonTaps"), # lane IOS-40: touch only
-		_touch_row("OpenBFMETouchToolbar"), # lane IOS-37: touch only
 		_extra_check("OpenBFMEGameClock", "Show the game clock", HELP.OpenBFMEGameClock),
 		_extra_choice("OpenBFMEUIScale", "Interface scale", UI_SCALE_ITEMS, HELP.OpenBFMEUIScale),
 		_hud_size_row(), # lane IOS-18
@@ -663,6 +662,10 @@ func _interface_rows() -> Array:
 		# lane CRASHACT-1: here, not on Online (that tab's rows already fill the page above its footer)
 		_extra_check("OpenBFMECrashReports", "Send crash reports automatically", HELP.OpenBFMECrashReports),
 	])
+	for r in _present([_touch_drag_row(), _touch_row("OpenBFMETouchButtonTaps"), _touch_row("OpenBFMETouchToolbar")]): # lanes IOS-35, IOS-40, IOS-37
+		r["column"] = 1
+		rows.append(r)
+	return rows
 
 
 ## lane IOS-35: "One finger drag" (OpenBFMETouchDrag) where the touch controls are on (game_options.gd touch_available); null elsewhere (_present drops it)
