@@ -2,6 +2,7 @@
 // See AptPalantir.h.
 
 #include "GameClient/GUI/AptScreens/AptPalantir.h"
+#include "GameClient/GUI/AptUniformHud.h"
 #include "GameClient/LocalizedText.h"
 
 #include <cstdio>
@@ -914,8 +915,24 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 	const float unitX = (float)width / stageWidth, unitY = (float)height / stageHeight;
 	const float safeLeft = layout.safeInsets[0] / unitX, safeTop = layout.safeInsets[1] / unitY;
 	const float safeRight = stageWidth - layout.safeInsets[2] / unitX, safeBottom = stageHeight - layout.safeInsets[3] / unitY;
-	auto groupOf = [](const std::string &name) {
-		return name == "SideCommandBar" ? HudGroup::BottomRight : (name == "planningModeUI" ? HudGroup::TopCentre : HudGroup::BottomLeft);
+	// the group a top-level clip is anchored with: the movie's own names first (RotWK's Palantir.apt, which Edain's builds keep), else (lane IOS-39: a
+	// mod's movie may add clips) where the clip stands on the stage
+	auto groupOf = [&](AptCharacterInst *child) { return hudGroupOf(*child, stageWidth, stageHeight); };
+	// lane IOS-39 (OpenBFME presentation, not retail): a widescreen build of the movie bakes an x stretch into its top-level clips' matrices
+	// (AptUniformHud::builtStretch: Edain's 0.75 for retail's stretch to 16:9). Each such clip is first drawn back at its 4:3 proportions about its
+	// group's stage anchor (the edge the build squeezed it towards: Edain's left clips about x 0, the side bar about 1024), then laid out like
+	// RotWK's; the identity for RotWK's movies
+	const float anchorX[(int)HudGroup::Count] = { 0.0f, stageWidth, stageWidth * 0.5f };
+	const float build = AptUniformHud::widescreenBuild(*root);
+	auto unstretch = [&](AptCharacterInst *child, HudGroup g) {
+		AptMatrix f;
+		const float r = AptUniformHud::builtStretch(build, *child);
+		if (r != 1.0f)
+		{
+			f.a = 1.0f / r;
+			f.tx = anchorX[(int)g] * (1.0f - f.a);
+		}
+		return f;
 	};
 	const bool retailLayout = layout.scale == 1.0f && layout.safeInsets[0] == 0.0f && layout.safeInsets[1] == 0.0f && layout.safeInsets[2] == 0.0f &&
 		layout.safeInsets[3] == 0.0f;
@@ -930,13 +947,15 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 			{
 				continue;
 			}
-			const int g = (int)groupOf(name);
+			const HudGroup group = groupOf(child);
+			const int g = (int)group;
 			float *reach = m_groupReach[g];
+			const AptMatrix placed = unstretch(child, group).concat(child->matrix);
 			const float xs[4] = { x0, x1, x0, x1 }, ys[4] = { y0, y0, y1, y1 };
 			for (int i = 0; i < 4; ++i)
 			{
 				float rx, ry;
-				child->matrix.apply(xs[i], ys[i], rx, ry);
+				placed.apply(xs[i], ys[i], rx, ry);
 				if (!m_groupReachSeen[g])
 				{
 					reach[0] = reach[2] = rx;
@@ -1015,7 +1034,8 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 		{
 			continue;
 		}
-		const int g = (int)groupOf(name);
+		const HudGroup group = groupOf(child);
+		const int g = (int)group;
 		const Anchor &an = anchors[g];
 		const float a = scale * m_groupScale[g];
 		const float d = vscale * m_groupScale[g];
@@ -1052,7 +1072,54 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 				child->viewportTransform.ty = placedY - ds * footY;
 			}
 		}
+		// lane IOS-39: the widescreen build's stretch undone first (under the layout's transform); the identity for RotWK's movies
+		const AptMatrix f = unstretch(child, group);
+		if (f.a != 1.0f)
+		{
+			child->viewportTransform = child->viewportTransform.concat(f);
+		}
 	}
+}
+
+// lane IOS-39 (OpenBFME presentation, not retail): the group of a top-level clip of the Palantir's root. The names of RotWK's Palantir.apt (Edain's
+// builds keep them) decide first; any other clip (a mod's own) by where its content stands on the stage, through its own matrix: its centre in the
+// right third is the side bar's corner, the top third's middle the planning indicator's top centre, anything else the Palantir's bottom-left corner.
+// A clip with nothing drawn yet goes with the Palantir (as every unnamed clip did before)
+AptPalantir::HudGroup AptPalantir::hudGroupOf(AptCharacterInst &child, float stageWidth, float stageHeight)
+{
+	const std::string &name = child.instName();
+	if (name == "SideCommandBar")
+	{
+		return HudGroup::BottomRight;
+	}
+	if (name == "planningModeUI")
+	{
+		return HudGroup::TopCentre;
+	}
+	static const char *const kPalantirClips[] = { "PalantirFrame", "SpellBookUI", "helpBox", "ButtonFlashStage" };
+	for (const char *known : kPalantirClips)
+	{
+		if (name == known)
+		{
+			return HudGroup::BottomLeft;
+		}
+	}
+	float x0, y0, x1, y1;
+	if (!child.contentBounds(x0, y0, x1, y1))
+	{
+		return HudGroup::BottomLeft;
+	}
+	float cx, cy;
+	child.matrix.apply((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, cx, cy);
+	if (cx > stageWidth * (2.0f / 3.0f))
+	{
+		return HudGroup::BottomRight;
+	}
+	if (cy < stageHeight / 3.0f && cx > stageWidth / 3.0f)
+	{
+		return HudGroup::TopCentre;
+	}
+	return HudGroup::BottomLeft;
 }
 
 void AptPalantir::sync(const ControlBar &bar)

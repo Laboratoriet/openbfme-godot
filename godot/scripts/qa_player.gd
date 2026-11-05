@@ -448,6 +448,16 @@ func _deselect() -> void:
 
 ## a click on the Palantir position that shows the button (AptPalantir::syncFrames: the movie's own button)
 func _press(b: Dictionary) -> bool:
+	# lane IOS-39: a Radial button whose source shows its bubbles (Edain's build plots: GondorBuildingFoundation's FOUNDATION_CONSTRUCT buttons, its
+	# castle parts' upgrades) is pressed on its bubble over the object, where a player finds it: the control bar lists it with the side bar's
+	# buttons, but no side bar clip shows it (the bar is hidden while the bubbles are up)
+	var bubble := _bubble_of(b.name)
+	if not bubble.is_empty():
+		var r: Rect2 = bubble.rect
+		await _click_pixel(r.position + r.size * 0.5)
+		if _gone(): return false
+		count("radial_presses")
+		return true
 	var w: Dictionary = {}
 	for attempt in 10:
 		w = _hud.find_button_window(b.frame)
@@ -461,6 +471,14 @@ func _press(b: Dictionary) -> bool:
 	await _click_pixel(Vector2(w.x, w.y))
 	if _gone(): return false
 	return true
+
+
+## lane IOS-39: the radial bubble (InGameHudNode.get_hud6_state().radial) that shows the button `name` now, {} when none does
+func _bubble_of(name: String) -> Dictionary:
+	for bubble in _hud.get_hud6_state().get("radial", {}).get("buttons", []):
+		if str(bubble.get("name", "")) == name:
+			return bubble
+	return {}
 
 
 func _own_objects() -> Array:

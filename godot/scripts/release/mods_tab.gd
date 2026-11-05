@@ -9,6 +9,9 @@
 ## Not possible (the boxes greyed, the reason in the note): BFME1 mode, a -mod on the command line (it wins over the list), no mount.
 ## Lane IOS-31: an install-folder mod (Edain) shows its title (openbfme-aio.json) and size; it loads first, under the other mods, wherever it is in
 ## the list; a second one is refused (its box stays off and the Status row says why).
+## Lane IOS-39: small (-mod-style) mods turned on together with an install-folder mod are allowed (docs/MODS.md), but they replace whole game
+## files that the install-folder mod usually changes too (the generated test mods replace retail INI files Edain rewrites): the Status row says
+## "with a warning", the note, the Status row's help and each small mod's help say what that means. Nothing is refused.
 extends RefCounted
 
 const Mods := preload("res://scripts/release/mods.gd")
@@ -77,6 +80,9 @@ func rows() -> Array:
 		var order := _load_order(pending)
 		if on and order.size() > 1:
 			help += " · loads %s of %d" % [_ordinal(_index(order, m.name) + 1), order.size()]
+		var over := _install_under(m.name)
+		if on and not over.is_empty():
+			help += " · over %s: where both have a file, this mod's wins and %s's change to it is lost" % [over, over]
 		if not m.problem.is_empty():
 			help = m.problem
 		var r := {"kind": "check", "key": PREFIX + m.name, "label": m.title, "value": 1 if on else 0, "help": help,
@@ -92,7 +98,7 @@ func rows() -> Array:
 	if hidden > 0:
 		rows.append(_text("Mods.more", "More mods", "%d not shown" % hidden, "The page shows %d mods that are off; turn one off to see others." % MAX_SHOWN))
 	rows.append_array([
-		_text("Mods.state", "Status", _state_line(), "Mods are loaded when OpenBFME starts."),
+		_text("Mods.state", "Status", _state_line(), mixed_warning() if not mixed_warning().is_empty() else "Mods are loaded when OpenBFME starts."),
 		_text("Mods.folder", "Mods folder", _folder_line(), "Where OpenBFME looks for mods: %s" % (folder() if not folder().is_empty() else "not known yet")),
 		{"kind": "button", "key": OPEN, "label": "Open the folder", "value_text": "OPEN",
 			"help": "Shows the Mods folder in %s." % ("the Files app" if OS.has_feature("ios") else ("Finder" if OS.get_name() == "macOS" else "the file manager")),
@@ -113,11 +119,29 @@ func note() -> String:
 			("the Files app (On My iPhone › OpenBFME › Mods)" if OS.has_feature("ios") else "Finder or your file manager")
 	if not _refused.is_empty():
 		return _refused + ": each one replaces the game folder's files, so two cannot load together."
+	if not mixed_warning().is_empty():
+		return mixed_warning() + (" Restart to apply after ACCEPT." if restart_needed() else "")
 	if restart_needed():
 		return "Restart to apply: close OpenBFME and open it again after ACCEPT. Online and LAN games are off while mods are on."
 	if _found.any(func(m): return m.kind == "install"):
 		return "An install-folder mod (one at a time) loads first; the other mods go over it, a mod turned on later winning. Online and LAN games are off while mods are on."
 	return "A mod turned on later wins over one turned on before it. Online and LAN games are off while mods are on."
+
+
+## Lane IOS-39: "" or the warning for small mods turned on together with an install-folder mod (allowed, not refused): they load over it, and
+## each replaces whole game files that the install-folder mod has usually changed as well, so that mod's version of those files is lost.
+func mixed_warning() -> String:
+	var install := ""
+	var small := PackedStringArray()
+	for n in _effective(pending):
+		if _is_install(n):
+			install = _title_of(n)
+		else:
+			small.append(_title_of(n))
+	if install.is_empty() or small.is_empty():
+		return ""
+	return "Careful: %s load%s over %s and replace%s whole game files. %s changes many of the same files, so where both have one %s's change is lost and it may not work as it should. Turn %s off if it does not." % [
+		", ".join(small), "s" if small.size() == 1 else "", install, "s" if small.size() == 1 else "", install, install, "it" if small.size() == 1 else "them"]
 
 
 ## true when the list in the boxes is not what this start mounted
@@ -200,6 +224,8 @@ func _state_line() -> String:
 		return "Restart to apply"
 	if on == 0:
 		return "No mods in use"
+	if not mixed_warning().is_empty():
+		return "%d mods, with a warning" % on # lane IOS-39: note() and the row's help have it
 	return "%d mod%s in use" % [on, "" if on == 1 else "s"]
 
 
@@ -230,6 +256,16 @@ func _is_install(name: String) -> bool:
 		if m.name.to_lower() == name.to_lower():
 			return m.kind == "install"
 	return false
+
+
+# lane IOS-39: the title of the install-folder mod `name` (a small mod, turned on) loads over, "" when none is on or `name` is that mod itself
+func _install_under(name: String) -> String:
+	if _is_install(name):
+		return ""
+	for n in _effective(pending):
+		if _is_install(n):
+			return _title_of(n)
+	return ""
 
 
 func _title_of(name: String) -> String:

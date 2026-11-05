@@ -67,6 +67,18 @@ public:
 		bool squashes() const { return distorted() && !fullBleed; } ///< what the guard refuses
 	};
 	static float ratioOff(float sx, float sy) { return sx > sy ? sx / sy - 1.0f : sy / sx - 1.0f; }
+	// lane IOS-39: a WIDESCREEN BUILD of a HUD movie bakes the stretch it expects from retail into its top-level clips' matrices: Edain 4.8.5.4's
+	// ___edain_apt_widescreen.big places Palantir.apt's top-level clips at x 0.75 about their screen edge (for retail's stretch of the 4:3 stage to a
+	// 16:9 window: 0.75 x 4/3 = 1; its globe swirls, drawn at x / y 0.93 in RotWK's movie, at 0.69). The layout (AptPalantir::setViewportSize) and the
+	// rule (correction(), audit()) count it, so that build is drawn round, as RotWK's movie is, instead of narrowed twice.
+	// matrixAspect: the x / y ratio a matrix draws at (0 when turned or degenerate: no single ratio on the screen).
+	// widescreenBuild: the build's factor, the median of the root's top-level clips' ratios (most clips are round in RotWK's movies, so the median
+	// is the squeeze every clip got); 1 when within kTolerance - RotWK's movies, and nothing changes for them.
+	// builtStretch: what the build's factor `build` (widescreenBuild of its root) is for one top-level clip - that factor, or 1 for a clip the build
+	// left uniform (Edain's RadarPings)
+	static float matrixAspect(const AptMatrix &m);
+	static float widescreenBuild(const AptSpriteInst &root);
+	static float builtStretch(float build, const AptCharacterInst &child);
 
 	// lane IOS-32: the levels drawn as centred menus, and the window's safe area (window pixels kept clear: left, top, right, bottom)
 	struct Menus
@@ -94,6 +106,7 @@ public:
 	static AptMatrix backdrop(AptSpriteInst &root, AptCharacterInst &child, const AptStageMapping &mapping);
 	// the presentTransform the rule gives `unit` drawn under `parentChain` (the stage <- parent matrix); the identity when it is uniform already
 	// `centre` (lane IOS-32, a menu's root): the stage point the stage's centre goes to on the shrunk axis, instead of the content box's anchor
+	// `built` (lane IOS-39): the stretch a widescreen build baked into the unit's matrix (builtStretch), counted with the presentation scale
 	static AptMatrix correction(const AptCharacterInst &unit, const AptMatrix &parentChain, const AptStageMapping &mapping, float &fixX, float &fixY,
-		const float *centre = nullptr);
+		const float *centre = nullptr, float built = 1.0f);
 };

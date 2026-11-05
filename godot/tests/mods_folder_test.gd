@@ -184,7 +184,17 @@ func _install() -> void:
 		"install_mod_name": "Edain", "install_mod_source": "mods folder", "install_mod_skipped": "", "mods_folder": dir}
 	check(Mods.mounted_names(mount) == PackedStringArray(["Small", "Edain"]), "both mounted")
 	tab.begin("Small;Edain")
-	check(not tab.restart_needed() and _keyed(tab.rows())["Mods.state"].value_text == "2 mods in use", "as mounted: 2 mods in use")
+	# lane IOS-39: a small mod over Edain is allowed, with a warning: the Status row, its help, the note and the small mod's help say what it means
+	rows = _keyed(tab.rows())
+	check(not tab.restart_needed() and rows["Mods.state"].value_text == "2 mods, with a warning", "as mounted: 2 mods, with a warning")
+	var warning := "Careful: Small loads over Edain 4.8.5.4 and replaces whole game files. Edain 4.8.5.4 changes many of the same files, so where both have one Edain 4.8.5.4's change is lost and it may not work as it should. Turn it off if it does not."
+	check(tab.mixed_warning() == warning and tab.note() == warning and rows["Mods.state"].help == warning, tab.note())
+	check(rows["Mod:Small"].help.ends_with("over Edain 4.8.5.4: where both have a file, this mod's wins and Edain 4.8.5.4's change to it is lost"),
+		rows["Mod:Small"].help)
+	check(not rows["Mod:Edain"].help.contains("over Edain"), "the install-folder mod's own help has no warning")
+	check(tab.set_mod("Mod:Small", false) and tab.mixed_warning().is_empty() and tab.note().begins_with("Restart to apply"), "Small off: no warning")
+	# on again it is last in the list, which is not the mounted order: the warning and the restart, together
+	check(tab.set_mod("Mod:Small", true) and tab.note() == warning + " Restart to apply after ACCEPT.", tab.note())
 	# Edain alone: no -mod-style mod mounted, but Edain is
 	mount.mod = {"mounted": false, "source": "mods folder", "list": PackedStringArray(["Edain"]), "missing": PackedStringArray(),
 		"install_mod_name": "Edain", "install_mod_source": "mods folder", "install_mod_skipped": "", "mods_folder": dir}

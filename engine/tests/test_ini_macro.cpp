@@ -255,9 +255,16 @@ TEST_CASE("#define: empty value, duplicate name and the map.ini ban (spec 2.2 it
 {
 	Fixture fx;
 	int code = 0;
-	std::string err = defineOnly(fx.env, "t.ini", "#define LONELY\n", &code);
+	// a trailing blank leaves only separators after the name: nextToken clears the value (RW 0x436769), which then has none
+	std::string err = defineOnly(fx.env, "t.ini", "#define LONELY \n", &code);
 	CHECK(code == 8);
 	CHECK(err.find("t.ini:\nError parsing MACRO.\nLONELY has no value") == 0);
+	// lane IOS-39: nothing at all after the name (Edain 4.8.5.4's "#define SUMMONED_HERO_WEAK"): nextToken returns false and leaves the value's buffer
+	// holding the "#define" it read first (RW 0x4366DC -> 0x436783), so retail defines the macro as "#define" and the file loads
+	CHECK(defineOnly(fx.env, "u.ini", "#define BARE_NAME\r\n#define AFTER_IT 3\r\n").empty());
+	REQUIRE(fx.env.macros.findByName("BARE_NAME") != nullptr);
+	CHECK(fx.env.macros.findByName("BARE_NAME")->value == "#define");
+	CHECK(fx.env.macros.findByName("AFTER_IT")->value == "3");
 
 	REQUIRE(defineOnly(fx.env, "a.ini", "#define TWICE 1\n").empty());
 	err = defineOnly(fx.env, "b.ini", "#define TWICE 2\n", &code);
