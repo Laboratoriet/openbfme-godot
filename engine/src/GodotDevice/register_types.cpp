@@ -23,6 +23,12 @@
 #include "GodotDevice/GodotVideoStream.h"
 #include "GodotDevice/GodotW3DModelBuilder.h"
 #include "GodotDevice/GodotLivingWorld.h" // WOTR-1
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if defined(__APPLE__) && TARGET_OS_IOS
+#include "GodotDevice/GodotIOSTouch.h" // the iOS input bridge: Pencil, mouse / trackpad, keyboard
+#endif
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -61,6 +67,9 @@ static void initialize_openbfme(ModuleInitializationLevel p_level)
 	GDREGISTER_CLASS(InstallSetup);
 	GDREGISTER_CLASS(VP6MovieStream); // CAMP-2
 	GDREGISTER_CLASS(LivingWorldGame); // WOTR-1
+#if defined(__APPLE__) && TARGET_OS_IOS
+	OpenBFMEIOSTouch::install(); // splits the touches of Godot's view (GodotIOSTouch.mm)
+#endif
 }
 
 static void uninitialize_openbfme(ModuleInitializationLevel p_level)
@@ -68,6 +77,9 @@ static void uninitialize_openbfme(ModuleInitializationLevel p_level)
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE)
 	{
 		MacOSTrackpad::shutdown(); // no native callback may outlive the extension
+#if defined(__APPLE__) && TARGET_OS_IOS
+		OpenBFMEIOSTouch::uninstall();
+#endif
 		WindowsCrashDump::uninstall();
 		ConsoleFilter::uninstall(); // RELEASE-1: the original stdout / stderr back before the extension's code goes
 		GammaComposite::shutdown();

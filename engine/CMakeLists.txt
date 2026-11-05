@@ -723,6 +723,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     if(OPENBFME_IOS_SDK STREQUAL "iphoneos")
         target_link_libraries(openbfme PRIVATE "-framework MetalFX")
     endif()
+    # The input bridge (GodotIOSTouch.mm): an Apple Pencil, a mouse or trackpad and a hardware keyboard on Godot's view. Objective-C++
+    # with ARC, given to every Objective-C++ file of the target (no per-file property lists: tools/weapon/test_weapon_no_libm.py).
+    enable_language(OBJCXX)
+    target_sources(openbfme PRIVATE src/GodotDevice/GodotIOSTouch.mm)
+    target_compile_options(openbfme PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+    target_link_libraries(openbfme PRIVATE "-framework UIKit" "-framework GameController" "-framework CoreGraphics" "-framework Foundation")
 endif()
 endif()
 
@@ -880,6 +886,7 @@ add_executable(openbfme_tests
     tests/test_archive_order.cpp
     tests/test_any_language.cpp
     tests/test_mods1_mount.cpp
+    tests/test_ios_pointer.cpp
     tests/test_mods1_retail.cpp
     tests/test_logic_clock.cpp
     tests/test_chunkio.cpp

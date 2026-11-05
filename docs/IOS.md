@@ -1,8 +1,8 @@
 # iOS and iPadOS
 
 OpenBFME builds for iPhone and iPad (arm64, iOS 17 or newer) from a Mac. This page covers the build and the export. The game still needs
-the player's own game files on the device, and input other than Godot's own (touch controls, a mouse or trackpad as a mouse) is not
-part of this step.
+the player's own game files on the device, and touch controls are not part of this step; until they are, an iPad with a mouse or a
+trackpad (below) is the comfortable way to play.
 
 ## Build and export
 
@@ -57,6 +57,21 @@ in your Apple account. A free personal team works; its apps expire after 7 days.
 The device build also links **MetalFX** into the extension (`engine/CMakeLists.txt`). Godot 4.7.2's Metal driver checks for MetalFX with
 a run-time class lookup, and its iOS export links no MetalFX framework, so without the link the lookup fails, Godot reports "MetalFX
 spatial upscaling is not supported" and the 3D view is scaled bilinear. The simulator SDK has no MetalFX.
+
+## Mouse, trackpad, Apple Pencil and keyboard
+
+Godot's iOS layer turns every touch into a screen touch, a trackpad click included. The extension's input bridge
+(`engine/src/GodotDevice/GodotIOSTouch.mm`, installed when the extension starts on iOS) splits the touches of Godot's view by their
+`UITouch.type` before Godot sees them:
+
+| Input | Becomes |
+|---|---|
+| A finger | A Godot screen touch, as before. |
+| An Apple Pencil | Left-button mouse events with pressure and tilt, device id `1001`: the Pencil always behaves like a mouse. |
+| A mouse or trackpad | Mouse events as on a Mac: the button from the click (`UIEvent.buttonMask`), Control-click as a right click for the whole click, a double click on the second primary press. Hover, scrolling (pan gestures, scaled as on macOS) and the trackpad's pinch (magnify gestures) come from gesture recognizers that never take a finger. A mouse's right and middle buttons are also read from GameController's `GCMouse`; a button either source holds is pressed once. |
+| A hardware keyboard | Godot's own key events. When Godot misses a key's release (an iPad app on a Mac, "Designed for iPad"), the release `GCKeyboard` reports is passed on, so a key does not stay held. |
+
+The click logic has no UIKit in it and is unit-tested on every platform (`engine/tests/test_ios_pointer.cpp`).
 
 ## Not covered here
 
