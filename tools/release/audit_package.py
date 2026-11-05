@@ -729,6 +729,7 @@ PCK_RULES = [
     (re.compile(r"^project\.binary$"), "ecfg"),
     (re.compile(r"^openbfme\.gdextension$"), "text"),
     (re.compile(r"^tests/[\w.-]+\.txt$"), "text"),
+    (re.compile(r"^data/w3d-shader-variants\.json$"), "text"),  # lane IOS-11: the W3D shader variants warmed in the menus (scripts/shader_warmup.gd SHIPPED)
 ]
 # the launcher's pack (launcher/export_presets.cfg): its scripts and scene as text, the project settings, the UID and class caches and the
 # build information build_launcher.sh writes; no tests, no GDExtension
