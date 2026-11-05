@@ -128,6 +128,7 @@ disables its Graphics list there; the online rows are enabled only when the onli
 | Health bars, Show the game clock, Interface scale, HUD size | Interface | OpenBFME | `OpenBFMEHealthBars`, `OpenBFMEGameClock`, `OpenBFMEUIScale`, `OpenBFMEHudScale` |
 | Alternate mouse setup | Interface | retail key, OpenBFME row (RotWK 2.01's screen has no box for it) | `AlternateMouseSetup` |
 | One finger drag (touch only) | Interface | OpenBFME (IOS-35) | `OpenBFMETouchDrag` |
+| (no row: a developer switch) Portrait layout prototype, `default` / `a` More map / `b` One hand / `c` Split; game.gd's `--portrait-layout=` wins. A portrait window only; `default` and landscape are today's layout exactly (IOS-38, `engine/src/GameClient/GUI/PortraitLayout.h`) | (none) | OpenBFME prototype (IOS-38) | `OpenBFMEPortraitLayout` |
 | Online IP, Port Number, Send Delay | Online | retail (enabled from the online screens) | `GameSpyIPAddress`, `FirewallPortOverride`, `SendDelay` |
 | Refresh NAT | Online | retail (refused by name: S-1913) | |
 | Share my game results for statistics, Show my ping in the online menus | Online | OpenBFME | `OpenBFMEShareResults`, `OpenBFMEShowPing` (both yes by default) |
