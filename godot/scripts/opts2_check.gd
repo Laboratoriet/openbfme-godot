@@ -431,7 +431,7 @@ func _touch_tab_check(root: Window) -> void:
 		elif w > TOUCH_HELP_WRAP * 3.0 * 0.92: # word wrapping leaves a line short: 8 % slack
 			bad.append("%s: its help is %.0f px, more than three lines of %.0f" % [key, w, TOUCH_HELP_WRAP])
 		widest.append([w, key])
-	check("Touch: every row's help line shows under the pointer and fits three lines", bad.is_empty() and widest.size() >= 14, "; ".join(bad))
+	check("Touch: every row's help line shows under the pointer and fits three lines", bad.is_empty() and widest.size() >= 15, "; ".join(bad))
 	widest.sort()
 	widest.reverse()
 	for i in mini(3, widest.size()):
@@ -450,6 +450,13 @@ func _touch_tab_check(root: Window) -> void:
 		await click_row("OpenBFMETouchGhostAbove")
 		sw = touch_layer.switches()
 		check("Touch: and back (confirm, above the finger)", sw.get("placement") == "confirm" and sw.get("ghost_above") == true, str(sw))
+		# lane IOS-43: Aim powers
+		await select("OpenBFMETouchTargeting", 1) # On tap
+		sw = touch_layer.switches()
+		check("Touch: Aim powers On tap reaches the touch layer at once", sw.get("targeting") == "tap", str(sw))
+		await select("OpenBFMETouchTargeting", 0)
+		sw = touch_layer.switches()
+		check("Touch: and back (Confirm first)", sw.get("targeting") == "confirm", str(sw))
 	else:
 		check("Touch: the touch layer is there (/root/TouchControls)", false, "")
 

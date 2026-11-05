@@ -40,4 +40,5 @@ set(OPENBFME_SPELL_TESTS
     tests/test_spell4_cursor.cpp # lane SPELL-4
     tests/test_spell4_buffs.cpp # lane SPELL-4
     tests/test_spellrc1_hud.cpp # lane SPELLRC-1
+    tests/test_ios43_touch_target.cpp # lane IOS-43: touchTargetAt / cancelTouchTarget
     tests/test_spellaudit1.cpp) # lane SPELLAUDIT-1

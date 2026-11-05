@@ -147,9 +147,40 @@ extends Node
 ##   OpenBFMETouchPlaceTwist ...... "camera": while ✓ / ✕ wait a two-finger twist turns the camera, as elsewhere (not the ghost, IOS-37)
 ##   OpenBFMETouchDeselectBuilders  "no": an accepted placement keeps the builders selected (IOS-36). With "lift" and "tap" the placing click counts as
 ##                                  the ✓ (the deselect waits for the game to take it, PLACE_WATCH_MS at most)
+##   OpenBFMETouchTargeting ...... "tap": a power or ability waiting for its target is used by the next tap on the map, as before IOS-43 (no aim, no
+##                                  ✓ / ✕); the banner still says what it waits for and its ✕ still cancels
 ## Not switches (no row): the thresholds (TAP_MAX_MS, LONG_PRESS_MS, SLOP_PT, DOUBLE_TAP_MS, TWIST_START_DEG, ARM_MS), the two-finger camera gestures,
 ## the vibrations, an Apple Pencil's box (IOS-35) and the mouse / keyboard bridge (IOS-14): a number to tune or a device's own behaviour, not a choice
 ## between two ways to play.
+##
+## Lane IOS-43 (the owner, 2026-11-05: "I don't remember how they work, and after clicking it seems like you have to place them on the map. Maybe
+## incorporate something similar to building placement?"), aiming a power or a hero ability with a finger, modelled on IOS-23 / IOS-26's placement.
+## While a spell book power or an ability waits for its target (InGameHudNode.touch_targeting_at: kind "location" or "object"; the unit commands that
+## wait too, attack move, guard, rally point, are not powers and keep the taps):
+##   the banner ................. touch_targeting.gd, at the top of the safe area under the command toolbar: "Choose where: <power>" or "Choose a target:
+##                                <power>", a line saying what to do, and ✕: the game's cancel (cancel_targeting: the right click's, without a click)
+##   a ground power ("location"), Options > Touch > "Aim powers" Confirm first (OpenBFMETouchTargeting = confirm, the default):
+##     finger down on the map ... the pointer goes GHOST_OFFSET_PT above the fingertip (the "Above the finger" switch, as a ghost): the game draws the
+##                                power's radius decal there, white where it would land and red where it would not (retail's mouse cursor); a power
+##                                with no decal drawn gets touch_targeting.gd's ring of its radius, gold or red. Nothing is pressed
+##     drag ..................... the decal (or ring) follows at that offset
+##     lift ..................... it stays; ✓ / ✕ (IOS-26's buttons) beside it. ✓ is dimmed on a red spot
+##     tap ...................... the point goes under the tap (no finger is left over it); ✓ / ✕ beside it
+##     ✓ ........................ the left click at the point (the cast), when the game says it would take it; on a red spot nothing is clicked: the
+##                                refusal mark (a red ring and cross) and a short vibration, and the aim waits
+##     ✕ ........................ the cancel (as the banner's ✕)
+##     a finger on the map ...... moves the point again (✓ / ✕ hide until it stops); on the HUD: the HUD's own tap, the wait at the point ends (the
+##                                banner stays while the power waits)
+##     two fingers .............. the camera; the point keeps its ground point and ✓ / ✕ come back beside it
+##     hold (still finger) ...... the right click: cancels, as for a placement
+##   a target power ("object"): a tap (or a drag's lift, at its offset point) on a unit or building the power can have picks it: a gold sight ring
+##                                around it (following it as it moves) and ✓ / ✕ beside it; ✓ clicks it (the cast), ✕ cancels. A tap on something it
+##                                cannot have, or on the ground: the refusal mark and a vibration, the aim waits. While a finger drags, the sight shows
+##                                on a valid target under the offset point
+##   hero abilities go the same way (their GUI command); a power with no target acts at once on its button's use (after IOS-40's tap to preview)
+##   "On tap" (OpenBFMETouchTargeting = tap): the next tap on the map is the mouse's click: it uses the power at once (the pre-IOS-43 behaviour)
+## A mouse in use (IOS-14) hides the banner and aims with the pointer as on a desktop; its motion ends a wait at ✓ / ✕. A desktop without touch has
+## none of this.
 ##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
 ## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
@@ -203,15 +234,21 @@ const ArmedRing := preload("res://scripts/touch/armed_ring.gd")
 const CommandToolbar := preload("res://scripts/touch/command_toolbar.gd")
 const TOOLBAR_POLL_MS := 250     # lane IOS-37: the toolbar's place, visibility and button states are read this often
 
-enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM, PAN, ARMED, TOOLBAR, UNQUEUE }
+enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM, PAN, ARMED, TOOLBAR, UNQUEUE, AIM, AIM_CONFIRM, AIM_CANCEL }
 # INFO: lane IOS-21, a finger held on a HUD button shows its help; PLACE: lane IOS-23, a finger drags a building's ghost; CONFIRM: lane IOS-26, a finger
 # on ✓ / ✕; PAN: lane IOS-35, one finger moves the camera; ARMED: lane IOS-35, a held finger whose drag is a selection box (its lift the right click);
-# TOOLBAR: lane IOS-37, a finger on the command toolbar; UNQUEUE: lane IOS-37, a finger on the armed button's ✕ (the production cancel)
+# TOOLBAR: lane IOS-37, a finger on the command toolbar; UNQUEUE: lane IOS-37, a finger on the armed button's ✕ (the production cancel); AIM: lane IOS-43,
+# a finger aims a power; AIM_CONFIRM: lane IOS-43, a finger on the aim's ✓ / ✕; AIM_CANCEL: lane IOS-43, a finger on the banner's ✕
 const DRAG_SELECT := "select"    # lane IOS-35: OpenBFMETouchDrag's values
 const DRAG_PAN := "pan"
 const PLACE_CONFIRM := "confirm" # lane IOS-42: OpenBFMETouchPlacement's values
 const PLACE_LIFT := "lift"
 const PLACE_TAP := "tap"
+const TARGET_CONFIRM := "confirm" # lane IOS-43: OpenBFMETouchTargeting's values
+const TARGET_TAP := "tap"
+const AIM_POLL_MS := 100         # lane IOS-43: while a power waits, the HUD is asked this often (every frame while a finger aims or the camera moves) ...
+const AIM_IDLE_POLL_MS := 250    # ... and this often while none waits (a power started by a key or a mouse)
+const TouchTargeting := preload("res://scripts/touch/touch_targeting.gd")
 const PLACE_WATCH_MS := 1500     # lane IOS-42: how long a "lift" or "tap" placement's click waits for the game to take it (the builders' deselect)
 
 var active := false
@@ -238,7 +275,8 @@ var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "z
 	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
 	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0, "place_taps": 0, "place_confirms": 0, "place_cancels": 0,
 	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0, "place_accepted": 0, "builder_deselects": 0, "arms": 0, "armed_uses": 0, "disarms": 0,
-	"toolbar_taps": 0, "toolbar_helps": 0, "groups_made": 0, "ghost_turns": 0, "queue_cancels": 0}
+	"toolbar_taps": 0, "toolbar_helps": 0, "groups_made": 0, "ghost_turns": 0, "queue_cancels": 0,
+	"aim_starts": 0, "aim_drags": 0, "aim_lifts": 0, "aim_taps": 0, "aim_lifts_on_hud": 0, "aim_fires": 0, "aim_cancels": 0, "aim_refused": 0}
 var drag_mode := DRAG_SELECT     # lane IOS-35: OpenBFMETouchDrag (set_drag_mode)
 var button_taps := TAPS_COSTS    # lane IOS-40: OpenBFMETouchButtonTaps (set_button_taps)
 var _armed := {}                 # lane IOS-40: the armed button: {"key", "name", "until" (msec), "tapped" (msec of the first tap)}
@@ -274,6 +312,21 @@ var _no_list_scroll_flag := false
 var _place_watch_until := 0      # lane IOS-42: a "lift" / "tap" placement's click waits until then for the game to take it (_watch_placement)
 var _tap_placing := false        # lane IOS-42: "tap": the finger came down on the world while a placement waited (its click places, as a mouse's)
 var _tap_place_builds := -1      # ... and touch_placement_at's "builds" then (-1: an extension without it)
+var targeting_mode := TARGET_CONFIRM  # lane IOS-43: OpenBFMETouchTargeting
+var _aim_ui: CanvasLayer = null  # lane IOS-43: touch_targeting.gd (the banner, the ring, the sight), made the first time a power waits
+var _aim_confirm: CanvasLayer = null  # lane IOS-43: its ✓ / ✕ (placement_confirm.gd, as IOS-26's)
+var _aim_key := ""               # the waiting power (source | button | power; "" none), as the last poll saw it
+var _aim_info := {}              # the HUD's touch_targeting_at at the last poll
+var _aim_poll_ms := 0
+var _aiming := false             # the one-finger gesture began on the map while a power waited (Confirm first): the pointer is the aim, offset
+var _aim_live := Vector2.INF     # where that finger's aim is (window pixels)
+var _aim_waiting := false        # ✓ / ✕ wait at _aim_px
+var _aim_px := Vector2.INF       # the aim's pixel (a ground power: its ground point's; a target power: its target's middle)
+var _aim_anchor := Vector2.INF   # a ground power's ground point (INF: the HUD could not say; the aim keeps its pixel)
+var _aim_object := 0             # a target power's target (0: none)
+var _aim_committed_ms := -1      # ✓ clicked: the buttons went; they come back if the power still waits CONFIRM_RETRY_MS later
+var _aim_track_until := 0        # the camera may still ease after a two-finger gesture: the aim follows every frame until then
+var _aim_pressed := ""           # the button an AIM_CONFIRM gesture's finger pressed
 var _waiting := {}               # lane IOS-21: a tap on an autocast ability waiting for a second one: {"at": the press point, "due": msec, "second":
                                  # a finger came down on it in time (its tap is the second, however long it stays)}
 var _touch_help := -1            # lane IOS-21: the touch help the HUD was last given (-1: none yet)
@@ -366,6 +419,11 @@ func apply_options(values: Dictionary) -> void:
 	ghost_above = str(values.get("OpenBFMETouchGhostAbove", "yes")) == "yes"
 	twist_turns_ghost = str(values.get("OpenBFMETouchPlaceTwist", "building")) != "camera"
 	deselect_builders_after_build = str(values.get("OpenBFMETouchDeselectBuilders", "yes")) == "yes"
+	var aim := str(values.get("OpenBFMETouchTargeting", TARGET_CONFIRM))
+	targeting_mode = aim if aim in [TARGET_CONFIRM, TARGET_TAP] else TARGET_CONFIRM
+	if targeting_mode != TARGET_CONFIRM:
+		_end_aim_wait()  # lane IOS-43: a point waiting for ✓ / ✕ goes (the power still waits); the next tap uses it
+	_aim_poll_ms = 0  # the banner's line says the new way at once
 	if placement_mode != PLACE_CONFIRM:
 		_end_confirm()  # a ghost waiting for ✓ / ✕ stays where it is (the placement goes on); the next finger places by the new mode
 	if not autocast_double_tap:
@@ -379,7 +437,7 @@ func apply_options(values: Dictionary) -> void:
 func switches() -> Dictionary:
 	return {"list_scroll": list_scroll, "tap_assist": tap_assist, "hold": "info" if hold_shows_info else "right", "autocast_double_tap": autocast_double_tap,
 		"placement": placement_mode, "ghost_above": ghost_above, "twist": "building" if twist_turns_ghost else "camera",
-		"deselect_builders": deselect_builders_after_build}
+		"deselect_builders": deselect_builders_after_build, "targeting": targeting_mode}
 
 
 ## lane IOS-15: a mouse or trackpad is in use (a Mac running the iPhone build has one). IOS-17: only once its pointer showed itself (hovered,
@@ -450,6 +508,7 @@ func _process(_delta: float) -> void:
 		_poll_confirm(Time.get_ticks_msec())
 	if _place_watch_until > 0:
 		_poll_placement_watch(Time.get_ticks_msec())
+	_poll_aim(Time.get_ticks_msec())  # lane IOS-43
 	# the hold: a still finger that stays down becomes a right click while it is still down (the player feels it fire); lane IOS-21: on a HUD button
 	# it shows the button's help instead, until the finger lifts (lane IOS-42: unless Hold a button is "Right-click")
 	if _gesture == Gesture.PENDING and _fingers.has(_first) and Time.get_ticks_msec() - int(_fingers[_first].at) >= LONG_PRESS_MS:
@@ -475,6 +534,7 @@ func _process(_delta: float) -> void:
 		_gesture = Gesture.HELD
 		stats.holds += 1
 		_end_confirm()  # lane IOS-26: the hold cancelled the placement the buttons waited on
+		_end_aim_wait()  # lane IOS-43: and a power's aim (its right click cancelled the power)
 
 
 func _touch(e: InputEventScreenTouch) -> void:
@@ -515,9 +575,21 @@ func _touch(e: InputEventScreenTouch) -> void:
 					_pressed = on
 					_confirm.set_pressed(on)
 					return
+				# lane IOS-43: a finger on the banner's ✕, or on the aim's ✓ / ✕, presses it; the pointer (the aim) stays where it is
+				if _aim_ui != null and _aim_ui.cancel_hit(e.position):
+					_gesture = Gesture.AIM_CANCEL
+					_aim_ui.set_cancel_pressed(true)
+					return
+				var aim_on: String = _aim_confirm.hit(e.position) if _aim_waiting and _aim_confirm != null else ""
+				if aim_on != "":
+					_gesture = Gesture.AIM_CONFIRM
+					_aim_pressed = aim_on
+					_aim_confirm.set_pressed(aim_on)
+					return
 				_placing = _placement_drag_at(e.position)
 				_tap_placing = _tap_placement_at(e.position)  # lane IOS-42: "Place on tap": this finger's click (or drag) places
-				_pan_world = drag_mode == DRAG_PAN and not _placing and not _tap_placing and not _pencil_touches.has(e.index) \
+				_aiming = not _placing and not _tap_placing and _aim_drag_at(e.position)  # lane IOS-43
+				_pan_world = drag_mode == DRAG_PAN and not _placing and not _tap_placing and not _aiming and not _pencil_touches.has(e.index) \
 					and _on_battlefield(e.position)  # IOS-35
 				if _confirming:
 					if _placing:
@@ -525,8 +597,16 @@ func _touch(e: InputEventScreenTouch) -> void:
 						_committed_ms = -1
 					else:
 						_end_confirm()  # a finger on the HUD (or a menu over the game) ends the wait
-				# the pointer goes where the finger is (the game's hover, the cursor's picture); lane IOS-23: a placement's ghost above it
-				_move(ghost_point(e.position) if _placing else e.position)
+				if _aim_waiting:
+					if _aiming:
+						_aim_confirm.hide_now()  # lane IOS-43: the finger aims again; the buttons come back where it stops
+						_aim_committed_ms = -1
+					else:
+						_end_aim_wait()  # a finger on the HUD ends the wait at the point (the power still waits: the banner stays)
+				# the pointer goes where the finger is (the game's hover, the cursor's picture); lane IOS-23: a placement's ghost above it; lane IOS-43:
+				# a power's aim too
+				_aim_live = ghost_point(e.position) if _aiming else Vector2.INF
+				_move(ghost_point(e.position) if _placing or _aiming else e.position)
 			2:
 				_end_info()
 				if _gesture == Gesture.TOOLBAR:
@@ -543,6 +623,18 @@ func _touch(e: InputEventScreenTouch) -> void:
 					_move(_ghost_px)  # the first finger had not moved: the start of a pan, not a new spot; the ghost goes back
 				elif _gesture == Gesture.PLACE:
 					_offer_confirm(ghost_point(_fingers[_first].pos), false)  # the drag stops the ghost here; ✓ / ✕ after the camera gesture
+				# lane IOS-43: the same for a power's aim
+				if _gesture == Gesture.AIM_CONFIRM:
+					_aim_confirm.set_pressed("")
+				elif _gesture == Gesture.AIM_CANCEL:
+					_aim_ui.set_cancel_pressed(false)
+				elif _gesture == Gesture.PENDING and _aiming and _aim_waiting:
+					_move(_aim_px)
+				elif _gesture == Gesture.AIM:
+					_offer_aim(ghost_point(_fingers[_first].pos), false)
+				_aim_live = Vector2.INF
+				if _aim_waiting:
+					_aim_confirm.hide_now()
 				if _confirming:
 					_confirm.hide_now()
 				_gesture = Gesture.TWO
@@ -558,6 +650,25 @@ func _touch(e: InputEventScreenTouch) -> void:
 	_fingers[e.index].pos = e.position
 	var camera_gesture := _gesture == Gesture.TWO or _gesture == Gesture.HELD
 	match _gesture:
+		Gesture.PENDING when _aiming:
+			_offer_aim(e.position)  # lane IOS-43: a tap puts the aim under the tap point and waits for ✓ / ✕ (or picks the target under it)
+			stats.aim_taps += 1
+		Gesture.AIM:
+			if _offer_aim(ghost_point(e.position)):  # lane IOS-43: lifting leaves the aim at the offset point and waits for ✓ / ✕
+				stats.aim_lifts += 1
+		Gesture.AIM_CONFIRM:
+			if _aim_confirm.hit(e.position) == _aim_pressed:  # lifted on the button it pressed
+				if _aim_pressed == "build":
+					_aim_fire()
+				else:
+					_aim_cancel()
+			if is_instance_valid(_aim_confirm):
+				_aim_confirm.set_pressed("")
+			_aim_pressed = ""
+		Gesture.AIM_CANCEL:
+			if _aim_ui.cancel_hit(e.position):
+				_aim_cancel()
+			_aim_ui.set_cancel_pressed(false)
 		Gesture.PENDING:
 			if _placing:
 				if placement_mode == PLACE_LIFT:
@@ -609,6 +720,7 @@ func _touch(e: InputEventScreenTouch) -> void:
 				_click(MOUSE_BUTTON_RIGHT, _centroid())
 				stats.two_finger_taps += 1
 				_end_confirm()  # lane IOS-26: the two-finger tap cancelled the placement
+				_end_aim_wait()  # lane IOS-43: and a power's aim
 	_fingers.erase(e.index)
 	_pencil_touches.erase(e.index)
 	if _fingers.is_empty():
@@ -618,9 +730,15 @@ func _touch(e: InputEventScreenTouch) -> void:
 		_tap_placing = false
 		_pan_world = false
 		_pressed = ""
+		_aiming = false
+		_aim_live = Vector2.INF
+		_aim_poll_ms = 0  # lane IOS-43: the HUD is asked at once (a tap may have started a power, or used one)
 		if camera_gesture and _confirming:
 			_track_until = now + CONFIRM_TRACK_MS  # lane IOS-26: the camera may still ease (a zoom); the buttons come back beside the ghost
 			_follow_anchor(true)
+		if camera_gesture and _aim_waiting:
+			_aim_track_until = now + CONFIRM_TRACK_MS  # lane IOS-43: as for a ghost
+			_follow_aim(true)
 	elif _gesture == Gesture.TWO:
 		_gesture = Gesture.HELD  # one finger of two lifted: nothing more until both are up (no surprise click or box)
 
@@ -630,6 +748,25 @@ func _drag(e: InputEventScreenDrag) -> void:
 		return
 	_fingers[e.index].pos = e.position
 	match _gesture:
+		Gesture.PENDING when e.index == _first and _aiming:
+			# lane IOS-43: the aim follows the finger at its offset from the first move; past the slop it is an aim drag (no tap, no hold)
+			_aim_live = ghost_point(e.position)
+			_move(_aim_live)
+			if e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
+				_press_waiting()
+				_disarm("drag")
+				_gesture = Gesture.AIM
+				stats.aim_drags += 1
+		Gesture.AIM:
+			if e.index == _first:
+				_aim_live = ghost_point(e.position)
+				_move(_aim_live)
+		Gesture.AIM_CONFIRM:
+			if e.index == _first:
+				_aim_confirm.set_pressed(_aim_pressed if _aim_confirm.hit(e.position) == _aim_pressed else "")
+		Gesture.AIM_CANCEL:
+			if e.index == _first:
+				_aim_ui.set_cancel_pressed(_aim_ui.cancel_hit(e.position))
 		Gesture.PENDING:
 			if e.index == _first and _placing:
 				# lane IOS-23: the ghost follows the finger at its offset from the first move; past the slop it is a placement drag (no tap, no hold)
@@ -1310,6 +1447,8 @@ func _two_finger_move() -> void:
 			stats.twists += 1
 		if _confirming:
 			_follow_anchor(false)  # lane IOS-26: the ghost keeps its ground point under the moving camera
+		if _aim_waiting:
+			_follow_aim(false)  # lane IOS-43: the aim keeps its ground point (or its target)
 	_last_centroid = c
 
 
@@ -1493,6 +1632,330 @@ func _click(button: MouseButton, at: Vector2, double := false) -> void:
 	_button(button, false, at)
 
 
+# ---- lane IOS-43: aiming a power or a hero ability (the header's IOS-43 section) ------------------------------------------------------------------
+
+## the HUD's answer for the waiting power at `at` ({}: none waits, or an extension built before lane IOS-43)
+func _aim_query(at: Vector2) -> Dictionary:
+	var hud := _game_hud()
+	if hud == null or not hud.has_method("touch_targeting_at"):
+		return {}
+	var r: Dictionary = hud.touch_targeting_at(at)
+	return r if str(r.get("kind", "")) != "" else {}
+
+
+## a finger coming down at `at` aims the waiting power: "Confirm first", no mouse in use, the finger on the map
+func _aim_drag_at(at: Vector2) -> bool:
+	if targeting_mode != TARGET_CONFIRM or _mouse:
+		return false
+	var r := _aim_query(at)
+	return not r.is_empty() and bool(r.get("world", false))
+
+
+## a lift or a tap leaves the aim at `at` (window pixels) to wait for ✓ / ✕, shown now (`show`) or after a camera gesture. A target power picks the
+## target under `at`, or refuses (the refusal mark, a vibration) when there is none it can have. A point on the HUD offers nothing (the power waits)
+func _offer_aim(at: Vector2, show := true) -> bool:
+	var r := _aim_query(at)
+	if r.is_empty():
+		_end_aim_wait()
+		return false
+	if not bool(r.get("world", false)):
+		stats.aim_lifts_on_hud += 1
+		_end_aim_wait()
+		return false
+	var hud := _game_hud()
+	_aim_object = 0
+	_aim_anchor = Vector2.INF
+	if str(r.kind) == "object":
+		var id := int(r.get("object", 0))
+		if id == 0 or not bool(r.get("valid", false)):
+			_refuse(at)
+			_end_aim_wait()
+			return false
+		_aim_object = id
+		var mark := _object_mark(hud, id)
+		if Vector2(mark[0]).is_finite():
+			at = mark[0]
+	else:
+		var ground: Vector2 = hud.pixel_to_world(at)
+		_aim_anchor = ground if ground.is_finite() and ground.x > -1e8 else Vector2.INF  # (-1e9, -1e9): no ground under the pixel
+	_move(at)
+	_aim_px = at
+	_aim_waiting = true
+	_aim_committed_ms = -1
+	_aim_poll_ms = 0
+	if _aim_confirm == null:
+		_aim_confirm = PlacementConfirm.new()
+		_aim_confirm.setup(_scale, "Use here", "Cancel")
+		add_child(_aim_confirm)
+	_update_aim_marks(r, at)  # first: ✓ / ✕ keep outside the sight it draws
+	if show:
+		_show_aim_confirm(true, r)
+	print("TOUCH IOS-43 aim %s at %s: %s" % [r.get("power", ""), at, "target %d" % _aim_object if _aim_object != 0 else ("valid" if r.get("valid", false) else "invalid")])
+	return true
+
+
+## ✓ / ✕ beside the waiting aim (outside the power's ring, or the target's sight), and ✓'s look for whether the game would take it
+func _show_aim_confirm(animate: bool, r: Dictionary = {}) -> void:
+	if r.is_empty():
+		r = _aim_query(_aim_px)
+	var reach := 0.0
+	if _aim_ui != null:
+		var st: Dictionary = _aim_ui.state()
+		reach = float(st.target_radius) + 10.0 * _scale if _aim_object != 0 else (float(st.ring_radius) if Vector2(st.ring).is_finite() else _aim_radius_px(r, _aim_px))
+	var side := minf(reach + (PlacementConfirm.DIAMETER_PT * 0.5 + 6.0) * _scale, CONFIRM_SIDE_MAX_PT * _scale)
+	_aim_confirm.show_at(_aim_px, _safe_rect(), _aim_free, animate, side)
+	_aim_confirm.set_build_enabled(bool(r.get("valid", false)))
+
+
+## a pixel ✓ / ✕ may cover: off the HUD (_off_hud: the Palantir, the side bar, the bubbles, the radar, the toolbar) and off the banner
+func _aim_free(at: Vector2) -> bool:
+	if _aim_ui != null and _aim_ui.banner_rect().grow(4.0 * _scale).has_point(at):
+		return false
+	return _off_hud(at)
+
+
+## a ground power's radius in pixels at `at` (its RadiusCursorRadius on the ground there; 0 none)
+func _aim_radius_px(r: Dictionary, at: Vector2) -> float:
+	var radius := float(r.get("radius", 0.0))
+	var hud := _game_hud()
+	if radius <= 0.0 or hud == null:
+		return 0.0
+	var ground: Vector2 = hud.pixel_to_world(at)
+	if not ground.is_finite() or ground.x < -1e8:
+		return 0.0
+	var o: Vector2 = hud.world_to_pixel(ground)
+	var x: Vector2 = hud.world_to_pixel(ground + Vector2(radius, 0))
+	var y: Vector2 = hud.world_to_pixel(ground + Vector2(0, radius))
+	if o.x < -1e8 or x.x < -1e8 or y.x < -1e8:
+		return 0.0
+	return maxf(o.distance_to(x), o.distance_to(y))
+
+
+## a target's sight: [its middle on screen, a radius around it]; [INF, 0] when it is gone. The pick box's points (pick_box_pixels: what a click there
+## picks), else its position on the ground
+func _object_mark(hud: Node, id: int) -> Array:
+	if hud.has_method("pick_box_pixels"):
+		var pts: PackedVector2Array = hud.pick_box_pixels(id)
+		if pts.size() > 0:
+			var lo := pts[0]
+			var hi := pts[0]
+			for q in pts:
+				lo = lo.min(q)
+				hi = hi.max(q)
+			return [pts[0], maxf((hi - lo).length() * 0.5, 16.0 * _scale) + 6.0 * _scale]
+	var scene := get_tree().current_scene
+	var world = scene.get("_world") if scene != null else null
+	if world != null and world.has_method("get_object"):
+		var o: Dictionary = world.get_object(id)
+		if o.get("ok", false):
+			var p: Vector2 = hud.world_to_pixel(Vector2(float(o.x), float(o.y)))
+			if p.x > -1e8:
+				return [p, 28.0 * _scale]
+	return [Vector2.INF, 0.0]
+
+
+## the ring (a ground power whose decal is not drawn), the sight (a target power's target, or a valid one under an aiming finger)
+func _update_aim_marks(r: Dictionary, at: Vector2) -> void:
+	if _aim_ui == null:
+		return
+	var hud := _game_hud()
+	var aiming := _aim_live.is_finite() or _aim_waiting
+	if str(r.get("kind", "")) == "location" and aiming and at.is_finite() and not bool(r.get("decal_drawn", false)):
+		_aim_ui.set_ring(at, _aim_radius_px(r, at), bool(r.get("valid", false)))
+	else:
+		_aim_ui.set_ring(Vector2.INF, 0.0, true)
+	var id := _aim_object
+	if id == 0 and _aim_live.is_finite() and str(r.get("kind", "")) == "object" and bool(r.get("valid", false)):
+		id = int(r.get("object", 0))
+	if id != 0 and hud != null:
+		var mark := _object_mark(hud, id)
+		var was: Vector2 = _aim_ui.state().target
+		_aim_ui.set_target(mark[0], mark[1], not was.is_finite())
+	else:
+		_aim_ui.set_target(Vector2.INF, 0.0)
+
+
+## ✓: the left click at the aim (the cast), when the game would take it there; else the refusal and the aim waits
+func _aim_fire() -> void:
+	var hud := _game_hud()
+	if hud == null:
+		return
+	if _aim_object != 0:
+		var mark := _object_mark(hud, _aim_object)
+		if not Vector2(mark[0]).is_finite():
+			_end_aim_wait()  # the target is gone
+			return
+		_aim_px = mark[0]
+	var r := _aim_query(_aim_px)
+	if r.is_empty():
+		_end_aim()
+		return
+	if not bool(r.get("valid", false)) or (_aim_object != 0 and int(r.get("object", 0)) != _aim_object):
+		_refuse(_aim_px)
+		return
+	_click(MOUSE_BUTTON_LEFT, _aim_px)
+	stats.aim_fires += 1
+	Input.vibrate_handheld(10)
+	print("TOUCH IOS-43 ✓ %s at %s" % [r.get("power", ""), _aim_px])
+	_aim_confirm.hide_now()
+	_aim_committed_ms = Time.get_ticks_msec()
+	_aim_poll_ms = 0
+
+
+## ✕ (beside the aim, or the banner's): the game's cancel of the waiting power
+func _aim_cancel() -> void:
+	var hud := _game_hud()
+	if hud != null and hud.has_method("cancel_targeting"):
+		hud.cancel_targeting()
+	stats.aim_cancels += 1
+	Input.vibrate_handheld(10)
+	_end_aim()
+
+
+## the refusal at `at`: the game would not take it (the mouse's red cursor, for a finger)
+func _refuse(at: Vector2) -> void:
+	stats.aim_refused += 1
+	Input.vibrate_handheld(25)
+	if _aim_ui != null:
+		_aim_ui.refuse(at)
+	print("TOUCH IOS-43 refused at %s" % at)
+
+
+## the wait at a point ends (the power may still wait: the banner stays)
+func _end_aim_wait() -> void:
+	_aim_waiting = false
+	_aim_object = 0
+	_aim_px = Vector2.INF
+	_aim_anchor = Vector2.INF
+	_aim_committed_ms = -1
+	_aim_track_until = 0
+	if _aim_confirm != null:
+		_aim_confirm.hide_now()
+	if _aim_ui != null:
+		_aim_ui.set_ring(Vector2.INF, 0.0, true)
+		_aim_ui.set_target(Vector2.INF, 0.0)
+
+
+## the power is over (cast, cancelled, ended by the game): everything goes
+func _end_aim() -> void:
+	_end_aim_wait()
+	_aim_key = ""
+	_aim_info = {}
+	if _aim_ui != null:
+		_aim_ui.clear()
+
+
+## the aim's pixel now: a target's middle, a ground point through the drawn camera (the pixel it waited at when the HUD had no ground point); INF: the
+## target is gone
+func _aim_follow_px(hud: Node) -> Vector2:
+	if _aim_object != 0:
+		return _object_mark(hud, _aim_object)[0]
+	if _aim_anchor.is_finite():
+		var p: Vector2 = hud.world_to_pixel(_aim_anchor)
+		if p.is_finite() and p.x > -1e8:
+			return p
+	return _aim_px
+
+
+## the aim back on its ground point (or its target) after the camera (or the target) moved; `show`: and its buttons, if they were hidden. A point off
+## the view or under the HUD hides them; they come back when it is back
+func _follow_aim(show: bool) -> void:
+	var hud := _game_hud()
+	if hud == null:
+		return
+	var px := _aim_follow_px(hud)
+	if not px.is_finite():
+		_end_aim_wait()  # the target died or left the view's picture
+		return
+	if not get_viewport().get_visible_rect().has_point(px) or not _off_hud(px):
+		_aim_confirm.hide_now()
+		return
+	if px.distance_to(_aim_px) > 1.5:
+		_aim_px = px
+		_move(px)
+		_aim_confirm.move_to(px)
+	if show and not _aim_confirm.is_shown() and _aim_committed_ms < 0:
+		_show_aim_confirm(true)
+
+
+## the banner's two lines for the waiting power `r`
+func aim_banner_text(r: Dictionary) -> Array:
+	var target := str(r.get("kind", "")) == "object"
+	var label := str(r.get("label", ""))
+	var title := ("Choose a target" if target else "Choose where") + (": " + label if label != "" else "")
+	var hint := ""
+	if targeting_mode == TARGET_CONFIRM:
+		hint = "Tap a unit or building, then ✓" if target else "Touch the map to aim, lift, then ✓"
+	else:
+		hint = "Tap a unit or building to use it" if target else "Tap the map to use it here"
+	return [title, hint]
+
+
+## lane IOS-43, each frame: the waiting power (the HUD asked every AIM_POLL_MS, every frame while a finger aims or the camera moves, AIM_IDLE_POLL_MS
+## while none waits): the banner, the ring and the sight; while ✓ / ✕ wait, the aim on its point and ✓'s look; the power's end ends it all
+func _poll_aim(now: int) -> void:
+	var live := _aim_live.is_finite() and (_gesture == Gesture.PENDING or _gesture == Gesture.AIM)
+	var camera := _aim_waiting and (_gesture == Gesture.TWO or _gesture == Gesture.HELD or now < _aim_track_until)
+	var every := AIM_POLL_MS if _aim_key != "" else AIM_IDLE_POLL_MS
+	if not live and not camera and now - _aim_poll_ms < every:
+		return
+	_aim_poll_ms = now
+	var hud := _game_hud()
+	if hud == null or not hud.has_method("touch_targeting_at"):
+		if _aim_key != "":
+			_end_aim()
+		return
+	var at := _aim_live if live else (_aim_px if _aim_waiting else Vector2(-1, -1))
+	var r: Dictionary = hud.touch_targeting_at(at)
+	if str(r.get("kind", "")) == "":
+		if _aim_key != "":
+			print("TOUCH IOS-43 the power no longer waits (%s)" % _aim_key)
+			_end_aim()
+		return
+	var key := "%s|%s|%s" % [r.get("source", ""), r.get("button", ""), r.get("power", "")]
+	if key != _aim_key:
+		if _aim_key != "":
+			_end_aim_wait()  # another power took its place
+		_aim_key = key
+		stats.aim_starts += 1
+		print("TOUCH IOS-43 a power waits: %s" % JSON.stringify(r))
+	_aim_info = r
+	if _aim_ui == null:
+		_aim_ui = TouchTargeting.new()
+		_aim_ui.setup(_scale)
+		add_child(_aim_ui)
+	var menus := _menu_player()
+	var covered: bool = menus != null and menus.has_method("modal_menu") and menus.modal_menu()  # a menu over the game: nothing of this over it
+	_aim_ui.visible = not covered
+	if _aim_confirm != null:
+		_aim_confirm.visible = not covered
+	if covered or _mouse:
+		_aim_ui.hide_banner()  # a mouse in use aims as on a desktop (its cursor and the game's decal)
+	else:
+		var text := aim_banner_text(r)
+		var top: float = _toolbar.rect().end.y if _toolbar != null and _toolbar.is_shown() and _toolbar.rect().has_area() else _safe_rect().position.y
+		_aim_ui.show_banner(text[0], text[1], _safe_rect(), top)
+	if _aim_waiting and not live:
+		if _gesture == Gesture.NONE or camera:
+			_follow_aim(_gesture == Gesture.NONE)
+		if not _aim_waiting:
+			return
+		if _aim_committed_ms >= 0 and now - _aim_committed_ms >= CONFIRM_RETRY_MS and _gesture == Gesture.NONE:
+			_aim_committed_ms = -1  # the game kept the power waiting after ✓: the buttons again
+			_show_aim_confirm(true)
+		r = hud.touch_targeting_at(_aim_px)
+		if _aim_confirm.is_shown():
+			_aim_confirm.set_build_enabled(bool(r.get("valid", false)))
+		at = _aim_px
+	_update_aim_marks(r, at)
+
+
+## for the tests and the self-test: { waiting, key, info, aim, object, aiming, ui (touch_targeting.gd's state), confirm (✓ / ✕'s state) }
+func aim_state() -> Dictionary:
+	return {"waiting": _aim_waiting, "key": _aim_key, "info": _aim_info, "aim": _aim_px, "object": _aim_object, "aiming": _aim_live,
+		"ui": _aim_ui.state() if _aim_ui != null else {}, "confirm": _aim_confirm.state() if _aim_confirm != null else {}}
+
+
 # ---- lane IOS-14: the mouse, trackpad and hardware keyboard (IOSPointer) ------------------------------------------------------------------------
 
 ## A screen touch that is the mouse's click (the bridge recorded it): true, and its sequence is dropped (the bridge sent its buttons).
@@ -1525,9 +1988,11 @@ func _pump_bridge() -> void:
 			"motion":
 				if _fingers.is_empty():  # while a finger is down the finger has the pointer
 					_end_confirm()  # lane IOS-26: the mouse takes the pointer, and with it the ghost; its click places as retail's
+					_end_aim_wait()  # lane IOS-43: and a power's aim; its click casts as retail's
 					_mouse_motion(e.position, int(e.buttons))
 			"button":
 				_end_confirm()
+				_end_aim_wait()
 				_mouse_button(int(e.button) as MouseButton, bool(e.pressed), e.position, int(e.buttons), bool(e.double_click))
 			"scroll":
 				_mouse_scroll(e.delta, e.position, bool(e.ended))

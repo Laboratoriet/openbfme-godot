@@ -93,6 +93,7 @@ const HELP := {
 	"OpenBFMETouchPlacement": "Confirm first: the building waits where you put it, with ✓ and ✕ beside it; tap ✓ to build. When you lift: it is built where your finger lets go. On tap: as with a mouse, a tap builds at once.",
 	"OpenBFMETouchGhostAbove": "While you place a building it floats a little above your finger, so the finger does not hide it. Off: right under your finger.",
 	"OpenBFMETouchPlaceTwist": "While a building waits for ✓, turning two fingers turns the building. Turns camera: two fingers always turn the view.",
+	"OpenBFMETouchTargeting": "Confirm first: after you choose a power or a hero's ability, touch the map to see where it lands (or tap its target), then tap ✓ to use it or ✕ to cancel. On tap: your next tap on the map uses it at once.", # lane IOS-43
 	"OpenBFMETouchDeselectBuilders": "Once a building is placed, the builders are no longer selected, so your next tap does not send them somewhere. Off: they stay selected.",
 	"OpenBFMEPortraitLayout": "How the screen is arranged when you hold the phone upright. A: the most map; its bottom panel grows with the HUD size. B: every button in reach of one thumb. C: the map and the panels split. Classic: the first upright layout.",
 	"OpenBFMETouchSideBar": "With the phone on its side. One column: the original column of buttons on the right edge, sized with the HUD size. Two columns: above 100 % the buttons are larger, in a block of one or two columns.",
@@ -140,6 +141,7 @@ const BUTTON_TAPS_ITEMS := [["costs", "Preview what costs"], ["all", "Preview al
 ## lane IOS-42: the Touch tab's choices (game_options.gd EXTRAS: the values, in this order)
 const HOLD_ITEMS := [["info", "Shows its info"], ["right", "Right-click"]]
 const PLACEMENT_ITEMS := [["confirm", "Confirm first"], ["lift", "When you lift"], ["tap", "On tap"]]
+const TARGETING_ITEMS := [["confirm", "Confirm first"], ["tap", "On tap"]] # lane IOS-43
 const TWIST_ITEMS := [["building", "Turns building"], ["camera", "Turns camera"]]
 const PORTRAIT_ITEMS := [["a", "A: More map"], ["b", "B: One hand"], ["c", "C: Split"], ["default", "Classic"]]
 const SIDE_BAR_ITEMS := [["one", "One column"], ["two", "Two columns"]]
@@ -693,8 +695,8 @@ func _interface_rows() -> Array:
 
 
 ## lane IOS-42 (the owner, 2026-11-05: "toggle on/off and check what works best"): the Touch tab, where the touch controls are on (tabs()). Every touch
-## behaviour with a switch, each default today's, grouped Gestures, Buttons (left), Placing, Layout (right): eighteen rows with the headings, more
-## than one column holds above the footer (ten), so two columns as Graphics'
+## behaviour with a switch, each default today's, grouped Gestures, Buttons, Powers (lane IOS-43) (left), Placing, Layout (right): twenty rows with the
+## headings, more than one column holds above the footer (ten), so two columns as Graphics'
 func _touch_rows() -> Array:
 	var left := [
 		_section("GESTURES"),
@@ -705,6 +707,8 @@ func _touch_rows() -> Array:
 		_extra_choice("OpenBFMETouchHoldButton", "Hold a button", HOLD_ITEMS, HELP.OpenBFMETouchHoldButton), # lane IOS-21
 		_extra_check("OpenBFMETouchAutocastTap", "Autocast tap", HELP.OpenBFMETouchAutocastTap), # lanes IOS-21, IOS-40
 		_extra_check("OpenBFMETouchTapAssist", "Tap assist", HELP.OpenBFMETouchTapAssist), # lane IOS-10
+		_section("POWERS"),
+		_extra_choice("OpenBFMETouchTargeting", "Aim powers", TARGETING_ITEMS, HELP.OpenBFMETouchTargeting), # lane IOS-43
 	]
 	var right := [
 		_section("PLACING"),

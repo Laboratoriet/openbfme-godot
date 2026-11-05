@@ -176,6 +176,41 @@ public:
 	TouchButton touchButtonAt(int x, int y);
 	// lane IOS-40: the command button whose Apt button path is `path` (touchButtonAt's lookup: the arc / side bar content, a spell book slot); null none
 	const CommandButton *touchCommandAt(const std::string &path);
+	// lane IOS-43 (OpenBFME, not retail; touch only: scripts/touch/touch_targeting.gd): the power waiting for its target, and what the left click at window
+	// pixel (x, y) would do with it. The waiting power is the spell book's (InGameSpellBookModel::targeting, a NEED_TARGET_POS power) or a hero / unit
+	// ability's GUI command (InGameUI::getGUICommand) of a SPECIAL_POWER, FIRE_WEAPON or BLOODTHIRSTY button; the unit commands that also wait (attack
+	// move, guard, rally point) are None. Location: a NEED_TARGET_POS (or a CONTEXTMODE_COMMAND-only) button, whose click casts at the ground point (an
+	// object under it may still take an object power's cast, as the click's own rule); Object: a button that needs an enemy / neutral / ally object.
+	// `valid`: the click would act. The spell book: the radius cursor's verdict at the ground point (InGameSpellBookModel::targetVerdict, an unported
+	// type's test counts as valid as the click takes it); an ability: CommandTranslator::evaluateContextCommand(EvaluateOnly) on the object the click picks
+	// (HudObjects::pickForGuiCommand for a SPECIAL_POWER, pickObject otherwise) and the ground point, with the selection controllable: the click's own test
+	// without its message. `object` the picked object (INVALID_ID none, always none for the spell book), `world` the pixel is on the world (no menu over the
+	// game, not over the HUD: isOverGui), `ground` it has a terrain point, `label` the button's TextLabel in the game text without its '&' (empty when the
+	// text has none), `radius` the power's RadiusCursorRadius (0 none), `decal` the retail radius decal exists now (RadiusCursor active and made)
+	struct TouchTarget
+	{
+		enum Kind
+		{
+			None,
+			Location,
+			Object
+		} kind = None;
+		bool spellBook = false;
+		const CommandButton *button = nullptr;
+		const SpecialPowerTemplate *power = nullptr;
+		std::u16string label;
+		float radius = 0.0f;
+		bool decal = false;
+		bool world = false;
+		bool ground = false;
+		bool valid = false;
+		ObjectID object = INVALID_ID;
+	};
+	TouchTarget touchTargetAt(int x, int y);
+	// lane IOS-43: the waiting power's cancel, the one the right click makes (the spell book's: GUICommandTranslator's hook, InGameSpellBookModel::cancel;
+	// an ability's: SelectionTranslator's InGameUI::setGUICommand(null), the selection kept), without a click at a point. False when touchTargetAt's power
+	// is None or a script has the input off (the right click then cancels nothing either)
+	bool cancelTouchTarget();
 
 	WindowManager &windows() { return *m_wm; }
 	Apt &apt() { return m_wm->apt(); }

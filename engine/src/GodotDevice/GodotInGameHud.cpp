@@ -1288,6 +1288,8 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("hud_scale_audit"), &InGameHudNode::hud_scale_audit);              // lane IOS-29
 	ClassDB::bind_method(D_METHOD("touch_button_at", "pixel"), &InGameHudNode::touch_button_at);      // lane IOS-21
 	ClassDB::bind_method(D_METHOD("touch_placement_at", "pixel"), &InGameHudNode::touch_placement_at); // lane IOS-23
+	ClassDB::bind_method(D_METHOD("touch_targeting_at", "pixel"), &InGameHudNode::touch_targeting_at); // lane IOS-43
+	ClassDB::bind_method(D_METHOD("cancel_targeting"), &InGameHudNode::cancel_targeting); // lane IOS-43
 	ClassDB::bind_method(D_METHOD("deselect_builders"), &InGameHudNode::deselect_builders);            // lane IOS-36
 	ClassDB::bind_method(D_METHOD("deselect_all"), &InGameHudNode::deselect_all);                      // lane IOS-37
 	ClassDB::bind_method(D_METHOD("command_hotkey", "command"), &InGameHudNode::command_hotkey);        // lane IOS-37
@@ -4848,6 +4850,72 @@ Dictionary InGameHudNode::touch_placement_at(const Vector2 &pixel)
 	const auto &stats = d->hud->input().placeTranslator().stats(); // lane IOS-36: the accepted construction orders (a refusal counts as refused)
 	r["builds"] = (int64_t)(stats.placed + stats.wallSpans);
 	return r;
+}
+
+// lane IOS-43 (GodotInGameHud.h): the touch layer's targeting asks this as a finger comes down, moves and lifts, and while ✓ / ✕ wait
+Dictionary InGameHudNode::touch_targeting_at(const Vector2 &pixel)
+{
+	waitLogic(d.get());
+	Dictionary r;
+	r["kind"] = String();
+	r["source"] = String();
+	r["power"] = String();
+	r["button"] = String();
+	r["command"] = String();
+	r["label"] = String();
+	r["radius"] = 0.0;
+	r["decal"] = false;
+	r["decal_drawn"] = false;
+	r["world"] = false;
+	r["ground"] = false;
+	r["valid"] = false;
+	r["object"] = (int64_t)0;
+	if (!d->ready || !d->hud)
+	{
+		return r;
+	}
+	const auto worldContext = d->hud->enterContext();
+	const InGameHud::TouchTarget t = d->hud->touchTargetAt((int)pixel.x, (int)pixel.y);
+	if (t.kind == InGameHud::TouchTarget::None)
+	{
+		return r;
+	}
+	r["kind"] = t.kind == InGameHud::TouchTarget::Location ? String("location") : String("object");
+	r["source"] = t.spellBook ? String("spell_book") : String("ability");
+	r["power"] = t.power ? toGodot(t.power->getName()) : String();
+	r["button"] = t.button ? toGodot(t.button->m_name) : String();
+	r["command"] = t.button ? String(GUICommandName(t.button->m_command)) : String();
+	String label;
+	for (char16_t ch : t.label)
+	{
+		label += String::chr((char32_t)ch);
+	}
+	r["label"] = label;
+	r["radius"] = t.radius;
+	r["decal"] = t.decal;
+	r["decal_drawn"] = t.decal && d->radiusDecalDrawn;
+	const bool menu = !d->ownsPlayer && d->player && d->player->modal_menu(); // the quit menu, Options, the save screen over the game
+	r["world"] = t.world && !menu;
+	r["ground"] = t.ground;
+	r["valid"] = t.valid && !menu;
+	r["object"] = (int64_t)t.object;
+	return r;
+}
+
+bool InGameHudNode::cancel_targeting()
+{
+	waitLogic(d.get());
+	if (!d->ready || !d->hud)
+	{
+		return false;
+	}
+	const auto worldContext = d->hud->enterContext();
+	const bool cancelled = d->hud->cancelTouchTarget();
+	if (cancelled)
+	{
+		UtilityFunctions::print("TOUCH IOS-43 targeting cancelled");
+	}
+	return cancelled;
 }
 
 // lane IOS-36 (GodotInGameHud.h), after daisyhasacat/openbfme-godot facef81b (GPL-3, "Deselect iOS builders after issuing construction orders"):

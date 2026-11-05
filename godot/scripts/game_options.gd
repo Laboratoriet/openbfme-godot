@@ -91,6 +91,9 @@ const EXTRAS := {
 	"OpenBFMETouchGhostAbove": {"default": "yes", "choices": ["yes", "no"]},     # IOS-23: a placement's ghost 60 pt above the finger
 	"OpenBFMETouchPlaceTwist": {"default": "building", "choices": ["building", "camera"]}, # IOS-37: the twist while ✓ / ✕ wait
 	"OpenBFMETouchDeselectBuilders": {"default": "yes", "choices": ["yes", "no"]}, # IOS-36: an accepted placement deselects the builders
+	# lane IOS-43: a power or a hero ability waiting for its target: aimed with a finger and confirmed with ✓ / ✕ ("confirm"), or used by the next tap
+	# on the map ("tap": the mouse's click, as before IOS-43)
+	"OpenBFMETouchTargeting": {"default": "confirm", "choices": ["confirm", "tap"]},
 	# the landscape side bar: "two" IOS-27's block of one or two columns above 100 %; "one" the retail column at the HUD size (the owner's choice for a
 	# phone, MOBILE_DEFAULTS). Reaches the HUD (view_options side_bar_one_column), live
 	"OpenBFMETouchSideBar": {"default": "two", "choices": ["one", "two"]},
@@ -98,7 +101,7 @@ const EXTRAS := {
 ## lane IOS-42: the Touch tab's keys that touch_controls.gd apply_options reads (the HUD size and the portrait layout reach the HUD, view_options)
 const TOUCH_KEYS := ["OpenBFMETouchDrag", "OpenBFMETouchListScroll", "OpenBFMETouchTapAssist", "OpenBFMETouchButtonTaps", "OpenBFMETouchHoldButton",
 	"OpenBFMETouchAutocastTap", "OpenBFMETouchPlacement", "OpenBFMETouchGhostAbove", "OpenBFMETouchPlaceTwist", "OpenBFMETouchDeselectBuilders",
-	"OpenBFMETouchToolbar"]
+	"OpenBFMETouchToolbar", "OpenBFMETouchTargeting"]
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
 	# the Scroll Speed slider: any text (RW 0x6E59A9: atoi, below 0 -> 1, above 100 -> 100, * 0.02); "" = no entry, GlobalData + 0xAFC's default (the

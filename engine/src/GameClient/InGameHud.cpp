@@ -1136,6 +1136,107 @@ void InGameHud::updateRadiusCursor()
 	m_radiusCursor.update(at, m_clientFrames, m_decalSettings.drawIconUI);
 }
 
+// lane IOS-43 (InGameHud.h): the waiting power as updateRadiusCursor finds it, and the left click's own tests at (x, y) without its message
+InGameHud::TouchTarget InGameHud::touchTargetAt(int x, int y)
+{
+	TouchTarget out;
+	if (!m_booted)
+	{
+		return out;
+	}
+	GameLogic &logic = m_config.game.logic();
+	InGameUI &ui = m_input->ui();
+	const InGameSpellBookModel::Button *spell = m_spellBar.targeting() ? m_spellBar.targetButton() : nullptr;
+	const CommandButton *command = spell ? spell->button : ui.getGUICommand();
+	if (!command)
+	{
+		return out;
+	}
+	if (spell)
+	{
+		out.kind = TouchTarget::Location; // the spell book targets only NEED_TARGET_POS powers (InGameSpellBookModel::press)
+		out.spellBook = true;
+		out.power = spell->power;
+	}
+	else
+	{
+		const int type = command->m_command;
+		if (type != GUI_COMMAND_SPECIAL_POWER && type != GUI_COMMAND_FIRE_WEAPON && type != GUI_COMMAND_BLOODTHIRSTY)
+		{
+			return out; // attack move, guard, rally point: unit commands, not powers
+		}
+		const bool objects = (command->m_options & 7u) != 0;
+		const bool contextOnly = command->hasOption(COMMAND_OPTION_CONTEXTMODE_COMMAND) && !objects && !command->hasOption(COMMAND_OPTION_NEED_TARGET_POS);
+		out.kind = command->hasOption(COMMAND_OPTION_NEED_TARGET_POS) || contextOnly ? TouchTarget::Location : objects ? TouchTarget::Object : TouchTarget::None;
+		if (out.kind == TouchTarget::None)
+		{
+			return out;
+		}
+		out.power = TheSpecialPowerStore && !command->m_specialPowerName.empty() ? TheSpecialPowerStore->findSpecialPowerTemplate(command->m_specialPowerName) : nullptr;
+	}
+	out.button = command;
+	out.radius = out.power ? out.power->getFinalOverride()->getRadiusCursorRadius() : 0.0f;
+	out.decal = m_radiusCursor.active() && m_radiusCursor.decal().visible;
+	std::u16string text;
+	if (!command->m_textLabel.empty() && m_config.gameText && m_config.gameText->fetch(command->m_textLabel.front(), text))
+	{
+		for (char16_t c : text) // RW 0x94002B's title rule (CommandButtonHelp.cpp): every '&' goes
+		{
+			if (c == u'\n')
+			{
+				break;
+			}
+			if (c != u'&')
+			{
+				out.label.push_back(c);
+			}
+		}
+	}
+	out.world = !m_modal && !isOverGui(x, y);
+	Coord3D where;
+	out.ground = m_config.view.screenToTerrain(ICoord2D{ x, y }, logic, where);
+	if (!out.world || !out.ground || !ui.getInputEnabled())
+	{
+		return out;
+	}
+	if (spell)
+	{
+		out.valid = m_spellBar.targetVerdict(logic, where) != InGameSpellBookModel::Target::INVALID;
+		return out;
+	}
+	CommandTranslator &translator = m_input->commandTranslator();
+	if (!translator.areSelectedObjectsControllable())
+	{
+		return out;
+	}
+	HudContext &ctx = m_input->context();
+	Object *picked = command->m_command == GUI_COMMAND_SPECIAL_POWER ? HudObjects::pickForGuiCommand(ctx, ICoord2D{ x, y }, *command)
+		: HudObjects::pickObject(ctx, ICoord2D{ x, y });
+	out.object = picked ? picked->getID() : INVALID_ID;
+	out.valid = translator.evaluateContextCommand(picked, &where, EvaluateType::EvaluateOnly) != 0;
+	return out;
+}
+
+bool InGameHud::cancelTouchTarget()
+{
+	if (!m_booted || !m_input->ui().getInputEnabled())
+	{
+		return false;
+	}
+	if (m_spellBar.targeting())
+	{
+		m_spellBar.cancel(); // GUICommandTranslator's hook (lane SPELLRC-1); updateRadiusCursor clears the decal and gives the pointer back
+		return true;
+	}
+	const TouchTarget t = touchTargetAt(-1, -1);
+	if (t.kind == TouchTarget::None)
+	{
+		return false;
+	}
+	m_input->ui().setGUICommand(nullptr); // SelectionTranslator's right click (BFME2 0x0043003C): the command mode ends, the selection stays
+	return true;
+}
+
 // RW 0x9312B9's slot pass: the spell book command set's visible buttons in order. INFERENCE (S-923): ControlBar::getCommandAvailability (RW 0x942733) for a
 // SPELL_BOOK button is taken as: hidden (3) while none of the power's sciences is owned; disabled (4) when the power cannot be used; not ready (5, with the
 // recharge percent) while it recharges; else available (1): _up, or _static for a NONPRESSABLE button

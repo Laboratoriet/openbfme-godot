@@ -47,7 +47,7 @@ const REQUIRED_ROWS_IOS := {"Audio": ["OpenBFMEIOSSilentSound"]}
 const TOUCH_TAB := "Touch"
 const REQUIRED_ROWS_TOUCH := {"Touch": ["OpenBFMEHudScale", "OpenBFMEPortraitLayout", "OpenBFMETouchAutocastTap", "OpenBFMETouchButtonTaps",
 	"OpenBFMETouchDeselectBuilders", "OpenBFMETouchDrag", "OpenBFMETouchGhostAbove", "OpenBFMETouchHoldButton", "OpenBFMETouchListScroll",
-	"OpenBFMETouchPlaceTwist", "OpenBFMETouchPlacement", "OpenBFMETouchSideBar", "OpenBFMETouchTapAssist", "OpenBFMETouchToolbar"]}
+	"OpenBFMETouchPlaceTwist", "OpenBFMETouchPlacement", "OpenBFMETouchSideBar", "OpenBFMETouchTapAssist", "OpenBFMETouchTargeting", "OpenBFMETouchToolbar"]}
 const REQUIRED_ROWS_NOT_TOUCH := {"Interface": ["OpenBFMEHudScale"]}
 ## lane IOS-24: the tab a desktop shows last (prepare_mobile_tab.gd: the game file for the iPhone / iPad) and its rows before a file is made
 const DESKTOP_TAB := "iPhone / iPad"

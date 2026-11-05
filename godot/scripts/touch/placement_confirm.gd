@@ -81,10 +81,11 @@ func _init() -> void:
 	layer = 110  # over the game and its HUD; under the frame-rate readout (fps_overlay.gd, 120)
 
 
-func setup(px_per_pt: float) -> void:
+## `build_label` / `cancel_label`: the buttons' accessibility names (lane IOS-43's targeting: "Use here" / "Cancel")
+func setup(px_per_pt: float, build_label := "Build here", cancel_label := "Cancel placement") -> void:
 	_px = px_per_pt
-	_build = _disc("build", "Build here")
-	_cancel = _disc("cancel", "Cancel placement")
+	_build = _disc("build", build_label)
+	_cancel = _disc("cancel", cancel_label)
 
 
 func _disc(kind: String, label: String) -> Disc:

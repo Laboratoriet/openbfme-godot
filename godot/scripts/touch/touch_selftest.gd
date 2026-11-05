@@ -24,6 +24,8 @@ extends Node
 ## meta: Select army, Deselect, Stop, Home base, Last event, a control group made by a hold and selected by a tap, the menu; a hold shows the help and
 ## presses nothing; hidden under the quit menu); a two-finger twist turns a waiting ghost, not the camera, and ✓ builds it turned; the armed recruit
 ## bubble of the fortress shows ✕ while units are queued and a tap on it takes one off. Pictures: touch-toolbar-*, touch-rotate-*, touch-cancel-*.
+## Lane IOS-43: a spell book power (Heal, bought with points a test hook gives) and a hero ability (Gandalf's Istari Light, a target power) aimed by
+## finger: the banner, the area 60 pt above the finger, ✓ / ✕ after the lift, ✓ casts; a tap on the enemy picks it, ✓ casts at it. Pictures: touch-target-*.
 
 var _out := ""
 var _controls: Node
@@ -50,6 +52,10 @@ func _run() -> void:
 	var size := get_viewport().get_visible_rect().size
 	var mid := size / 2.0
 	var failures := PackedStringArray()
+	if OS.get_cmdline_user_args().has("--touch-selftest-only=targeting"):
+		failures.append_array(await _targeting_check(hud))  # lane IOS-43: that step alone (a quicker run while working on it)
+		print("TOUCH SELFTEST PASS" if failures.is_empty() else "TOUCH SELFTEST FAIL: " + "; ".join(failures))
+		return
 	await _shot("0-start")
 
 	var angle0: float = hud.get_camera().angle
@@ -154,10 +160,208 @@ func _run() -> void:
 	failures.append_array(await _toolbar_check(hud))
 	failures.append_array(await _cancel_check(hud))  # before the rotate step's farm spends the recruit's money
 	failures.append_array(await _rotate_check(hud))
+	# 9. lane IOS-43: a spell book power and a hero ability aimed by finger
+	failures.append_array(await _targeting_check(hud))
 	if failures.is_empty():
 		print("TOUCH SELFTEST PASS")
 	else:
 		print("TOUCH SELFTEST FAIL: ", "; ".join(failures))
+
+
+## lane IOS-43: aiming a spell book power and a hero ability with a finger. The points for the store come from a test hook (debug_add_science_points: a
+## real game earns them by rank), the power is bought through the command path (purchase_science), and Heal's slot of the Palantir's spell book is
+## tapped as a player taps it (IOS-40: twice). Then: the banner, a finger on the map shows the power's area 60 pt above it (the retail decal, or the
+## touch ring), the lift leaves ✓ / ✕, ✓ casts (the slot recharges). The hero: Gandalf made for the local player (create_object, levels by the hook),
+## an enemy beside him; his Istari Light (a target power) tapped, a tap on the enemy picks it (the sight, ✓ / ✕), ✓ casts at it. Pictures:
+## touch-target-banner-*, touch-target-drag-*, touch-target-confirm-*, touch-target-object-*
+func _targeting_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	if not hud.has_method("touch_targeting_at"):
+		out.append("the extension has no touch_targeting_at (built before lane IOS-43)")
+		return out
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	var me := int(game.get("_local_index")) if game != null else -1
+	if world == null or me < 0:
+		print("TOUCH SELFTEST targeting: SKIP (no game world / local player)")
+		return out
+	if hud.has_method("deselect_all"):
+		hud.deselect_all()
+	await _wait(0.4)
+	out.append_array(await _spell_aim_check(hud, world, me))
+	out.append_array(await _hero_aim_check(hud, world, me))
+	return out
+
+
+func _spell_aim_check(hud: Node, world, me: int) -> PackedStringArray:
+	var out := PackedStringArray()
+	var points := int(world.debug_add_science_points(me, 10))
+	var bought: bool = world.purchase_science(me, "SCIENCE_Heal")
+	await _wait(1.5)
+	var index := -1
+	for b in world.get_spell_bar(me).get("buttons", []):
+		if str(b.power) == "SpellBookHeal":
+			index = int(b.index)
+	var sb: Dictionary = hud.get_spellbook_state()
+	var slot := -1
+	var slots: Array = sb.get("slot_buttons", [])
+	for i in slots.size():
+		if int(slots[i]) == index:
+			slot = i
+	print("TOUCH SELFTEST IOS-43 spell book: points -> %d, Heal bought %s, command set index %d, slot %d, state %s" % [points, bought, index, slot,
+		sb.get("slots", [])[slot] if slot >= 0 else "?"])
+	if slot < 0:
+		out.append("targeting: Heal is not in the Palantir's spell book after the purchase")
+		return out
+	var at := Vector2.INF
+	for path in [str(sb.get("path", "")) + ".Spell%d" % (slot + 1)]:
+		var w: Dictionary = hud.find_button_window(path)
+		if w.get("found", false):
+			at = Vector2(float(w.x), float(w.y))
+	var tapped := at.is_finite() and str(hud.touch_button_at(at).get("kind", "")) == "movie"
+	if tapped:
+		await _press(hud, at)
+	else:
+		print("TOUCH SELFTEST IOS-43 spell book: slot %d's button not found on screen (%s); pressed through the hook" % [slot, at])
+		hud.press_spell_slot(slot)
+	await _wait(0.6)
+	var info: Dictionary = hud.touch_targeting_at(Vector2(-1, -1))
+	var st: Dictionary = _controls.aim_state()
+	print("TOUCH SELFTEST IOS-43 Heal %s at %s: waits %s, banner %s" % ["tapped" if tapped else "pressed", at, JSON.stringify(info), JSON.stringify(st.ui)])
+	await _shot("target-banner-" + _orient())
+	if str(info.get("kind", "")) != "location" or str(info.get("power", "")) != "SpellBookHeal":
+		out.append("targeting: Heal's slot did not leave Heal waiting for a place: %s" % JSON.stringify(info))
+		return out
+	if not st.ui.get("banner", false) or not str(st.ui.get("title", "")).begins_with("Choose where"):
+		out.append("targeting: no 'Choose where' banner for Heal: %s" % JSON.stringify(st.ui))
+	# a finger on open ground: the aim 60 pt above it; mid-drag picture
+	var size := get_viewport().get_visible_rect().size
+	var off := Vector2(0.0, _controls.GHOST_OFFSET_PT * _controls._scale)
+	var start := _open_ground(hud, size * Vector2(0.5, 0.62))
+	var end := start + Vector2(size.x * 0.08, -size.y * 0.04)
+	var casts0 := int(_controls.stats.aim_fires)
+	_touch(0, start, true)
+	await get_tree().process_frame
+	await _finger_to(start, end)
+	await _wait(0.4)
+	var rc: Dictionary = hud.get_spellbook_state().get("radius_cursor", {})
+	st = _controls.aim_state()
+	_mark(end)
+	await _shot("target-drag-" + _orient())
+	_mark(Vector2.INF)
+	var aim_world: Vector2 = hud.pixel_to_world(end - off)
+	print("TOUCH SELFTEST IOS-43 Heal mid-drag: finger %s, aim %s (world %s); retail decal %s; touch ring %s" % [end, st.aiming, aim_world,
+		JSON.stringify(rc), st.ui.get("ring", Vector2.INF)])
+	if Vector2(st.aiming).distance_to(end - off) > 1.0:
+		out.append("targeting: the aim is not 60 pt above the finger mid-drag (%s, finger %s)" % [st.aiming, end])
+	var decal_here := bool(rc.get("visible", false)) and bool(rc.get("drawn", false)) and Vector2(float(rc.get("x", 0)), float(rc.get("y", 0))).distance_to(aim_world) < 12.0
+	if not decal_here and not Vector2(st.ui.get("ring", Vector2.INF)).is_finite():
+		out.append("targeting: neither the retail decal nor the touch ring shows at the aim mid-drag")
+	if not st.confirm.is_empty() and st.confirm.get("shown", false):
+		out.append("targeting: ✓ / ✕ show while the finger still aims")
+	_touch(0, end, false)
+	await _wait(0.6)
+	st = _controls.aim_state()
+	await _shot("target-confirm-" + _orient())
+	print("TOUCH SELFTEST IOS-43 Heal lifted: %s" % JSON.stringify({"waiting": st.waiting, "aim": st.aim, "confirm": st.confirm}))
+	if not st.waiting or not st.confirm.get("shown", false):
+		out.append("targeting: the lift left no ✓ / ✕ for Heal")
+		return out
+	if Vector2(st.aim).distance_to(end - off) > 2.0:
+		out.append("targeting: Heal's aim did not stay at the lift's offset point")
+	if str(hud.touch_targeting_at(Vector2(-1, -1)).get("kind", "")) != "location":
+		out.append("targeting: the lift cast Heal (it must wait for ✓)")
+	if not st.confirm.get("build_enabled", false):
+		print("TOUCH SELFTEST IOS-43 Heal: ✓ dimmed at the aim (the game says it would not land there)")
+	await _tap(Vector2(st.confirm.build))
+	await _wait(1.0)
+	var after: Dictionary = hud.get_spellbook_state()
+	var waits := str(hud.touch_targeting_at(Vector2(-1, -1)).get("kind", ""))
+	print("TOUCH SELFTEST IOS-43 Heal ✓: fires +%d, still waits '%s', slot %s, banner %s" % [int(_controls.stats.aim_fires) - casts0, waits,
+		after.get("slots", [])[slot], _controls.aim_state().ui.get("banner", false)])
+	if waits != "" or int(_controls.stats.aim_fires) != casts0 + 1:
+		out.append("targeting: ✓ did not cast Heal")
+	elif str(after.get("slots", [])[slot]) == "_up":
+		out.append("targeting: Heal's slot is still ready after ✓ (no cast)")
+	if _controls.aim_state().ui.get("banner", false):
+		out.append("targeting: the banner stayed after the cast")
+	return out
+
+
+func _hero_aim_check(hud: Node, world, me: int) -> PackedStringArray:
+	var out := PackedStringArray()
+	var game: Node = get_tree().current_scene
+	var enemy := -1
+	for p in world.get_economy().players:
+		if p.playable and str(p.name) != str(game.get("_local_name")):
+			enemy = int(p.index)
+	var size := get_viewport().get_visible_rect().size
+	var centre: Vector2 = hud.pixel_to_world(_open_ground(hud, size * Vector2(0.45, 0.5)))
+	var gandalf := int(world.create_object("GondorGandalf", me, centre.x - 60.0, centre.y, 0.0))
+	# the enemy: a hero (one drawn model a tap picks; a horde's soldiers are picked one by one)
+	var foe := int(world.create_object("AngmarWitchking", enemy, centre.x + 70.0, centre.y + 10.0, 3.14)) if enemy >= 0 else 0
+	if gandalf <= 0 or foe <= 0:
+		print("TOUCH SELFTEST IOS-43 hero: SKIP (create_object refused: Gandalf %d, foe %d, enemy %d)" % [gandalf, foe, enemy])
+		return out
+	world.gain_hero_levels(gandalf, 9)
+	await _wait(1.0)
+	world.ready_object_powers(gandalf)
+	hud.select_object_with_message(gandalf)
+	await _wait(1.5)
+	var button := {}
+	for b in hud.get_command_buttons():
+		if str(b.name) == "Command_GondorGandalfIstariLight":
+			var w: Dictionary = hud.find_button_window(str(b.frame))
+			if w.get("found", false):
+				button = {"position": Vector2(float(w.x), float(w.y)), "state": b.state}
+	if button.is_empty():
+		out.append("targeting: Gandalf's Istari Light button is not on screen")
+		return out
+	await _press(hud, button.position)
+	await _wait(0.6)
+	var info: Dictionary = hud.touch_targeting_at(Vector2(-1, -1))
+	print("TOUCH SELFTEST IOS-43 Istari Light (state %s) at %s: %s, banner %s" % [button.state, button.position, JSON.stringify(info),
+		JSON.stringify(_controls.aim_state().ui)])
+	if str(info.get("kind", "")) != "object":
+		out.append("targeting: Istari Light is not waiting for a target: %s" % JSON.stringify(info))
+		return out
+	if not str(_controls.aim_state().ui.get("title", "")).begins_with("Choose a target"):
+		out.append("targeting: no 'Choose a target' banner for Istari Light")
+	# a tap on Gandalf himself: an ally, refused
+	var refused := int(_controls.stats.aim_refused)
+	var own: PackedVector2Array = hud.pick_box_pixels(gandalf)
+	if own.size() > 0:
+		await _tap(own[0])
+		await _wait(0.4)
+		if int(_controls.stats.aim_refused) != refused + 1 or _controls.aim_state().waiting:
+			out.append("targeting: a tap on Gandalf (no target for Istari Light) was not refused")
+	var px: PackedVector2Array = hud.pick_box_pixels(foe)
+	var foe_at: Vector2 = px[0] if px.size() > 0 else hud.world_to_pixel(Vector2(centre.x + 70.0, centre.y + 10.0))
+	print("TOUCH SELFTEST IOS-43 the enemy %d at %s: %s; pick probe %s" % [foe, foe_at, JSON.stringify(hud.touch_targeting_at(foe_at)),
+		JSON.stringify(hud.pick_probe(foe_at, foe))])
+	await _tap(foe_at)
+	await _wait(0.5)
+	var st: Dictionary = _controls.aim_state()
+	await _shot("target-object-" + _orient())
+	print("TOUCH SELFTEST IOS-43 Istari Light tap on the enemy at %s: %s" % [foe_at, JSON.stringify({"waiting": st.waiting, "object": st.object,
+		"sight": st.ui.get("target"), "confirm": st.confirm})])
+	if not st.waiting or int(st.object) != foe or not st.confirm.get("shown", false):
+		out.append("targeting: a tap on the enemy did not pick it (object %s, foe %d)" % [st.object, foe])
+		return out
+	if not Vector2(st.ui.get("target", Vector2.INF)).is_finite():
+		out.append("targeting: no sight around the picked enemy")
+	var log0: int = hud.get_message_log().size()
+	await _tap(Vector2(st.confirm.build))
+	await _wait(1.0)
+	var waits := str(hud.touch_targeting_at(Vector2(-1, -1)).get("kind", ""))
+	var cast := false
+	var lines: PackedStringArray = hud.get_message_log()
+	for i in range(log0, lines.size()):
+		cast = cast or lines[i].begins_with("MSG_DO_SPECIAL_POWER_AT_OBJECT")
+	print("TOUCH SELFTEST IOS-43 Istari Light ✓: still waits '%s', MSG_DO_SPECIAL_POWER_AT_OBJECT %s" % [waits, cast])
+	if waits != "" or not cast:
+		out.append("targeting: ✓ did not cast Istari Light at the enemy")
+	return out
 
 
 ## lane IOS-10: the tap assist's check; its failures (none: passed)

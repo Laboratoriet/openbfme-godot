@@ -198,6 +198,13 @@ public:
 	bool deselect_all();
 	Dictionary command_hotkey(const String &command) const;
 	bool set_placement_angle(double angle);
+	// lane IOS-43 (OpenBFME, not retail; touch only: scripts/touch/touch_targeting.gd): the power or ability waiting for its target and what a left click at
+	// window `pixel` would do with it (InGameHud::touchTargetAt): { kind ("location" / "object" / "" none), source ("spell_book" / "ability"), power (the
+	// SpecialPower's name), button (the CommandButton's), command (its GUI command's), label (its TextLabel's text without '&'), radius (RadiusCursorRadius),
+	// decal (retail's radius decal exists now), decal_drawn (the device drew it last frame), world, ground, valid, object (the picked id, 0 none) }; and its
+	// cancel (the right click's, without a click: InGameHud::cancelTouchTarget; false when nothing waited)
+	Dictionary touch_targeting_at(const Vector2 &pixel);
+	bool cancel_targeting();
 	// lane SPELL-2: a MappedImage of the HUD's collection as its texture and the source rectangle in texture pixels { found, texture, region } (the spell
 	// book screens draw the command buttons' ButtonImage with it)
 	Dictionary get_mapped_image(const String &name);
