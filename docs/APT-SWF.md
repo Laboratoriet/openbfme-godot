@@ -38,7 +38,9 @@ the mount, as the game reads them. A `--resolve-strings` preview has no private 
 
 ## The SWF
 
-The SWF version is the movie's Apt version (6 or 7), the stage is the movie's size, the frame rate is 1000 / ms-per-frame.
+The SWF version is 6 for every movie: EA's runtime looks names up case-insensitively (`AptObject.h`: `_strcmpi` keys) whatever
+the Apt version, SWF players are case-sensitive from version 7, and the menus rely on it (RotWK's buttons bind a text field to
+`ButtonName` and set `buttonName`). The stage is the movie's size, the frame rate is 1000 / ms-per-frame.
 Apt character ids stay the SWF character ids; characters the converter adds get ids above the movie's last one.
 
 | Apt | SWF |
@@ -48,7 +50,7 @@ Apt character ids stay the SWF character ids; characters the converter adds get 
 | sprite, root timeline | `DefineSprite`; items in file order: `PlaceObject2`, `RemoveObject2`, `DoAction`, `FrameLabel`, `SetBackgroundColor`, then `ShowFrame` |
 | place object | `PlaceObject2`: the flag bits are SWF's; matrix (16.16 / twips), tint and additive colour as `CXFORMWITHALPHA` (tint 255 = 256), ratio × 65536, name, clip depth, clip actions (the 24-bit event mask is SWF's `CLIPEVENTFLAGS` bit for bit) |
 | init action | `DoInitAction` (root timeline) |
-| button | `DefineButton2`: records with their state bits, matrix and colour multiply; the first condition byte is Apt's transition mask; Apt's hit mesh (the button's own triangles) becomes a shape that replaces the character of hit-only shape records |
+| button | `DefineButton2`: records with their state bits, matrix and colour multiply; the two condition bytes are Apt's transition mask and the low byte of `keyCode` (SWF's `key << 1 \| OverDownToIdle`, as `AptInput.cpp` reads it); Apt's hit mesh (the button's own triangles) becomes a shape that replaces the character of hit-only shape records |
 | edit text | `DefineEditText`: bounds, font, height, colour, alignment, read-only / multiline / word-wrap, variable, initial text |
 | font | `DefineFont2` with the name and no glyphs (a device font) |
 | imports / exports | `ImportAssets2` (`<movie>.swf`) / `ExportAssets` |
@@ -79,7 +81,10 @@ decoded with `AptActionDecoder` and written as standard AVM1 (`AptSwfAvm1.h`):
 | 0xB2 / 0xB3 CallNamedMethod(Pop) i | `Push constant8 i`, `CallMethod`, `Pop` / `SetVariable` |
 
 - branches are re-targeted after the expansion; `GotoFrame2`'s u32 becomes the play-flag byte; `GetURL2` gets SWF's flags
-  byte (0); `DefineFunction(2)` headers are rebuilt (APT's flags 0x100–0x8000 and 0x1 are SWF's two flag bytes).
+  byte (0); `DefineFunction(2)` headers are rebuilt. SWF's two flag bytes are the 2nd and 3rd of the 3 bytes the decoder
+  reads as `flags`: the bit `AptFunction2Flags` calls `PRELOAD_EXTERN` (0x10000) is SWF's `PreloadGlobal`. Evidence: RotWK
+  `QuitMenu.apt`'s `InitialSetup` (bytes `00 6A 01`) reads register 2 as `_global` (`if (extern.InGame) { r2.InGame = true; … }`,
+  with `_root` in register 1), and LibreSAGE/AptTools writes the same bytes. The interpreter's reading is a question below.
 
 The expansions agree with LibreSAGE/AptTools' `apt-convert/src/bytecode.rs` (MIT), which was read for comparison; no code was taken.
 JPEXS decompiles the resulting AVM1 to readable ActionScript.
@@ -125,8 +130,14 @@ Tag code **1000**, ignored by players; JPEXS keeps it when it saves (also throug
   do the glyph values index?
 - **Frame labels** carry two more fields (flags, a frame id) with no SWF place; their meaning is unverified.
 - **Button records** carry 4 floats after the colour (+52..+67) whose meaning is unknown; they are kept only in the private
-  tag. Is the transition bit 0x80 SWF's `IdleToOverDown` (the SWF byte order) or `OverDownToIdle`?
-- **DefineFunction2 flag 0x10000** (EA "PreloadExtern") has no SWF bit.
+  tag. The transition byte follows SWF's order, so 0x80 is `IdleToOverDown` (`AptFile.h` calls it `OverDownToIdle`).
+- **DefineFunction2 flags**: is the byte before SWF's two flag bytes (`AptFunction2Flags::PRELOAD_GLOBAL` = 0x1) ever set, and
+  is there an EA "PreloadExtern" at all? The interpreter (`AptActionInterpreter.cpp`) preloads `extern` for 0x10000 and
+  `_global` for 0x1, which the QuitMenu evidence above contradicts.
+- **Apt version 7** movies run with SWF 6 rules in a SWF player (case-insensitive names, as in the game; but SWF 6's
+  undefined-to-string and to-number rules).
+- **Strings**: texts a script sets at run time (`buttonName = "$Settings"`) show their `$Label` key in a SWF player; the game
+  resolves them when it draws. `--resolve-strings` only resolves the texts stored in the movie.
 - **Opcode 0x56** (`EA_PushThis` in OpenSAGE / AptTools) appears in BFME2's OnlineQuickMatch but not in the RotWK census the
   decoder accepts; such programs are exported as empty action lists (the original bytes stay in the private tag).
 - **Curves**: `.ru` holds triangles only, so SWF shapes are polygons; the original curves are not recoverable.
