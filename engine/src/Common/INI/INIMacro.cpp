@@ -79,7 +79,8 @@ const INIMacroTable::Entry *INIMacroTable::find(const char *name) const
 //   5. any name character c with 'a' < c < 'z' (signed char compare) throws code 8
 //      "MACRO names must use UPPERCASE letters"  (a and z themselves pass)
 //   6. value = the remaining tokens joined with single spaces (B2/RW; B1 kept only the first)
-//   7. empty value throws code 8 "Error parsing MACRO"
+//   7. empty value throws code 8 "Error parsing MACRO"; nothing after the name (no trailing blank) is NOT empty: the value is "#define"
+//      (lane IOS-39, RW 0x4366DC: nextToken leaves its token alone on an empty rest, and the value's buffer held "#define")
 //   8. duplicate hash throws code 8 "Duplicate MACRO names" (load type 5 overwrites instead)
 // ---------------------------------------------------------------------------------------------
 void INI::runDefinePass()
@@ -107,24 +108,15 @@ void INI::runDefinePass()
 			}
 		}
 
-		std::vector<std::string> tokens;
-		size_t pos = 0;
-		while (pos < lineText.size())
-		{
-			const size_t b = lineText.find_first_not_of(kSeps, pos);
-			if (b == std::string::npos)
-			{
-				break;
-			}
-			size_t e = lineText.find_first_of(kSeps, b);
-			if (e == std::string::npos)
-			{
-				e = lineText.size();
-			}
-			tokens.push_back(lineText.substr(b, e - b));
-			pos = e;
-		}
-		const std::string name = tokens.size() > 1 ? tokens[1] : std::string();
+		// TARGET (RW 0x42D106 .. 0x42D1BC): AsciiString::nextToken (RW 0x4366D0) reads "#define" into the VALUE's buffer, the name into its own, then
+		// the value's first token into the value's buffer again and every further token appended after a space. nextToken returns false WITHOUT
+		// touching the token when the rest of the line is empty (RW 0x4366DC / 0x4366E7 -> 0x436783), and clears both when only separators are left
+		// (RW 0x436769). So a define with nothing after its name and no trailing blank ("#define SUMMONED_HERO_WEAK", Edain 4.8.5.4's
+		// experiencelevels.inc) keeps "#define" as its value and loads; a trailing blank leaves the value empty and throws "has no value" below
+		std::string rest = lineText;
+		std::string value, name, token;
+		AsciiStringUtil::nextToken(rest, &value, kSeps);
+		AsciiStringUtil::nextToken(rest, &name, kSeps);
 
 		static const char kMapIni[] = "map.ini";
 		if (m_filename.size() >= sizeof(kMapIni) - 1 && m_filename.compare(m_filename.size() - (sizeof(kMapIni) - 1), std::string::npos, kMapIni) == 0)
@@ -141,14 +133,11 @@ void INI::runDefinePass()
 			}
 		}
 
-		std::string value;
-		for (size_t i = 2; i < tokens.size(); ++i)
+		AsciiStringUtil::nextToken(rest, &value, kSeps);
+		while (AsciiStringUtil::nextToken(rest, &token, kSeps))
 		{
-			if (i > 2)
-			{
-				value += ' ';
-			}
-			value += tokens[i];
+			value += ' ';
+			value += token;
 		}
 		if (value.empty())
 		{
