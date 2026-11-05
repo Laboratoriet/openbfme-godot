@@ -705,23 +705,23 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         MACOSX_FRAMEWORK_BUNDLE_VERSION "1"
         LIBRARY_OUTPUT_DIRECTORY "$<1:${OPENBFME_GODOT_BIN}/ios/${OPENBFME_IOS_SDK}>"
         INSTALL_NAME_DIR "@rpath")
-    # IOS-14: the mouse, trackpad and hardware keyboard bridge (UIKit recognizers on Godot's view, GameController's GCMouse / GCKeyboard), the
-    # IOSPointer class (registered under OPENBFME_IOS_POINTER only). The bridge is an Objective-C++ file, built with ARC.
+    # The iOS bridges below are Objective-C++ files, all built with ARC: one target-wide option for every Objective-C++ file of the target (no
+    # per-file property lists: tools/weapon/test_weapon_no_libm.py).
     enable_language(OBJCXX)
+    target_compile_options(openbfme PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+    # IOS-14: the mouse, trackpad and hardware keyboard bridge (UIKit recognizers on Godot's view, GameController's GCMouse / GCKeyboard), the
+    # IOSPointer class (registered under OPENBFME_IOS_POINTER only).
     target_sources(openbfme PRIVATE src/GodotDevice/IOSPointerBridge.mm src/GodotDevice/GodotIOSPointer.cpp)
-    set_source_files_properties(src/GodotDevice/IOSPointerBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_POINTER=1)
     target_link_libraries(openbfme PRIVATE "-framework GameController" "-framework UIKit" "-framework CoreGraphics" "-framework Foundation")
     # IOS-20: the audio session's category set live (Play sound in silent mode), the IOSAudioSession class (registered under
-    # OPENBFME_IOS_AUDIO_SESSION only). Objective-C++ with ARC, as the pointer bridge.
+    # OPENBFME_IOS_AUDIO_SESSION only).
     target_sources(openbfme PRIVATE src/GodotDevice/IOSAudioSessionBridge.mm src/GodotDevice/GodotIOSAudioSession.cpp)
-    set_source_files_properties(src/GodotDevice/IOSAudioSessionBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_AUDIO_SESSION=1)
     target_link_libraries(openbfme PRIVATE "-framework AVFoundation")
     # IOS-36: Files' document picker ("Choose game file…" on the welcome screen) and backup exclusion, the IOSFiles class (registered under
-    # OPENBFME_IOS_FILES only), after daisyhasacat/openbfme-godot's GodotIOSAssets.mm. Objective-C++ with ARC, as the bridges above.
+    # OPENBFME_IOS_FILES only), after daisyhasacat/openbfme-godot's GodotIOSAssets.mm.
     target_sources(openbfme PRIVATE src/GodotDevice/IOSFilesBridge.mm src/GodotDevice/GodotIOSFiles.cpp)
-    set_source_files_properties(src/GodotDevice/IOSFilesBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_FILES=1)
     target_link_libraries(openbfme PRIVATE "-framework UniformTypeIdentifiers")
     # IOS-22: MetalFX, for Godot's Metal driver. Its MetalFX check (MTLFX::SpatialScalerDescriptor::supportsDevice, metal-cpp: an Objective-C class
