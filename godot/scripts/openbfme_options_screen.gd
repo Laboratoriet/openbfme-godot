@@ -163,9 +163,9 @@ func _ready() -> void:
 		skin_errors.append("the shell has no OpenBFME page (AptMenuPlayer.set_openbfme_available)")
 	for e in skin_errors:
 		printerr("GAME DISPLAY page: ", e)
-	_prepare.mount_getter = func(): return Release.last_mount # lane IOS-24: the archives this start mounted
-	_mods.mount_getter = func(): return Release.last_mount # lane IOS-28: the mods this start mounted and the Mods folder
-	_mods.bfme1_getter = func(): return Release.last_mount.get("ok", false) and str(Release.last_mount.get("rotwk_install", "")).is_empty()
+	_prepare.mount_getter = _last_mount # lane IOS-24: the archives this start mounted
+	_mods.mount_getter = _last_mount # lane IOS-28: the mods this start mounted and the Mods folder
+	_mods.bfme1_getter = func(): return _last_mount().get("ok", false) and str(_last_mount().get("rotwk_install", "")).is_empty()
 
 
 func is_open() -> bool:
@@ -861,3 +861,10 @@ func _on_value(key: String, value: int) -> void:
 				set_extra(key, "yes" if value != 0 else "no")
 			elif r.has("values") and value >= 0 and value < r.values.size():
 				set_extra(key, str(r.values[value]))
+
+
+# The Release autoload's mount report of this start ({} without the autoload): looked up by its node, not by the autoload's name, so the page also
+# compiles where autoloads are not registered (a --script test that loads it, tests/online_social_test.gd).
+func _last_mount() -> Dictionary:
+	var release := get_node_or_null("/root/Release")
+	return release.last_mount if release != null else {}
