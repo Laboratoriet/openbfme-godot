@@ -798,7 +798,7 @@ func _open_files() -> void:
 	for i in parts.size():
 		parts[i] = parts[i].uri_encode()
 	var url := "shareddocuments://" + "/".join(parts)
-	var opened := OS.shell_open(url)
+	var opened: Error = preload("res://scripts/external_open.gd").open_url(url)
 	print(Release.info.redact("FIRST RUN open in Files: %s: %s" % [url, error_string(opened)]))
 	_files_hint.visible = opened != OK
 

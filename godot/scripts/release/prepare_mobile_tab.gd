@@ -102,7 +102,7 @@ func press(key: String) -> void:
 		"writing":
 			_pack.cancel()
 		"done":
-			OS.shell_show_in_file_manager(s.out)
+			preload("res://scripts/external_open.gd").show_in_file_manager(s.out)
 		_:
 			_start()
 

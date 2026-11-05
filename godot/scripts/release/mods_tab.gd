@@ -157,8 +157,9 @@ func press(key: String) -> void:
 				return
 			DirAccess.make_dir_recursive_absolute(folder())
 			# lane IOS-12's way into the Files app (first_run.gd _open_files: shareddocuments:// and the folder's path, each part percent-encoded);
-			# a desktop opens the folder itself
-			var err := OS.shell_open(files_url(folder())) if OS.has_feature("ios") else OS.shell_open(folder())
+			# a desktop opens the folder itself (scripts/external_open.gd: the one way out to another app, recorded instead under the tests)
+			var opener := preload("res://scripts/external_open.gd")
+			var err: Error = opener.open_url(files_url(folder())) if OS.has_feature("ios") else opener.open_url(folder())
 			print("GAME MODS open the folder %s: %s" % [folder(), error_string(err)])
 
 
