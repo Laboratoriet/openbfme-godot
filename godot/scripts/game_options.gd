@@ -73,6 +73,9 @@ const EXTRAS := {
 	# lane IOS-40 (the owner's decision 2026-11-05): touch only: what a tap on a HUD button does. "costs": a button whose press costs (build, recruit,
 	# upgrades, powers, abilities) shows its help and arms on the first tap and is used by the second; "all": every HUD button so; "act": at once (IOS-21)
 	"OpenBFMETouchButtonTaps": {"default": "costs", "choices": ["costs", "all", "act"]},
+	# lane IOS-37 (the owner's decision 2026-11-05: a top-edge strip, after daisyhasacat/openbfme-godot's classic-HUD touch toolbar): touch only: the
+	# command toolbar along the top edge (scripts/touch/command_toolbar.gd)
+	"OpenBFMETouchToolbar": {"default": "yes", "choices": ["yes", "no"]},
 }
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
@@ -306,9 +309,12 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 		touch.set_drag_mode(values.OpenBFMETouchDrag) # lane IOS-35 (inert without touch: the touch layer is off)
 		if touch.has_method("set_button_taps"):
 			touch.set_button_taps(values.OpenBFMETouchButtonTaps) # lane IOS-40
+		if touch.has_method("set_toolbar"):
+			touch.set_toolbar(values.OpenBFMETouchToolbar == "yes") # lane IOS-37
 		if touch_available():
 			done.append("one finger drag " + values.OpenBFMETouchDrag)
 			done.append("button taps " + values.OpenBFMETouchButtonTaps)
+			done.append("command toolbar " + values.OpenBFMETouchToolbar)
 	apply_brightness()
 	apply_detail()
 	if _hud != null:

@@ -189,6 +189,11 @@ public:
 	// accepted (touch_placement_at's builds went up). When every selected object is a builder (KindOf DOZER) the selection is dropped with retail's
 	// message (InGameUI::deselectAll: MSG_DESTROY_SELECTED_GROUP after the construct order, so the logic still saw the issuing builder); true when it did
 	bool deselect_builders();
+	// lane IOS-37 (OpenBFME, not retail; touch only: scripts/touch/command_toolbar.gd): the toolbar's Deselect (InGameUI::deselectAll with retail's message;
+	// false when nothing was selected); the hotkey of the selection's button for a GUI command ({ found, key: the HotKeyTranslator's character for the
+	// button's window ("" none), enabled its availability }: Attack Move's, which the toolbar presses as its key)
+	bool deselect_all();
+	Dictionary command_hotkey(const String &command) const;
 	// lane SPELL-2: a MappedImage of the HUD's collection as its texture and the source rectangle in texture pixels { found, texture, region } (the spell
 	// book screens draw the command buttons' ButtonImage with it)
 	Dictionary get_mapped_image(const String &name);

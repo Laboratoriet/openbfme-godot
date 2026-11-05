@@ -81,6 +81,7 @@ const HELP := {
 	"OpenBFMEAudioDevice": "The speakers or headphones the game plays through.",
 	"OpenBFMETouchDrag": "Selection box: one finger draws a box, two fingers move the view. Move the view: one finger moves it; to draw a box, hold the finger still for a moment, then drag. An Apple Pencil always draws a box.", # lane IOS-35
 	"OpenBFMETouchButtonTaps": "Preview what costs: the first tap on a build, recruit, upgrade, power or ability button shows what it is and marks it in gold; tap it again within 3 seconds to use it. Quick commands act at once. Preview all: every button so. Act at once: every tap presses. A quick double tap on an ability with autocast turns its autocast on or off.", # lane IOS-40
+	"OpenBFMETouchToolbar": "A strip of buttons along the top of the screen: select your army, attack move, stop, deselect, your base, the last event, the menu, and control groups (tap a number to select its group, hold it to make one from the selection). Hold a button to see what it does.", # lane IOS-37
 	"OpenBFMEIOSSilentSound": "Play the game's sound even when the phone is in silent mode. Music from other apps keeps playing either way.", # lane IOS-20
 	"note:Display": "Renderer: %s (%s). Point at a setting for what it does.",
 	"note:Graphics": "Left: the original game's detail settings (a level, or Custom). Right: OpenBFME's own.",
@@ -653,6 +654,7 @@ func _interface_rows() -> Array:
 		_extra_check("AlternateMouseSetup", "Alternate mouse setup", HELP.AlternateMouseSetup),
 		_touch_drag_row(), # lane IOS-35: touch only
 		_touch_row("OpenBFMETouchButtonTaps"), # lane IOS-40: touch only
+		_touch_row("OpenBFMETouchToolbar"), # lane IOS-37: touch only
 		_extra_check("OpenBFMEGameClock", "Show the game clock", HELP.OpenBFMEGameClock),
 		_extra_choice("OpenBFMEUIScale", "Interface scale", UI_SCALE_ITEMS, HELP.OpenBFMEUIScale),
 		_hud_size_row(), # lane IOS-18
@@ -670,11 +672,13 @@ func _touch_drag_row():
 	return _extra_choice("OpenBFMETouchDrag", "One finger drag", TOUCH_DRAG_ITEMS, HELP.OpenBFMETouchDrag)
 
 
-## lane IOS-40: "Button taps" (OpenBFMETouchButtonTaps) where the touch controls are on; null elsewhere
+## lane IOS-40 / IOS-37: "Button taps" (OpenBFMETouchButtonTaps) and "Command toolbar" (OpenBFMETouchToolbar) where the touch controls are on; null elsewhere
 func _touch_row(key: String):
 	if not game_options.touch_available():
 		return null
-	return _extra_choice(key, "Button taps", BUTTON_TAPS_ITEMS, HELP[key])
+	if key == "OpenBFMETouchButtonTaps":
+		return _extra_choice(key, "Button taps", BUTTON_TAPS_ITEMS, HELP[key])
+	return _extra_check(key, "Command toolbar", HELP[key])
 
 
 ## lane IOS-18: OpenBFMEHudScale (game_options.gd EXTRAS: "100" .. "150") on a slider of HUD_STEP-percent steps

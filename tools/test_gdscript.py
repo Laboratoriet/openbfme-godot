@@ -108,6 +108,7 @@ ALLOWLIST = {
     "ios21_touch_test.gd": "touch: hold on a HUD button shows its help, double tap toggles autocast, against a stand-in HUD (IOS-21)",
     "ios23_touch_test.gd": "touch: a placement's ghost above the fingertip, lift / tap wait for ✓ / ✕, hold / HUD lift / pan / mouse, against a stand-in HUD (IOS-23, IOS-26)",
     "ios35_touch_test.gd": "touch: the One finger drag option's pan mode (pan, hold-drag box, hold-lift right click, HUD / placement / menus / Pencil unchanged), against a stand-in HUD (IOS-35)",
+    "ios37_toolbar_test.gd": "touch: the command toolbar's taps press the CommandMap's keys, hold shows help, groups (hold = Ctrl+n, tap = n), disabled states, against a stand-in HUD (IOS-37)",
     "ios40_touch_test.gd": "touch: Button taps, tap to preview (help + gold ring) and tap again to use a costing button; disarms; autocast double tap; Preview all / Act at once, against a stand-in HUD (IOS-40)",
     "online_list_test.gd": "online list parsing and paging against synthetic responses",
     "online_list_client_test.gd": "the native list client against synthetic responses",

@@ -115,6 +115,13 @@ extends Node
 ##                                the time out
 ## A mouse in use (IOS-14) acts at once (its hover is the desktop's help); the setting changes nothing for a mouse click, which never reaches _tap.
 ##
+## Lane IOS-37 (the owner's decisions, 2026-11-05), the touch command toolbar:
+##   the toolbar ................ command_toolbar.gd: a strip of round buttons along the top edge (Options > Interface > "Command toolbar",
+##                                OpenBFMETouchToolbar, set_toolbar). A finger that comes down on it is the toolbar's: a tap presses the button (its command,
+##                                the keyboard's way), a hold shows what it does and presses nothing (IOS-21), a hold on a control group makes the group (a
+##                                ring fills, then flashes), sliding off and lifting does nothing, a second finger cancels. Shown in a game with no menu over
+##                                it, hidden while a mouse is in use (the keyboard has these keys) and in the menus
+##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
 ## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
 ## with no hover, no right button and no wheel. The extension's IOSPointer (engine/src/GodotDevice/IOSPointerBridge.mm, iOS builds only; on a
@@ -164,10 +171,13 @@ const TAPS_ACT := "act"
 
 const PlacementConfirm := preload("res://scripts/touch/placement_confirm.gd")
 const ArmedRing := preload("res://scripts/touch/armed_ring.gd")
+const CommandToolbar := preload("res://scripts/touch/command_toolbar.gd")
+const TOOLBAR_POLL_MS := 250     # lane IOS-37: the toolbar's place, visibility and button states are read this often
 
-enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM, PAN, ARMED }
+enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM, PAN, ARMED, TOOLBAR }
 # INFO: lane IOS-21, a finger held on a HUD button shows its help; PLACE: lane IOS-23, a finger drags a building's ghost; CONFIRM: lane IOS-26, a finger
-# on ✓ / ✕; PAN: lane IOS-35, one finger moves the camera; ARMED: lane IOS-35, a held finger whose drag is a selection box (its lift the right click)
+# on ✓ / ✕; PAN: lane IOS-35, one finger moves the camera; ARMED: lane IOS-35, a held finger whose drag is a selection box (its lift the right click);
+# TOOLBAR: lane IOS-37, a finger on the command toolbar
 const DRAG_SELECT := "select"    # lane IOS-35: OpenBFMETouchDrag's values
 const DRAG_PAN := "pan"
 
@@ -194,11 +204,17 @@ var _scroll_row := 0.0           # stage pixels of finger travel per notch (the 
 var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "twists": 0, "assisted_taps": 0,
 	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
 	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0, "place_taps": 0, "place_confirms": 0, "place_cancels": 0,
-	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0, "place_accepted": 0, "builder_deselects": 0, "arms": 0, "armed_uses": 0, "disarms": 0}
+	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0, "place_accepted": 0, "builder_deselects": 0, "arms": 0, "armed_uses": 0, "disarms": 0,
+	"toolbar_taps": 0, "toolbar_helps": 0, "groups_made": 0}
 var drag_mode := DRAG_SELECT     # lane IOS-35: OpenBFMETouchDrag (set_drag_mode)
 var button_taps := TAPS_COSTS    # lane IOS-40: OpenBFMETouchButtonTaps (set_button_taps)
 var _armed := {}                 # lane IOS-40: the armed button: {"key", "name", "until" (msec), "tapped" (msec of the first tap)}
 var _ring: CanvasLayer = null    # lane IOS-40: armed_ring.gd, made the first time it is needed
+var toolbar_enabled := true      # lane IOS-37: OpenBFMETouchToolbar (set_toolbar)
+var _toolbar: CanvasLayer = null # lane IOS-37: command_toolbar.gd, made with the first game HUD
+var _tb_id := ""                 # lane IOS-37: the toolbar button a TOOLBAR gesture's finger pressed ("" slid off)
+var _tb_done := false            # its hold acted (the help shown, a group made): the lift does nothing
+var _toolbar_poll_ms := 0
 var _pan_world := false          # lane IOS-35: in pan mode the one-finger gesture began on the battlefield (a drag pans, a hold arms the box)
 var _pan_last := Vector2.ZERO    # lane IOS-35: the finger's pixel at the last camera step
 var _pencil_touches := {}        # lane IOS-35: Godot's touch index -> true: an Apple Pencil's (IOSPointer.claim_pencil)
@@ -277,7 +293,15 @@ func set_button_taps(mode: String) -> void:
 		print("TOUCH IOS-40 button taps: %s" % m)
 	button_taps = m
 	if m == TAPS_ACT:
-		_disarm()
+		_disarm("act at once")
+
+
+## lane IOS-37: OpenBFMETouchToolbar as game_options.gd applies it
+func set_toolbar(on: bool) -> void:
+	if on != toolbar_enabled and active:
+		print("TOUCH IOS-37 command toolbar: %s" % ("on" if on else "off"))
+	toolbar_enabled = on
+	_toolbar_poll_ms = 0
 
 
 ## lane IOS-15: a mouse or trackpad is in use (a Mac running the iPhone build has one). IOS-17: only once its pointer showed itself (hovered,
@@ -335,7 +359,12 @@ func _process(_delta: float) -> void:
 	if not _waiting.is_empty() and Time.get_ticks_msec() >= int(_waiting.due) and not _waiting.get("second", false):
 		_press_waiting()  # lane IOS-21: no second tap came: the first one's press
 	if not _armed.is_empty() and Time.get_ticks_msec() >= int(_armed.until) and _gesture == Gesture.NONE:
-		_disarm()  # lane IOS-40: the arm window ran out
+		_disarm("time out")  # lane IOS-40: the arm window ran out
+	if Time.get_ticks_msec() - _toolbar_poll_ms >= TOOLBAR_POLL_MS:
+		_toolbar_poll_ms = Time.get_ticks_msec()
+		_update_toolbar()
+	if _gesture == Gesture.TOOLBAR and not _tb_done and _tb_id != "" and _fingers.has(_first):
+		_toolbar_hold(Time.get_ticks_msec() - int(_fingers[_first].at))
 	if _confirming:
 		_poll_confirm(Time.get_ticks_msec())
 	# the hold: a still finger that stays down becomes a right click while it is still down (the player feels it fire); lane IOS-21: on a HUD button
@@ -343,7 +372,7 @@ func _process(_delta: float) -> void:
 	if _gesture == Gesture.PENDING and _fingers.has(_first) and Time.get_ticks_msec() - int(_fingers[_first].at) >= LONG_PRESS_MS:
 		var at: Vector2 = _fingers[_first].pos
 		_press_waiting()
-		_disarm()  # lane IOS-40: a hold is IOS-21's own preview (on the armed button too); it never uses the button
+		_disarm("hold")  # lane IOS-40: a hold is IOS-21's own preview (on the armed button too); it never uses the button
 		var button := _hud_button(at)
 		if not button.is_empty():
 			_move(button.position)  # the pointer on the button (the tap assist's point): the help box's provider is the button under it
@@ -377,11 +406,19 @@ func _touch(e: InputEventScreenTouch) -> void:
 		elif not _waiting.is_empty() and now <= int(_waiting.due):
 			_waiting["second"] = true  # its tap toggles the autocast; a hold or a drag of it presses the waiting tap first
 		if not _armed.is_empty() and (_fingers.size() > 1 or _button_key(_hud_button(e.position)) != str(_armed.key)):
-			_disarm()  # lane IOS-40: a finger elsewhere (or a second one) disarms before its own gesture (the pointer, and the help, move with it)
+			_disarm("finger elsewhere")  # lane IOS-40: a finger elsewhere (or a second one) disarms before its own gesture (the pointer, and the help, move with it)
 		match _fingers.size():
 			1:
 				_gesture = Gesture.PENDING
 				_first = e.index
+				# lane IOS-37: a finger on the command toolbar is the toolbar's (nothing reaches the game until it acts)
+				var tb: String = _toolbar.hit(e.position) if _toolbar != null else ""
+				if tb != "":
+					_gesture = Gesture.TOOLBAR
+					_tb_id = tb
+					_tb_done = false
+					_toolbar.set_pressed(tb)
+					return
 				# lane IOS-26: a finger on ✓ / ✕ presses it; the pointer (the ghost) stays where it is
 				var on: String = _confirm.hit(e.position) if _confirming else ""
 				if on != "":
@@ -401,6 +438,8 @@ func _touch(e: InputEventScreenTouch) -> void:
 				_move(ghost_point(e.position) if _placing else e.position)
 			2:
 				_end_info()
+				if _gesture == Gesture.TOOLBAR:
+					_end_toolbar_press()  # lane IOS-37: a second finger cancels the toolbar's press
 				if _gesture == Gesture.DRAG:
 					_button(MOUSE_BUTTON_LEFT, false, _fingers[_first].pos)  # a second finger ends the drag where it is
 				# (a list scroll just stops: it pressed nothing)
@@ -448,6 +487,13 @@ func _touch(e: InputEventScreenTouch) -> void:
 			_pressed = ""
 		Gesture.INFO:
 			_end_info()  # lane IOS-21: lifting ends the preview; nothing is pressed
+		Gesture.TOOLBAR:
+			# lane IOS-37: lifted on the button it pressed, before its hold acted: the button's command
+			if not _tb_done and _tb_id != "" and _toolbar.hit(e.position) == _tb_id:
+				var ok: bool = _toolbar.activate(_tb_id)
+				stats.toolbar_taps += 1
+				print("TOUCH IOS-37 toolbar %s: %s" % [_tb_id, "sent" if ok else "nothing (disabled, or no key)"])
+			_end_toolbar_press()
 		Gesture.ARMED:
 			_click(MOUSE_BUTTON_RIGHT, e.position)  # lane IOS-35: an armed finger lifted without a drag: the hold's right click
 			stats.holds += 1
@@ -486,7 +532,7 @@ func _drag(e: InputEventScreenDrag) -> void:
 					stats.place_drags += 1
 			elif e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
 				_press_waiting()
-				_disarm()  # lane IOS-40: a drag is no second tap
+				_disarm("drag")  # lane IOS-40: a drag is no second tap
 				if _pan_world:
 					# lane IOS-35: the camera follows the finger from where it came down (the ground there stays under it)
 					_gesture = Gesture.PAN
@@ -525,6 +571,12 @@ func _drag(e: InputEventScreenDrag) -> void:
 			if e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
 				_end_info()  # lane IOS-21: sliding off ends the help; the finger does nothing more until it lifts
 				_gesture = Gesture.HELD
+		Gesture.TOOLBAR:
+			if e.index == _first and _tb_id != "" and _toolbar.hit(e.position) != _tb_id:
+				_tb_id = ""  # lane IOS-37: slid off: nothing happens at the lift
+				_toolbar.set_pressed("")
+				_toolbar.set_progress_all(-1.0)
+				_toolbar.hide_tip()
 		Gesture.SCROLL:
 			if e.index == _first:
 				_scroll_list(e.position)
@@ -605,7 +657,7 @@ func _preview_tap(b: Dictionary, now: int) -> void:
 			_click(MOUSE_BUTTON_LEFT, at)
 			stats.armed_uses += 1
 		return
-	_disarm()
+	_disarm("another button")
 	_armed = {"key": _button_key(b), "name": str(b.get("name", "")), "until": now + ARM_MS, "tapped": now}
 	_move(at)  # the help box's provider is the button under the pointer (IOS-21)
 	_hud.hold_help(true)
@@ -622,9 +674,10 @@ func _preview_tap(b: Dictionary, now: int) -> void:
 
 
 ## lane IOS-40: the armed button lets go (a tap elsewhere, a gesture, the time out, the option): its help and its ring go
-func _disarm() -> void:
+func _disarm(why := "") -> void:
 	if _armed.is_empty():
 		return
+	print("TOUCH IOS-40 disarmed %s (%s)" % [_armed.get("name", ""), why])
 	_armed = {}
 	stats.disarms += 1
 	if is_instance_valid(_hud) and _gesture != Gesture.INFO:
@@ -637,6 +690,73 @@ func _disarm() -> void:
 func armed_state() -> Dictionary:
 	return {"armed": not _armed.is_empty(), "key": _armed.get("key", ""), "name": _armed.get("name", ""),
 		"ring": _ring.state() if _ring != null else {}}
+
+
+## lane IOS-37: the toolbar's place, visibility and states (every TOOLBAR_POLL_MS): made with the first game HUD; shown in a game with no menu over it,
+## touch only (a mouse in use hides it), as the option says
+func _update_toolbar() -> void:
+	var hud := _game_hud()
+	var want := active and toolbar_enabled and hud != null and not _mouse and hud.has_method("command_hotkey")
+	if want:
+		var menus := _menu_player()
+		want = not (menus != null and menus.has_method("modal_menu") and menus.modal_menu())
+	if want and _toolbar == null:
+		_toolbar = CommandToolbar.new()
+		_toolbar.setup(_scale)
+		add_child(_toolbar)
+		print("TOUCH IOS-37 command toolbar made (%.1f px per point)" % _scale)
+	if _toolbar == null:
+		return
+	_toolbar.hud = hud
+	if want:
+		_toolbar.layout(_safe_rect(), _fps_right())
+		_toolbar.refresh()
+	if not want and _gesture == Gesture.TOOLBAR:
+		_end_toolbar_press()
+	_toolbar.set_shown(want)
+
+
+## lane IOS-37: the first pixel right of the frame-rate readout's room when it shows (fps_overlay.gd, top left), else -INF
+func _fps_right() -> float:
+	var scene := get_tree().current_scene
+	var overlay = scene.get("_display_overlay") if scene != null else null
+	if overlay == null or not is_instance_valid(overlay) or not overlay.has_method("shown") or not overlay.shown():
+		return -INF
+	var label: Label = overlay.get("_label")
+	if label == null:
+		return -INF
+	var font := label.get_theme_font("font")
+	var px: int = overlay.get("_font_px")
+	return float(overlay.offset.x) + label.position.x + font.get_string_size(overlay.WIDEST, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 8.0 * _scale
+
+
+## lane IOS-37: the toolbar's hold: the help after LONG_PRESS_MS; on a control group a ring fills from 120 ms and the group is made at LONG_PRESS_MS
+func _toolbar_hold(held_ms: int) -> void:
+	if _toolbar.is_group(_tb_id):
+		_toolbar.set_progress(_tb_id, clampf(float(held_ms - 120) / float(LONG_PRESS_MS - 120), 0.0, 1.0) if held_ms >= 120 else -1.0)
+	if held_ms < LONG_PRESS_MS:
+		return
+	_tb_done = true
+	if _toolbar.is_group(_tb_id):
+		_toolbar.set_progress(_tb_id, -1.0)
+		if _toolbar.assign(_tb_id):
+			stats.groups_made += 1
+		Input.vibrate_handheld(15)
+		print("TOUCH IOS-37 toolbar hold %s: %s" % [_tb_id, _toolbar.state().tip])
+		return
+	_toolbar.show_tip(_tb_id)
+	stats.toolbar_helps += 1
+	Input.vibrate_handheld(10)
+
+
+## lane IOS-37: the toolbar's press ends (lifted, slid off, a second finger): the button lets go; a help line stays a moment to be read
+func _end_toolbar_press() -> void:
+	if _toolbar == null:
+		return
+	_toolbar.set_pressed("")
+	_toolbar.set_progress_all(-1.0)
+	_toolbar.hide_tip(1.2 if _tb_done else 0.0)
+	_tb_id = ""
 
 
 ## lane IOS-21: the HUD button a finger at `at` is on ({} none): touch_button_at's answer at the tap assist's point (`assisted`, else asked here), with
@@ -758,6 +878,8 @@ func _span_direction(hud: Node) -> Vector2:
 ## lane IOS-26: a pixel the buttons may cover: on the world, not on the HUD (the Palantir, the side bar, a radial bubble, the radar)
 func _off_hud(at: Vector2) -> bool:
 	var hud := _game_hud()
+	if _toolbar != null and _toolbar.rect().grow(4.0 * _scale).has_point(at):
+		return false  # lane IOS-37: nor on the command toolbar
 	return hud != null and bool(hud.touch_placement_at(at).get("world", false))
 
 
@@ -1160,7 +1282,7 @@ func _pump_bridge() -> void:
 		var mouse := mouse_connected()
 		if mouse != _mouse:
 			_mouse = mouse
-			_disarm()  # lane IOS-40: a mouse acts at once
+			_disarm("mouse")  # lane IOS-40: a mouse acts at once
 			print("TOUCH IOS-14 mouse %s: %s" % ["in use" if mouse else "gone", _pointer.status()])
 			if is_instance_valid(_hud) and _hud.is_inside_tree():
 				_apply_edge_scroll()

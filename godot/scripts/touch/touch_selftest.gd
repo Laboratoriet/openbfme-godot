@@ -20,6 +20,9 @@ extends Node
 ## Lane IOS-40 ("Button taps", touch default "Preview what costs"): the builder's build button is a costing button: a tap shows its help and the gold ring
 ## and presses nothing; a second tap starts the placement. A tap elsewhere, and the arm window running out, disarm; the portrait (a quick button) acts at
 ## once; "Act at once" presses on the first tap. Pictures: touch-preview-*.png. The later steps press costing buttons with two taps (_press).
+## Lane IOS-37: the command toolbar (inside the safe area at the top, 44 pt cells, off the HUD; each button's command reaches the game as its key's
+## meta: Select army, Deselect, Stop, Home base, Last event, a control group made by a hold and selected by a tap, the menu; a hold shows the help and
+## presses nothing; hidden under the quit menu). Pictures: touch-toolbar-*.
 
 var _out := ""
 var _controls: Node
@@ -114,13 +117,20 @@ func _run() -> void:
 		await _wait(0.3)
 	else:
 		await _one_finger_drag(mid + Vector2(-200, -120), mid + Vector2(200, 120))
-	await _tap(mid)
+	# lane IOS-40: the box may have selected the fortress, whose radial bubbles then sit where the taps below go (portrait): those are costing buttons a
+	# tap previews; the taps here are the world's
+	if hud.has_method("deselect_all"):
+		hud.deselect_all()
+		await _wait(0.4)
+	# and the taps go to open ground (in portrait the screen's middle is the fortress: a tap there selects it and its bubbles come up under the next)
+	var open := _open_ground(hud, mid)
+	await _tap(open)
 	await _wait(0.5)
-	await _tap(mid + Vector2(40, 0))
+	await _tap(open + Vector2(40, 0))
 	await _wait(0.05)
-	await _tap(mid + Vector2(40, 0))
+	await _tap(open + Vector2(40, 0))
 	await _wait(0.5)
-	await _hold(mid)
+	await _hold(open)
 	await _shot("4-after-taps")
 	var s: Dictionary = _controls.stats
 	print("TOUCH SELFTEST gestures: ", JSON.stringify(s))
@@ -139,6 +149,8 @@ func _run() -> void:
 	# 7. lane IOS-23: placement by finger, a building and a wall span
 	failures.append_array(await _placement_check(hud))
 	failures.append_array(await _wall_check(hud))
+	# 8. lane IOS-37: the command toolbar
+	failures.append_array(await _toolbar_check(hud))
 	if failures.is_empty():
 		print("TOUCH SELFTEST PASS")
 	else:
@@ -301,7 +313,7 @@ func _preview_check(hud: Node, side: Vector2, portrait: Vector2) -> PackedString
 	await _wait(0.5)  # the help box's opening and the ring's
 	var armed: Dictionary = _controls.armed_state()
 	var help: Dictionary = _help(hud)
-	await _shot("preview-armed")
+	await _shot("preview-armed-" + _orient())
 	print("TOUCH SELFTEST IOS-40 first tap: armed %s, help shown %s name \"%s\", placing %s, ring %s" % [armed.armed, help.get("shown"), help.get("name"),
 		hud.get_placement().placing, JSON.stringify(armed.get("ring", {}))])
 	if not armed.armed:
@@ -322,7 +334,7 @@ func _preview_check(hud: Node, side: Vector2, portrait: Vector2) -> PackedString
 	print("TOUCH SELFTEST IOS-40 tap elsewhere: armed %s, help shown %s" % [_controls.armed_state().armed, _help(hud).get("shown")])
 	if _controls.armed_state().armed or _help(hud).get("shown", false):
 		out.append("IOS-40: a tap elsewhere did not disarm")
-	await _shot("preview-disarmed")
+	await _shot("preview-disarmed-" + _orient())
 	# c. the time out: armed again, nothing for ARM_MS: disarmed, nothing pressed
 	await _select_builder(hud)
 	await _tap(side)
@@ -345,14 +357,14 @@ func _preview_check(hud: Node, side: Vector2, portrait: Vector2) -> PackedString
 	await _tap(side)
 	await _wait(0.8)
 	var placing: bool = hud.get_placement().placing
-	await _shot("preview-used")
+	await _shot("preview-used-" + _orient())
 	print("TOUCH SELFTEST IOS-40 second tap: placing %s, armed %s, help shown %s, uses +%d" % [placing, _controls.armed_state().armed, _help(hud).get("shown"),
 		int(_controls.stats.armed_uses) - uses0])
 	if not placing:
 		out.append("IOS-40: the second tap did not press the build button (no placement)")
 	if _controls.armed_state().armed or _help(hud).get("shown", false):
 		out.append("IOS-40: the help or the arm stayed after the second tap")
-	# f. "Act at once": one tap presses (after a hold cancels this placement); the pointer the tap leaves on it opens no help
+	# f. "Act at once": one tap presses (after a hold cancels this placement, and disarms); the pointer the tap leaves on it opens no help
 	await _hold(get_viewport().get_visible_rect().size * Vector2(0.5, 0.35))
 	await _wait(0.5)
 	await _select_builder(hud)
@@ -365,6 +377,196 @@ func _preview_check(hud: Node, side: Vector2, portrait: Vector2) -> PackedString
 	if _help(hud).get("shown", false):
 		out.append("the help showed after a tap")
 	_controls.set_button_taps(mode0)
+	return out
+
+
+## a window point on open ground, and 40 px right of it too (no HUD, no object under either: InGameHudNode.nearest_button's reasons), the nearest such
+## of a few to `near`; `near` when none is
+func _open_ground(hud: Node, near: Vector2) -> Vector2:
+	var size := get_viewport().get_visible_rect().size
+	var best := near
+	var best_d := INF
+	for fy in [0.5, 0.4, 0.6, 0.7, 0.3, 0.8]:
+		for fx in [0.5, 0.35, 0.65, 0.2, 0.8]:
+			var p := size * Vector2(fx, fy)
+			var ok := true
+			for q in [p, p + Vector2(40, 0)]:
+				var r: Dictionary = hud.nearest_button(q, 0.0) if hud.has_method("nearest_button") else {}
+				ok = ok and _on_world(hud, q) and not (str(r.get("reason", "")) in ["on an object", "hit"])
+			if ok and p.distance_to(near) < best_d:
+				best = p
+				best_d = p.distance_to(near)
+	print("TOUCH SELFTEST open ground for the taps: %s" % best)
+	return best
+
+
+## "landscape" or "portrait": the pictures' suffix
+func _orient() -> String:
+	var size := get_viewport().get_visible_rect().size
+	return "portrait" if size.y > size.x else "landscape"
+
+
+## lane IOS-37: the metas the game made last (InGameHudNode.get_state().keys.recent, the last 32)
+func _metas(hud: Node) -> Array:
+	return Array(hud.get_state().get("keys", {}).get("recent", PackedStringArray()))
+
+
+## lane IOS-37: the centre of toolbar button `id` (Vector2.INF: not shown)
+func _tb(id: String) -> Vector2:
+	var t = _controls._toolbar
+	if t == null:
+		return Vector2.INF
+	var b: Dictionary = t.state().buttons.get(id, {})
+	return Rect2(b.rect).get_center() if b.get("visible", false) else Vector2.INF
+
+
+## lane IOS-37: a tap on toolbar button `id`; then whether the game made meta `meta` ("" none expected) since the tap
+func _tb_tap(hud: Node, id: String, meta: String) -> bool:
+	var before := _metas(hud).size()
+	var count0 := _metas(hud).count(meta) if meta != "" else 0
+	await _tap(_tb(id))
+	await _wait(0.6)
+	if meta == "":
+		return true
+	var after := _metas(hud)
+	var made: bool = after.count(meta) > count0 or (after.size() >= 32 and before >= 32 and after.back() == meta)
+	print("TOUCH SELFTEST IOS-37 toolbar %s: meta %s %s (recent %s)" % [id, meta, "made" if made else "NOT made", after.slice(maxi(0, after.size() - 4))])
+	return made
+
+
+## lane IOS-37: the command toolbar
+func _toolbar_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	if not hud.has_method("command_hotkey"):
+		out.append("IOS-37: the extension has no command_hotkey (built before lane IOS-37)")
+		return out
+	for i in 20:
+		if _controls._toolbar != null and _controls._toolbar.is_shown():
+			break
+		await _wait(0.1)
+	var t = _controls._toolbar
+	if t == null or not t.is_shown():
+		out.append("IOS-37: no command toolbar in the game")
+		return out
+	var cam_back: Vector2 = hud.get_camera().position  # Home base and Last event move the view; the later steps want this one
+	var st: Dictionary = t.state()
+	var safe: Rect2 = _controls._safe_rect()
+	var r: Rect2 = st.rect
+	var px: float = _controls._scale
+	print("TOUCH SELFTEST IOS-37 toolbar: %s in the safe area %s (%.1f px per point)" % [r, safe, px])
+	if not safe.encloses(r):
+		out.append("IOS-37: the toolbar %s leaves the safe area %s" % [r, safe])
+	if r.position.y - safe.position.y > 12.0 * px:
+		out.append("IOS-37: the toolbar is not at the top edge (%s)" % r)
+	var view := get_viewport().get_visible_rect()
+	if r.end.x > safe.position.x + safe.size.x * 0.6 + 1.0:  # tolerance: a pixel of the points' rounding
+		out.append("IOS-37: the toolbar reaches past 60 %% of the safe width (%.0f of %.0f): the game's messages' corner" % [r.end.x, safe.size.x])
+	for id in st.buttons:
+		var b: Dictionary = st.buttons[id]
+		if not b.visible:
+			continue
+		var br: Rect2 = b.rect
+		if absf(br.size.x - 44.0 * px) > 0.5 or absf(br.size.y - 44.0 * px) > 0.5:  # tolerance: half a pixel of the points' rounding
+			out.append("IOS-37: toolbar button %s is not a 44 pt cell (%s)" % [id, br.size])
+		if str(hud.touch_button_at(br.get_center()).get("kind", "")) != "":
+			out.append("IOS-37: toolbar button %s lies on a HUD button" % id)
+	await _shot("toolbar-" + _orient())
+	# Select army, Deselect
+	if not await _tb_tap(hud, "army", "SELECT_ALL"):
+		out.append("IOS-37: Select army made no SELECT_ALL")
+	var army: Array = hud.get_selection()
+	print("TOUCH SELFTEST IOS-37 select army: %d selected" % army.size())
+	if army.is_empty():
+		out.append("IOS-37: Select army selected nothing")
+	await _tb_tap(hud, "deselect", "")
+	if not hud.get_selection().is_empty():
+		out.append("IOS-37: Deselect left %d selected" % hud.get_selection().size())
+	await _wait(0.4)
+	if t.is_enabled("deselect") or t.is_enabled("stop"):
+		out.append("IOS-37: Deselect / Stop are not disabled with nothing selected")
+	await _shot("toolbar-disabled-" + _orient())
+	# a hold shows the help and presses nothing
+	await _tb_tap(hud, "army", "SELECT_ALL")
+	var metas0 := _metas(hud).duplicate()
+	_touch(0, _tb("stop"), true)
+	await _wait(0.75)
+	var tip := str(t.state().tip)
+	await _shot("toolbar-help-" + _orient())
+	_touch(0, _tb("stop"), false)
+	await _wait(0.4)
+	print("TOUCH SELFTEST IOS-37 hold on Stop: tip \"%s\"" % tip)
+	if tip == "" or not tip.begins_with("Stop"):
+		out.append("IOS-37: a hold on Stop showed no help (\"%s\")" % tip)
+	if _metas(hud).count("STOP") != metas0.count("STOP"):
+		out.append("IOS-37: the hold on Stop pressed it")
+	if not await _tb_tap(hud, "stop", "STOP"):
+		out.append("IOS-37: Stop made no STOP")
+	# control groups: the row; a hold makes group 3 (a ring fills), a tap selects it
+	await _tb_tap(hud, "groups", "")
+	if not t.state().drawer or not _tb("group3").is_finite():
+		out.append("IOS-37: Groups did not open the groups' row")
+		return out
+	var made0 := int(_controls.stats.groups_made)
+	_touch(0, _tb("group3"), true)
+	await _wait(0.32)
+	await _shot("toolbar-group-hold-" + _orient())
+	await _wait(0.4)
+	_touch(0, _tb("group3"), false)
+	await _wait(0.3)
+	await _shot("toolbar-group-made-" + _orient())
+	var made: bool = _metas(hud).has("CREATE_TEAM3")
+	print("TOUCH SELFTEST IOS-37 hold on group 3: CREATE_TEAM3 %s, groups made +%d, tip \"%s\"" % [made, int(_controls.stats.groups_made) - made0, t.state().tip])
+	if not made or int(_controls.stats.groups_made) != made0 + 1:
+		out.append("IOS-37: a hold on group 3 did not make the group")
+	await _tb_tap(hud, "deselect", "")
+	if not await _tb_tap(hud, "group3", "SELECT_TEAM3"):
+		out.append("IOS-37: a tap on group 3 made no SELECT_TEAM3")
+	print("TOUCH SELFTEST IOS-37 group 3 selected: %d (the army had %d)" % [hud.get_selection().size(), army.size()])
+	if hud.get_selection().size() != army.size():
+		out.append("IOS-37: group 3 selected %d, the army it was made from %d" % [hud.get_selection().size(), army.size()])
+	await _tb_tap(hud, "groups", "")
+	# the view keys
+	if not await _tb_tap(hud, "base", "VIEW_HOME_BASE"):
+		out.append("IOS-37: Home base made no VIEW_HOME_BASE")
+	if not await _tb_tap(hud, "event", "VIEW_LAST_RADAR_EVENT"):
+		out.append("IOS-37: Last event made no VIEW_LAST_RADAR_EVENT")
+	# Attack move: the selection's Attack Move button's hotkey (a horde made for the test where the hooks allow it)
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	var horde := -1
+	if world != null and int(game.get("_local_index")) >= 0:
+		var cam: Vector2 = hud.get_camera().position
+		for name in ["GondorFighterHorde", "GondorSoldierHorde", "GondorArcherHorde"]:
+			horde = int(world.create_object(name, int(game.get("_local_index")), cam.x - 40.0, cam.y + 30.0, 0.0))
+			if horde > 0:
+				break
+	if horde > 0:
+		await _wait(0.5)
+		hud.select_object_with_message(horde)
+		await _wait(1.2)
+		var hk: Dictionary = hud.command_hotkey("ATTACK_MOVE")
+		var sent0: int = t.sent.size()
+		await _tb_tap(hud, "attack", "")
+		print("TOUCH SELFTEST IOS-37 attack move: hotkey %s, enabled %s, sent %s" % [hk, t.is_enabled("attack"), t.sent.slice(sent0)])
+		if not t.is_enabled("attack") or t.sent.size() != sent0 + 1:
+			out.append("IOS-37: Attack move was not pressed for a horde (%s)" % [hk])
+		await _hold(view.size * Vector2(0.5, 0.4))  # out of the attack-move mode (its right click)
+	else:
+		print("TOUCH SELFTEST IOS-37 attack move: SKIP (no horde template the test hooks make)")
+	# Menu: the quit menu opens, and the toolbar hides under it
+	await _tb_tap(hud, "menu", "")
+	await _wait(1.0)
+	var opened: bool = game != null and game.get("_quit_open") == true
+	print("TOUCH SELFTEST IOS-37 menu: quit menu %s, toolbar shown %s" % [opened, t.is_shown()])
+	if not opened:
+		out.append("IOS-37: Menu did not open the quit menu")
+	elif t.is_shown():
+		out.append("IOS-37: the toolbar shows over the quit menu")
+	if opened and game.has_method("_close_quit_menu"):
+		game._close_quit_menu()
+		await _wait(1.0)
+	hud.camera_look_at(cam_back)
+	await _wait(0.5)
 	return out
 
 

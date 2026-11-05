@@ -1287,6 +1287,8 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("touch_button_at", "pixel"), &InGameHudNode::touch_button_at);      // lane IOS-21
 	ClassDB::bind_method(D_METHOD("touch_placement_at", "pixel"), &InGameHudNode::touch_placement_at); // lane IOS-23
 	ClassDB::bind_method(D_METHOD("deselect_builders"), &InGameHudNode::deselect_builders);            // lane IOS-36
+	ClassDB::bind_method(D_METHOD("deselect_all"), &InGameHudNode::deselect_all);                      // lane IOS-37
+	ClassDB::bind_method(D_METHOD("command_hotkey", "command"), &InGameHudNode::command_hotkey);        // lane IOS-37
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
 	ClassDB::bind_method(D_METHOD("world_to_radar_pixel", "world_xy"), &InGameHudNode::world_to_radar_pixel);
 	ClassDB::bind_method(D_METHOD("create_radar_event", "world_xy", "type", "jump_to"), &InGameHudNode::create_radar_event, DEFVAL(false));
@@ -4655,6 +4657,67 @@ Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
 	r["rect"] = b.hasRect ? Rect2(b.rect[0], b.rect[1], b.rect[2] - b.rect[0], b.rect[3] - b.rect[1]) : Rect2();
 	return r;
 }
+
+// lane IOS-37 (GodotInGameHud.h): the touch command toolbar's Deselect, as deselect_builders drops the selection (retail's message)
+bool InGameHudNode::deselect_all()
+{
+	waitLogic(d.get());
+	if (!d->ready || !d->hud)
+	{
+		return false;
+	}
+	const auto worldContext = d->hud->enterContext();
+	HudContext &ctx = d->hud->input().context();
+	if (ctx.ui.selected().empty())
+	{
+		return false;
+	}
+	ctx.ui.deselectAll(true);
+	return true;
+}
+
+// lane IOS-37 (GodotInGameHud.h): the hotkey of the selection's command button for GUI command `command` (the arc, the side bar and the off-bar buttons:
+// a horde's Attack Move sits off the bar, retail reaches it by its hotkey only)
+Dictionary InGameHudNode::command_hotkey(const String &command) const
+{
+	waitLogic(d.get());
+	Dictionary r;
+	r["found"] = false;
+	r["key"] = String();
+	r["enabled"] = false;
+	if (!d->ready || !d->hud)
+	{
+		return r;
+	}
+	const auto worldContext = d->hud->enterContext();
+	const ControlBar &bar = d->hud->controlBar();
+	const std::vector<HotKeyTranslator::Entry> &keys = d->hud->input().hotKeyTranslator().entries();
+	const std::string want = command.utf8().get_data();
+	for (const std::vector<ControlBarButton> *list : { &bar.palantirButtons(), &bar.sideButtons(), &bar.offBarButtons() })
+	{
+		for (const ControlBarButton &b : *list)
+		{
+			if (!b.button || want != GUICommandName(b.button->m_command) || b.state == ButtonState::Hidden)
+			{
+				continue;
+			}
+			// the HotKeyTranslator's entry for the button's window (ControlBar::setControlCommand RW 0x71CF3E -> RW 0x71D139): the character after the label's
+			// '&', the one a key press must carry (InGameHudNode::_input: the key's label)
+			for (const HotKeyTranslator::Entry &e : keys)
+			{
+				if (e.slot == b.slot && e.inPalantir == b.inPalantir && e.key != 0 && !e.run)
+				{
+					r["found"] = true;
+					r["key"] = String::chr((char32_t)e.key);
+					r["enabled"] = e.availability == HotKeyTranslator::Availability::Enabled;
+					return r;
+				}
+			}
+		}
+	}
+	return r;
+}
+
 
 // lane IOS-23 (GodotInGameHud.h): the touch layer's placement drag asks this as a finger comes down (and where it lifts)
 Dictionary InGameHudNode::touch_placement_at(const Vector2 &pixel)
