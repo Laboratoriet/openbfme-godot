@@ -153,6 +153,7 @@ target_include_directories(openbfme_float_chars SYSTEM PRIVATE ${CMAKE_CURRENT_S
 set_target_properties(openbfme_float_chars PROPERTIES POSITION_INDEPENDENT_CODE ON)
 openbfme_sim_register_target(openbfme_float_chars)
 include(cmake/Apt.cmake) # OPENBFME_APT_SOURCES / OPENBFME_APT_TESTS (EA Apt player lane)
+include(cmake/AptSwf.cmake) # the APT <-> SWF converter tool (openbfme_apt_swf; docs/APT-SWF.md)
 include(cmake/Dep2.cmake) # openbfme_detlibm: the deterministic libm of the simulation (lane DEP-2; the Lua math library uses it)
 include(cmake/Lua.cmake) # openbfme_lua: Lua 4.0.1 + EA's fork (lane LUA-1)
 include(cmake/Luau.cmake) # openbfme_luau: Luau 0.744, the modding SDK's scripting (lane SDK-2)
@@ -1008,6 +1009,7 @@ openbfme_net_targets() # MP-1: the network host sources, the headless peer
 openbfme_online2_targets() # ONLINE-2: the relay sources and tests, the relay process (Linux)
 openbfme_online4_targets() # ONLINE-4: the online screens, the lobby client and their tests
 openbfme_onlinehub1_targets() # ONLINEHUB-1: the platform API's client, the game records, the pages and their tests
+openbfme_aptswf_targets() # the APT <-> SWF converter: its library, the openbfme_apt_swf tool and its tests
 
 if(OPENBFME_FUZZ)
     include(cmake/Fuzz.cmake)
