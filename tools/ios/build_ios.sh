@@ -5,7 +5,8 @@
 #   tools/ios/build_ios.sh simulator    the simulator only (the xcframework then holds that one slice)
 #   tools/ios/build_ios.sh device       the device only
 #
-# macOS with Xcode (iOS SDK), CMake and Ninja. Build trees: engine/build-ios-<sdk>/. Release, no tests (the unit tests run on the host).
+# macOS with Xcode (iOS SDK), CMake and Ninja. Build trees: engine/build/ios-<sdk>/ (under engine/build/, which .gitignore ignores; before
+# IOS-41 they were engine/build-ios-<sdk>/, which upstream does not ignore). Release, no tests (the unit tests run on the host).
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -16,7 +17,7 @@ WHICH=${1:-both}
 build_sdk() {
     sdk=$1
     sysroot=$(xcrun --sdk "$sdk" --show-sdk-path)  # the full path: godot-cpp passes CMAKE_OSX_SYSROOT on verbatim
-    cmake -S "$ROOT/engine" -B "$ROOT/engine/build-ios-$sdk" -G Ninja \
+    cmake -S "$ROOT/engine" -B "$ROOT/engine/build/ios-$sdk" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_SYSTEM_NAME=iOS \
         -DCMAKE_OSX_SYSROOT="$sysroot" \
@@ -24,7 +25,7 @@ build_sdk() {
         -DCMAKE_OSX_DEPLOYMENT_TARGET=$MIN_IOS \
         -DOPENBFME_IOS_SDK="$sdk" \
         -DOPENBFME_BUILD_TESTS=OFF
-    cmake --build "$ROOT/engine/build-ios-$sdk" --target openbfme
+    cmake --build "$ROOT/engine/build/ios-$sdk" --target openbfme
 }
 
 case "$WHICH" in
