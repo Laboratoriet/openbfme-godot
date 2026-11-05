@@ -773,7 +773,7 @@ func _app_icon() -> void:
 	_check(entry.contains("\nName=OpenBFME\n") and entry.contains("\nIcon=openbfme\n") and entry.contains("\nExec=\"/opt/Open BFME/OpenBFMELauncher.x86_64\"\n"),
 		"the entry names OpenBFME, the icon and the quoted launcher")
 	var png := FileAccess.get_file_as_bytes(home.path_join("icons/hicolor/256x256/apps/openbfme.png"))
-	_check(png == Marshalls.base64_to_raw(AppIcon.PNG_BASE64) and png.size() > 1000, "the icon file is the window icon's PNG")
+	_check(png == Marshalls.base64_to_raw("".join(AppIcon.PNG_BASE64)) and png.size() > 1000, "the icon file is the window icon's PNG")
 	_check(DesktopEntry.text("/a/\"b\"$c").contains("Exec=\"/a/\\\\\"b\\\\\"\\\\$c\""), "quotes and $ in the path are escaped")
 	_check(not DesktopEntry.install("", home).ok, "no launcher path: refused")
 

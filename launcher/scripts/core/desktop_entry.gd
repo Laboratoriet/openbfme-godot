@@ -32,7 +32,7 @@ static func install(exe: String, home: String) -> Dictionary:
 		var e := DirAccess.make_dir_recursive_absolute(d)
 		if e != OK and not DirAccess.dir_exists_absolute(d):
 			return {"ok": false, "error": L10n.t("launcher.desktop_entry.cannot_make", {"path": d, "why": error_string(e)})}
-	var png := Marshalls.base64_to_raw(AppIcon.PNG_BASE64)
+	var png := Marshalls.base64_to_raw("".join(AppIcon.PNG_BASE64))
 	if AppIcon.image() == null:
 		return {"ok": false, "error": L10n.t("launcher.desktop_entry.icon_undecodable")}
 	var writes := {icon_dir.path_join(ICON_NAME + ".png"): png, app_dir.path_join(DESKTOP_FILE): text(exe).to_utf8_buffer()}
