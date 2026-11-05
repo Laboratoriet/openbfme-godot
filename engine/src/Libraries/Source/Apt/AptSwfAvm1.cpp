@@ -531,16 +531,15 @@ private:
 					}
 					l.payload.push_back((std::uint8_t)fn.registerCount);
 					// SWF's two flag bytes, read most significant bit first: PreloadParent .. PreloadThis, then 7 reserved bits and
-					// PreloadGlobal.  APT's u32 has the same bits at 0x100..0x8000 and 0x1 (AptFunction2Flags).
+					// PreloadGlobal.  The decoder's 24-bit `flags` is the 3 bytes after the register count; the SWF bytes are its
+					// second and third byte, so SWF's PreloadGlobal is what AptFunction2Flags calls PRELOAD_EXTERN (0x10000).
+					// Evidence: RotWK QuitMenu.apt InitialSetup (flags 0x016A00) reads register 2 as _global (`if (extern.InGame)
+					// { r2.InGame = true; ... }`, with _root in register 1); LibreSAGE/AptTools writes the same two bytes.
 					l.payload.push_back((std::uint8_t)((fn.flags >> 8) & 0xFF));
-					l.payload.push_back((std::uint8_t)(fn.flags & APT_FN2_PRELOAD_GLOBAL));
-					if (fn.flags & APT_FN2_PRELOAD_EXTERN)
+					l.payload.push_back((std::uint8_t)((fn.flags >> 16) & 0xFF));
+					if (fn.flags & 0xFF)
 					{
-						result.notes.insert("DefineFunction2 EA flag PreloadExtern (0x10000) has no SWF bit (dropped in the SWF)");
-					}
-					if (fn.flags & ~(0xFF01u | APT_FN2_PRELOAD_EXTERN))
-					{
-						result.notes.insert("DefineFunction2 flag bits outside the known set");
+						result.notes.insert("DefineFunction2 with a non-zero byte before SWF's two flag bytes (AptFunction2Flags' PRELOAD_GLOBAL bit): not in the SWF");
 					}
 					for (const AptFunctionParam &p : fn.params)
 					{

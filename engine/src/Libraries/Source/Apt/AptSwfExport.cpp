@@ -408,18 +408,15 @@ bool aptButtonToSwf(const AptFile &movie, const AptCharacter &c, std::uint32_t h
 			return false;
 		}
 		w.u16(i + 1 < b.actions.size() ? (std::uint32_t)(4 + code.size()) : 0);
-		// the first flag byte is APT's transition mask bit for bit (IdleToOverUp 0x01 .. OutDownToIdle 0x40: AptInput.cpp);
-		// the second is the key code (7 bits) and OverDownToIdle
+		// APT keeps SWF's two condition bytes: the transition mask (IdleToOverUp 0x01 .. OutDownToIdle 0x40, AptInput.cpp) and,
+		// as the low byte of AptButtonAction::keyCode, SWF's second byte (CondKeyPress << 1 | OverDownToIdle: AptInput.cpp reads
+		// the key as (keyCode >> 1) & 0x7F)
 		w.u8(a.transitionMask);
-		if (a.keyCode > 127)
+		w.u8(a.keyCode & 0xFF);
+		if (a.keyCode > 0xFF)
 		{
-			notes.insert("button actions with a key code above 127 (SWF's CondKeyPress is 7 bits)");
+			notes.insert("button actions with a non-zero byte after the two condition bytes (kept only in the private tag)");
 		}
-		if (a.transitionMask & 0x80)
-		{
-			notes.insert("button transition bit 0x80: written as SWF's IdleToOverDown (byte 0 bit 7); AptFile.h names it OverDownToIdle");
-		}
-		w.u8((std::uint32_t)((a.keyCode & 0x7F) << 1));
 		w.raw(code);
 	}
 	swf.condActions = std::move(w.bytes);
@@ -469,7 +466,15 @@ public:
 		}
 
 		// header: stage size in twips, frame rate 1000 / ms per frame as 8.8
-		m_out.header.version = (std::uint8_t)movie->version;
+		// SWF 6 for every movie: EA's runtime looks names up case-insensitively whatever the Apt version (AptObject.h: _strcmpi
+		// keys), and SWF players are case-sensitive from version 7 (RotWK's "Apt Data:7" menus bind text fields to "ButtonName"
+		// and set "buttonName"). The version-7 conversion rules the interpreter also follows (AptValue.h) are a noted difference.
+		m_out.header.version = 6;
+		if (movie->version == 7)
+		{
+			note("Apt version 7 movies are written as SWF 6 (case-insensitive names, as EA's runtime); SWF 7's conversion rules "
+				 "(undefined to string / number) then differ in a SWF player");
+		}
 		m_out.header.frameWidthTwips = (std::int32_t)movie->width * 20;
 		m_out.header.frameHeightTwips = (std::int32_t)movie->height * 20;
 		m_out.header.frameRate8_8 = (std::uint16_t)std::min<long>(0xFFFF, std::lround(1000.0 * 256.0 / movie->msPerFrame));

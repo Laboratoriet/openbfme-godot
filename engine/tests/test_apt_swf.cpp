@@ -222,6 +222,30 @@ TEST_CASE("apt-swf: branch offsets are recomputed for the expanded code")
 	CHECK(r.bytes == want);
 }
 
+TEST_CASE("apt-swf: DefineFunction2's SWF flag bytes are the 2nd and 3rd byte of the decoder's flags")
+{
+	// RotWK QuitMenu.apt's InitialSetup has the flag bytes 00 6A 01: SWF PreloadRoot, SuppressSuper / Arguments / This, PreloadGlobal
+	TestMovie m(7);
+	Asm a = m.program();
+	a.defineFunction2("f", 3, 0x016A00, {}, [](Asm &body) { body.op(APT_OP_STOP); }).op(APT_OP_END);
+	const std::uint32_t code = m.commit(a);
+	m.addCharacter(0);
+	m.setRootFrames({ { m.addActionItem(code) } });
+	AptFile file;
+	std::string error;
+	REQUIRE_MESSAGE(m.parse(file, &error), error);
+	std::shared_ptr<const AptCodeBlock> block = file.codeAt(code, &error);
+	REQUIRE_MESSAGE(block, error);
+	Avm1Result r;
+	REQUIRE(aptToAvm1(*block, r, &error));
+	const std::vector<std::uint8_t> want = {
+		0x8E, 0x09, 0x00, 'f', 0x00, 0x00, 0x00, 0x03, 0x6A, 0x01, 0x01, 0x00, // name, 0 params, 3 registers, flags, body size 1
+		0x07,                                                                  // Stop
+		0x00 };
+	CHECK(r.bytes == want);
+	CHECK(r.notes.empty());
+}
+
 TEST_CASE("apt-swf: two triangles of a square become one clockwise outline")
 {
 	const std::vector<float> tris = { 0, 0, 10, 0, 10, 10, 0, 0, 10, 10, 0, 10 };
@@ -338,7 +362,9 @@ TEST_CASE("apt-swf: a synthetic movie exports to the expected standard tags")
 	ExportResult r;
 	const std::vector<std::uint8_t> swf = exportOf(movie.files, r);
 	CHECK(swf[0] == 'F');
-	CHECK(swf[3] == 7);
+	CHECK(swf[3] == 6); // SWF 6: case-insensitive names, as EA's runtime
+	CHECK(r.notes.count("Apt version 7 movies are written as SWF 6 (case-insensitive names, as EA's runtime); SWF 7's conversion rules "
+						"(undefined to string / number) then differ in a SWF player") == 1);
 	CHECK(r.header.frameWidthTwips == 1024 * 20);
 	CHECK(r.header.frameRate8_8 == 7758); // 1000 / 33 ms * 256
 	std::vector<std::uint16_t> codes;
