@@ -379,3 +379,89 @@ TEST_CASE("ios21 retail: touchButtonAt names the Morgul Blade an autocast button
 	h.frames(10);
 	CHECK(h.hud->helpBox().isShown());
 }
+
+// lane IOS-40 (OpenBFME, not retail; touch only): "Button taps" previews a button whose press costs. ControlBar::pressCosts reads the Command alone: money,
+// the spell book's points or a recharge; every other command acts at once
+TEST_CASE("ios40: pressCosts names build, recruit, upgrade, revive, castle, science, power and ability commands, and no quick command")
+{
+	const std::vector<int> costs = { GUI_COMMAND_DOZER_CONSTRUCT, GUI_COMMAND_FOUNDATION_CONSTRUCT, GUI_COMMAND_CASTLE_UNPACK,
+		GUI_COMMAND_CASTLE_UNPACK_EXPLICIT_OBJECT, GUI_COMMAND_UNIT_BUILD, GUI_COMMAND_SECONDARY_UNIT_BUILD, GUI_COMMAND_REVIVE, GUI_COMMAND_PLAYER_UPGRADE,
+		GUI_COMMAND_OBJECT_UPGRADE, GUI_COMMAND_CASTLE_UPGRADE, GUI_COMMAND_PURCHASE_SCIENCE, GUI_COMMAND_SPECIAL_POWER,
+		GUI_COMMAND_SPECIAL_POWER_FROM_COMMAND_CENTER, GUI_COMMAND_SPECIAL_POWER_TOGGLE, GUI_COMMAND_FIRE_WEAPON, GUI_COMMAND_ONE_RING };
+	int previewed = 0;
+	for (int c = 0; c < GUI_COMMAND_NUM_COMMANDS; ++c)
+	{
+		CommandButton b;
+		b.m_command = c;
+		const bool want = std::find(costs.begin(), costs.end(), c) != costs.end();
+		CHECK_MESSAGE(ControlBar::pressCosts(b) == want, GUICommandName(c));
+		previewed += ControlBar::pressCosts(b) ? 1 : 0;
+	}
+	CHECK(previewed == 16);
+	// the quick commands the owner named act at once
+	for (int c : { GUI_COMMAND_STOP, GUI_COMMAND_HORDE_SET_FORMATION, GUI_COMMAND_HORDE_TOGGLE_FORMATION, GUI_COMMAND_SET_RALLY_POINT, GUI_COMMAND_SET_STANCE,
+	               GUI_COMMAND_TOGGLE_STANCE, GUI_COMMAND_ATTACK_MOVE, GUI_COMMAND_GUARD, GUI_COMMAND_SPELL_BOOK, GUI_COMMAND_SELL, GUI_COMMAND_EVACUATE })
+	{
+		CommandButton b;
+		b.m_command = c;
+		CHECK_FALSE_MESSAGE(ControlBar::pressCosts(b), GUICommandName(c));
+	}
+}
+
+TEST_CASE("ios40 retail: touchButtonAt tells each arc button's command, whether it costs, and its window rectangle")
+{
+	if (!haveWorld("ios40 touch preview"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	AutocastRig h(s);
+	h.hud->setWindowSize(1024, 768);
+	h.rig.view.setScreen(1024, 768);
+	const Coord3D c = h.rig.freeSpot(2800, 1400, 200.0f);
+	Object *wk = h.rig.make("AngmarWitchking", c.x, c.y);
+	wk->giveUpgrade("Upgrade_WitchkingMorgulBlade");
+	h.frames(10);
+	h.select(wk);
+	REQUIRE(h.hud->input().ui().selected() == std::vector<ObjectID>{ wk->getID() });
+	int asked = 0, costing = 0;
+	for (const ControlBarButton &b : h.hud->controlBar().palantirButtons())
+	{
+		int x = 0, y = 0;
+		if (!b.button || !h.contentPoint(b.slot, x, y))
+		{
+			continue;
+		}
+		++asked;
+		const InGameHud::TouchButton t = h.hud->touchButtonAt(x, y);
+		CHECK(t.kind == InGameHud::TouchButton::Movie);
+		CHECK_MESSAGE(t.button == b.button, b.button->m_name);
+		CHECK_MESSAGE(t.costs == ControlBar::pressCosts(*b.button), b.button->m_name);
+		costing += t.costs ? 1 : 0;
+		CHECK(t.radialSlot == -1);
+		REQUIRE(t.hasRect);
+		// the rectangle holds the point the finger is on, and is a button's (at most a quarter of the window)
+		// tolerance: containment is the property (the hit box's size is the movie's, not this lane's)
+		CHECK_MESSAGE((t.rect[0] <= x && x <= t.rect[2] && t.rect[1] <= y && y <= t.rect[3]), b.button->m_name);
+		const float w = t.rect[2] - t.rect[0], hgt = t.rect[3] - t.rect[1];
+		CHECK(w > 0.0f); // tolerance: a measured, non-empty box (its size is the movie's)
+		CHECK(w < 256.0f);   // tolerance: a quarter of the 1024 px window, a bound on "a button", not a measured size
+		CHECK(hgt < 192.0f); // tolerance: a quarter of the 768 px window
+	}
+	CHECK(asked >= 1); // tolerance: the Witch-king's arc layout's count (not this lane's); the property is "every arc button asked agrees"
+	const ControlBarButton *blade = h.arcButton("Command_WitchkingMorgulBlade");
+	REQUIRE(blade);
+	int bx = 0, by = 0;
+	REQUIRE(h.contentPoint(blade->slot, bx, by));
+	const InGameHud::TouchButton on = h.hud->touchButtonAt(bx, by);
+	CHECK(on.costs); // a special power: a recharge
+	CHECK(on.autocast);
+	CHECK(costing >= 1); // tolerance: at least the Morgul Blade
+	// the world: no button, nothing costs
+	const ICoord2D ground = h.rig.screenOf({ c.x + 120.0f, c.y + 40.0f, 0.0f });
+	const InGameHud::TouchButton none = h.hud->touchButtonAt(ground.x, ground.y);
+	CHECK(none.kind == InGameHud::TouchButton::None);
+	CHECK(none.button == nullptr);
+	CHECK_FALSE(none.costs);
+	CHECK_FALSE(none.hasRect);
+}

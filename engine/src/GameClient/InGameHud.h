@@ -157,8 +157,19 @@ public:
 		} kind = None;
 		std::string target; ///< the Apt button's path ("" for a bubble)
 		bool autocast = false;
+		// lane IOS-40 (touch only, "Button taps"): the command button the finger is on (an arc / side bar slot, a spell book slot, a radial bubble; null
+		// for the portrait, the hero bar, a stance item, the Palantir's keys), whether its press costs (ControlBar::pressCosts), the bubble's slot (-1
+		// for a movie button) and the button's window rectangle x0, y0, x1, y1 (the Apt button's hit area through its global matrix with the HUD size, or
+		// the bubble's rectangle; hasRect false when neither could be measured): the touch layer draws its "armed" ring around it
+		const CommandButton *button = nullptr;
+		bool costs = false;
+		int radialSlot = -1;
+		bool hasRect = false;
+		float rect[4] = { 0, 0, 0, 0 };
 	};
 	TouchButton touchButtonAt(int x, int y);
+	// lane IOS-40: the command button whose Apt button path is `path` (touchButtonAt's lookup: the arc / side bar content, a spell book slot); null none
+	const CommandButton *touchCommandAt(const std::string &path);
 
 	WindowManager &windows() { return *m_wm; }
 	Apt &apt() { return m_wm->apt(); }

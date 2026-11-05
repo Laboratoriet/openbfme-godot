@@ -4633,6 +4633,11 @@ Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
 	r["kind"] = String();
 	r["target"] = String();
 	r["autocast"] = false;
+	r["costs"] = false;
+	r["name"] = String();
+	r["command"] = String();
+	r["slot"] = -1;
+	r["rect"] = Rect2();
 	if (!d->ready || !d->hud)
 	{
 		return r;
@@ -4642,6 +4647,12 @@ Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
 	r["kind"] = b.kind == InGameHud::TouchButton::Movie ? String("movie") : b.kind == InGameHud::TouchButton::Radial ? String("radial") : String();
 	r["target"] = toGodot(b.target);
 	r["autocast"] = b.autocast;
+	// lane IOS-40: the command it holds, whether its press costs (ControlBar::pressCosts) and its window rectangle (the armed ring's)
+	r["costs"] = b.costs;
+	r["name"] = b.button ? toGodot(b.button->m_name) : String();
+	r["command"] = b.button ? String(GUICommandName(b.button->m_command)) : String();
+	r["slot"] = b.radialSlot;
+	r["rect"] = b.hasRect ? Rect2(b.rect[0], b.rect[1], b.rect[2] - b.rect[0], b.rect[3] - b.rect[1]) : Rect2();
 	return r;
 }
 

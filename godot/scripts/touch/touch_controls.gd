@@ -98,6 +98,23 @@ extends Node
 ## a hold on a HUD button (its help, IOS-21), the two-finger gestures. The drag threshold stays SLOP_PT (10 pt: about Daisy's 12 px at a 720 px height on
 ## a 1x screen, and the same physical size on every screen).
 ##
+## Lane IOS-40 (the owner's decision, 2026-11-05: "hold kind of works, but in most cases click once to see name/info and twice to build is better"), tap to
+## preview, tap again to use. Options > Interface > "Button taps" (game_options.gd OpenBFMETouchButtonTaps, set_button_taps):
+##   "costs" (the touch default) a HUD button whose press costs (touch_button_at's "costs": ControlBar::pressCosts, from the button's Command: build,
+##                               recruit, upgrades, revive, castles, the spell book's purchases and powers, abilities) is previewed; every other button (stop,
+##                               guard, formations, stances, rally points, gates, the portrait, the hero bar, the Palantir's keys) acts at once
+##   "all" ..................... every HUD button (touch_button_at's kinds) is previewed
+##   "act" ..................... every button acts at once: IOS-21's taps (the autocast wait below included)
+## A previewed button:
+##   first tap .................. its help box (IOS-21's hold_help, the pointer on the button) and a gold ring around it (armed_ring.gd) for ARM_MS; nothing pressed
+##   second tap on it ........... within ARM_MS: its press (the left click at the button), the ring flashes and goes. On an autocast ability (touch_button_at's
+##                                "autocast") a second tap within DOUBLE_TAP_MS of the first is the double tap: its autocast toggles (the right press, as
+##                                IOS-21), and a later one uses it. So a quick double tap toggles, "tap, read, tap" uses; no tap ever waits for a second one
+##   a finger elsewhere ......... disarms as it comes down (the ring fades, the help goes); its own gesture goes on as usual (a tap on another previewed button
+##                                arms that one, a tap on the world selects ...). So do a second finger, a hold (the hold is IOS-21's preview), a drag and
+##                                the time out
+## A mouse in use (IOS-14) acts at once (its hover is the desktop's help); the setting changes nothing for a mouse click, which never reaches _tap.
+##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
 ## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
 ## with no hover, no right button and no wheel. The extension's IOSPointer (engine/src/GodotDevice/IOSPointerBridge.mm, iOS builds only; on a
@@ -140,8 +157,13 @@ const CONFIRM_RETRY_MS := 400    # lane IOS-26: a ✓ the game did not take (the
 const CONFIRM_CLEAR_WORLD := 40.0  # lane IOS-26: the ground radius ✓ / ✕ keep clear of the ghost's point (a farm's footprint: the Mac stand-in's
                                    # GondorFarm ghost is ~125 px half wide at ~3.5 px per world unit); the HUD has no footprint query
 const CONFIRM_SIDE_MAX_PT := 140.0 # ... but never farther than this from the ghost (zoomed far in, a building is bigger than the view's middle)
+const ARM_MS := 3000             # lane IOS-40 (the owner's "~3 s"): a first tap's arm window
+const TAPS_COSTS := "costs"      # lane IOS-40: OpenBFMETouchButtonTaps' values
+const TAPS_ALL := "all"
+const TAPS_ACT := "act"
 
 const PlacementConfirm := preload("res://scripts/touch/placement_confirm.gd")
+const ArmedRing := preload("res://scripts/touch/armed_ring.gd")
 
 enum Gesture { NONE, PENDING, DRAG, HELD, TWO, SCROLL, INFO, PLACE, CONFIRM, PAN, ARMED }
 # INFO: lane IOS-21, a finger held on a HUD button shows its help; PLACE: lane IOS-23, a finger drags a building's ghost; CONFIRM: lane IOS-26, a finger
@@ -172,8 +194,11 @@ var _scroll_row := 0.0           # stage pixels of finger travel per notch (the 
 var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "twists": 0, "assisted_taps": 0,
 	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
 	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0, "place_taps": 0, "place_confirms": 0, "place_cancels": 0,
-	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0, "place_accepted": 0, "builder_deselects": 0}
+	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0, "place_accepted": 0, "builder_deselects": 0, "arms": 0, "armed_uses": 0, "disarms": 0}
 var drag_mode := DRAG_SELECT     # lane IOS-35: OpenBFMETouchDrag (set_drag_mode)
+var button_taps := TAPS_COSTS    # lane IOS-40: OpenBFMETouchButtonTaps (set_button_taps)
+var _armed := {}                 # lane IOS-40: the armed button: {"key", "name", "until" (msec), "tapped" (msec of the first tap)}
+var _ring: CanvasLayer = null    # lane IOS-40: armed_ring.gd, made the first time it is needed
 var _pan_world := false          # lane IOS-35: in pan mode the one-finger gesture began on the battlefield (a drag pans, a hold arms the box)
 var _pan_last := Vector2.ZERO    # lane IOS-35: the finger's pixel at the last camera step
 var _pencil_touches := {}        # lane IOS-35: Godot's touch index -> true: an Apple Pencil's (IOSPointer.claim_pencil)
@@ -245,6 +270,16 @@ func set_drag_mode(mode: String) -> void:
 	drag_mode = m
 
 
+## lane IOS-40: OpenBFMETouchButtonTaps as game_options.gd applies it: "costs" (preview what costs), "all" (preview every HUD button) or "act" (act at once)
+func set_button_taps(mode: String) -> void:
+	var m := mode if mode in [TAPS_COSTS, TAPS_ALL, TAPS_ACT] else TAPS_COSTS
+	if m != button_taps and active:
+		print("TOUCH IOS-40 button taps: %s" % m)
+	button_taps = m
+	if m == TAPS_ACT:
+		_disarm()
+
+
 ## lane IOS-15: a mouse or trackpad is in use (a Mac running the iPhone build has one). IOS-17: only once its pointer showed itself (hovered,
 ## clicked): the iPhone Duo lists a GameController mouse with nothing paired, which switched touch play to the desktop's right-click orders
 func mouse_connected() -> bool:
@@ -299,6 +334,8 @@ func _process(_delta: float) -> void:
 				print("TOUCH IOS-14 status: ", now)
 	if not _waiting.is_empty() and Time.get_ticks_msec() >= int(_waiting.due) and not _waiting.get("second", false):
 		_press_waiting()  # lane IOS-21: no second tap came: the first one's press
+	if not _armed.is_empty() and Time.get_ticks_msec() >= int(_armed.until) and _gesture == Gesture.NONE:
+		_disarm()  # lane IOS-40: the arm window ran out
 	if _confirming:
 		_poll_confirm(Time.get_ticks_msec())
 	# the hold: a still finger that stays down becomes a right click while it is still down (the player feels it fire); lane IOS-21: on a HUD button
@@ -306,6 +343,7 @@ func _process(_delta: float) -> void:
 	if _gesture == Gesture.PENDING and _fingers.has(_first) and Time.get_ticks_msec() - int(_fingers[_first].at) >= LONG_PRESS_MS:
 		var at: Vector2 = _fingers[_first].pos
 		_press_waiting()
+		_disarm()  # lane IOS-40: a hold is IOS-21's own preview (on the armed button too); it never uses the button
 		var button := _hud_button(at)
 		if not button.is_empty():
 			_move(button.position)  # the pointer on the button (the tap assist's point): the help box's provider is the button under it
@@ -338,6 +376,8 @@ func _touch(e: InputEventScreenTouch) -> void:
 			_press_waiting()  # lane IOS-21: a finger elsewhere is no second tap: the waiting press goes first
 		elif not _waiting.is_empty() and now <= int(_waiting.due):
 			_waiting["second"] = true  # its tap toggles the autocast; a hold or a drag of it presses the waiting tap first
+		if not _armed.is_empty() and (_fingers.size() > 1 or _button_key(_hud_button(e.position)) != str(_armed.key)):
+			_disarm()  # lane IOS-40: a finger elsewhere (or a second one) disarms before its own gesture (the pointer, and the help, move with it)
 		match _fingers.size():
 			1:
 				_gesture = Gesture.PENDING
@@ -446,6 +486,7 @@ func _drag(e: InputEventScreenDrag) -> void:
 					stats.place_drags += 1
 			elif e.index == _first and e.position.distance_to(_fingers[e.index].start) > SLOP_PT * _scale:
 				_press_waiting()
+				_disarm()  # lane IOS-40: a drag is no second tap
 				if _pan_world:
 					# lane IOS-35: the camera follows the finger from where it came down (the ground there stays under it)
 					_gesture = Gesture.PAN
@@ -496,6 +537,12 @@ func _tap(at: Vector2, now: int) -> void:
 	var assist := assist_probe(at)
 	if assist.snapped:
 		stats.assisted_taps += 1
+	# lane IOS-40: a button the "Button taps" option previews: the first tap arms it, the second uses it
+	if button_taps != TAPS_ACT and not _mouse and _waiting.is_empty():
+		var b := _hud_button(at, assist.position)
+		if _previews(b):
+			_preview_tap(b, now)
+			return
 	# lane IOS-21: the second tap on an autocast ability toggles its autocast (its right press); the first tap's press is dropped
 	if not _waiting.is_empty():
 		if double or _waiting.get("second", false):
@@ -522,6 +569,74 @@ func _tap(at: Vector2, now: int) -> void:
 		stats.taps += 1
 		_last_tap_ms = now
 		_last_tap_pos = at
+
+
+## lane IOS-40: the option previews HUD button `b` (_hud_button's answer)
+func _previews(b: Dictionary) -> bool:
+	if b.is_empty():
+		return false
+	return button_taps == TAPS_ALL or (button_taps == TAPS_COSTS and bool(b.get("costs", false)))
+
+
+## lane IOS-40: a button's identity across taps: the Apt button's path, or the radial bubble's slot ("" none)
+func _button_key(b: Dictionary) -> String:
+	if b.is_empty():
+		return ""
+	return "%s:%s" % [b.get("kind", ""), b.get("target", "") if str(b.get("kind", "")) == "movie" else str(b.get("slot", -1))]
+
+
+## lane IOS-40: a tap on a previewed button: the second on the armed one (the same button holding the same command) uses it, any other arms it
+func _preview_tap(b: Dictionary, now: int) -> void:
+	var at: Vector2 = b.position
+	stats.taps += 1
+	_last_tap_ms = -100000  # no world double click across a HUD button
+	if not _armed.is_empty() and str(_armed.key) == _button_key(b) and str(_armed.name) == str(b.get("name", "")) and now <= int(_armed.until):
+		var quick := now - int(_armed.tapped) <= DOUBLE_TAP_MS
+		_armed = {}
+		if is_instance_valid(_hud):
+			_hud.hold_help(false)
+		if _ring != null:
+			_ring.used()
+		if quick and bool(b.get("autocast", false)):
+			_click(MOUSE_BUTTON_RIGHT, at)  # IOS-21's double tap: the autocast toggles
+			stats.autocast_taps += 1
+			stats.double_taps += 1
+		else:
+			_click(MOUSE_BUTTON_LEFT, at)
+			stats.armed_uses += 1
+		return
+	_disarm()
+	_armed = {"key": _button_key(b), "name": str(b.get("name", "")), "until": now + ARM_MS, "tapped": now}
+	_move(at)  # the help box's provider is the button under the pointer (IOS-21)
+	_hud.hold_help(true)
+	var rect: Rect2 = b.get("rect", Rect2())
+	if rect.has_area():
+		if _ring == null:
+			_ring = ArmedRing.new()
+			_ring.setup(_scale)
+			add_child(_ring)
+		_ring.arm(rect, ARM_MS / 1000.0)
+	Input.vibrate_handheld(10)
+	stats.arms += 1
+	print("TOUCH IOS-40 armed %s (%s %s) at %s" % [_armed.name, b.get("command", ""), _armed.key, at])
+
+
+## lane IOS-40: the armed button lets go (a tap elsewhere, a gesture, the time out, the option): its help and its ring go
+func _disarm() -> void:
+	if _armed.is_empty():
+		return
+	_armed = {}
+	stats.disarms += 1
+	if is_instance_valid(_hud) and _gesture != Gesture.INFO:
+		_hud.hold_help(false)
+	if _ring != null:
+		_ring.disarm()
+
+
+## lane IOS-40: the armed button's state for the self-test: { armed, key, name, ring: armed_ring.gd's state }
+func armed_state() -> Dictionary:
+	return {"armed": not _armed.is_empty(), "key": _armed.get("key", ""), "name": _armed.get("name", ""),
+		"ring": _ring.state() if _ring != null else {}}
 
 
 ## lane IOS-21: the HUD button a finger at `at` is on ({} none): touch_button_at's answer at the tap assist's point (`assisted`, else asked here), with
@@ -1045,6 +1160,7 @@ func _pump_bridge() -> void:
 		var mouse := mouse_connected()
 		if mouse != _mouse:
 			_mouse = mouse
+			_disarm()  # lane IOS-40: a mouse acts at once
 			print("TOUCH IOS-14 mouse %s: %s" % ["in use" if mouse else "gone", _pointer.status()])
 			if is_instance_valid(_hud) and _hud.is_inside_tree():
 				_apply_edge_scroll()

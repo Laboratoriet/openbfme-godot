@@ -17,6 +17,9 @@ extends Node
 ## drag moves the camera (and is no box), a hold then a drag is the box; the taps and the hold as before. The placement steps then run in pan mode too
 ## (a ghost's drag moves the ghost, not the camera).
 ## Lane IOS-36 (after daisyhasacat/openbfme-godot facef81b): the refused ✓ on the fortress keeps the builder selected; the accepted ✓ deselects it.
+## Lane IOS-40 ("Button taps", touch default "Preview what costs"): the builder's build button is a costing button: a tap shows its help and the gold ring
+## and presses nothing; a second tap starts the placement. A tap elsewhere, and the arm window running out, disarm; the portrait (a quick button) acts at
+## once; "Act at once" presses on the first tap. Pictures: touch-preview-*.png. The later steps press costing buttons with two taps (_press).
 
 var _out := ""
 var _controls: Node
@@ -267,17 +270,9 @@ func _hold_info_check(hud: Node) -> PackedStringArray:
 		out.append_array(await _hold_on(hud, portrait, "the portrait", "8-hold-portrait"))
 	else:
 		out.append("no portrait button on screen")
-	# a tap still presses: the builder's build button starts a placement; the pointer the tap leaves on it opens no help
+	# lane IOS-40: tap to preview, tap again to use (the touch default); "Act at once": a tap still presses, and the pointer it leaves opens no help
 	await _wait(0.4)
-	await _tap(side)
-	await _wait(0.8)
-	var placing: bool = hud.get_placement().placing
-	var after: Dictionary = _help(hud)
-	print("TOUCH SELFTEST tap on the side bar button: placing %s, help shown %s" % [placing, after.get("shown")])
-	if not placing:
-		out.append("a tap on the side bar button did not press it (no placement)")
-	if after.get("shown", false):
-		out.append("the help showed after a tap")
+	out.append_array(await _preview_check(hud, side, portrait))
 	# a hold in the world stays the right click: it cancels the placement
 	var mid := get_viewport().get_visible_rect().size * Vector2(0.5, 0.35)
 	await _hold(mid)
@@ -286,6 +281,99 @@ func _hold_info_check(hud: Node) -> PackedStringArray:
 	if hud.get_placement().placing:
 		out.append("a hold in the world did not cancel the placement (no right click)")
 	return out
+
+
+## lane IOS-40: the side bar's build button `side` (a costing button) previews on the first tap and presses on the second; a tap elsewhere and the time out
+## disarm; `portrait` (a quick button: no cost) acts at once; "Act at once" presses on the first tap. Leaves the placement on (the caller's hold cancels it)
+func _preview_check(hud: Node, side: Vector2, portrait: Vector2) -> PackedStringArray:
+	var out := PackedStringArray()
+	var touched: Dictionary = hud.touch_button_at(side)
+	print("TOUCH SELFTEST IOS-40 side bar button: %s; button taps %s" % [JSON.stringify(touched), _controls.button_taps])
+	if not touched.get("costs", false):
+		out.append("IOS-40: the builder's build button does not cost (%s)" % JSON.stringify(touched))
+	if not Rect2(touched.get("rect", Rect2())).has_point(side):
+		out.append("IOS-40: the build button's rectangle %s does not hold its point %s" % [touched.get("rect"), side])
+	var mode0: String = _controls.button_taps
+	_controls.set_button_taps("costs")
+	var uses0 := int(_controls.stats.armed_uses)
+	# a. the first tap: help and ring, nothing pressed
+	await _tap(side)
+	await _wait(0.5)  # the help box's opening and the ring's
+	var armed: Dictionary = _controls.armed_state()
+	var help: Dictionary = _help(hud)
+	await _shot("preview-armed")
+	print("TOUCH SELFTEST IOS-40 first tap: armed %s, help shown %s name \"%s\", placing %s, ring %s" % [armed.armed, help.get("shown"), help.get("name"),
+		hud.get_placement().placing, JSON.stringify(armed.get("ring", {}))])
+	if not armed.armed:
+		out.append("IOS-40: the first tap on the build button did not arm it")
+	if not help.get("shown", false):
+		out.append("IOS-40: no help after the first tap")
+	if hud.get_placement().placing:
+		out.append("IOS-40: the first tap pressed the build button")
+	var ring: Dictionary = armed.get("ring", {})
+	if not ring.get("visible", false) or float(ring.get("alpha", 0.0)) < 0.9:
+		out.append("IOS-40: no gold ring around the armed button (%s)" % JSON.stringify(ring))
+	elif Vector2(ring.centre).distance_to(Rect2(touched.rect).get_center()) > 2.0 or float(ring.radius) < Rect2(touched.rect).size.x * 0.5:
+		out.append("IOS-40: the ring is not around the button (%s, the button %s)" % [JSON.stringify(ring), touched.rect])
+	# b. a tap elsewhere (the world above the Palantir) disarms
+	var world_px := get_viewport().get_visible_rect().size * Vector2(0.5, 0.3)
+	await _tap(world_px)
+	await _wait(0.4)
+	print("TOUCH SELFTEST IOS-40 tap elsewhere: armed %s, help shown %s" % [_controls.armed_state().armed, _help(hud).get("shown")])
+	if _controls.armed_state().armed or _help(hud).get("shown", false):
+		out.append("IOS-40: a tap elsewhere did not disarm")
+	await _shot("preview-disarmed")
+	# c. the time out: armed again, nothing for ARM_MS: disarmed, nothing pressed
+	await _select_builder(hud)
+	await _tap(side)
+	await _wait(_controls.ARM_MS / 1000.0 + 0.6)
+	print("TOUCH SELFTEST IOS-40 time out: armed %s, help shown %s, placing %s" % [_controls.armed_state().armed, _help(hud).get("shown"), hud.get_placement().placing])
+	if _controls.armed_state().armed or _help(hud).get("shown", false) or hud.get_placement().placing:
+		out.append("IOS-40: the arm did not run out after %d ms" % _controls.ARM_MS)
+	# d. a quick button (the portrait) acts at once: no arm
+	if portrait.is_finite():
+		var arms0 := int(_controls.stats.arms)
+		await _tap(portrait)
+		await _wait(0.4)
+		print("TOUCH SELFTEST IOS-40 portrait tap: %s, arms +%d" % [JSON.stringify(hud.touch_button_at(portrait)), int(_controls.stats.arms) - arms0])
+		if int(_controls.stats.arms) != arms0:
+			out.append("IOS-40: the portrait (no cost) was previewed")
+		await _select_builder(hud)
+	# e. tap, read, tap: the second tap presses (a placement starts), the ring flashes and goes, the help goes
+	await _tap(side)
+	await _wait(0.9)
+	await _tap(side)
+	await _wait(0.8)
+	var placing: bool = hud.get_placement().placing
+	await _shot("preview-used")
+	print("TOUCH SELFTEST IOS-40 second tap: placing %s, armed %s, help shown %s, uses +%d" % [placing, _controls.armed_state().armed, _help(hud).get("shown"),
+		int(_controls.stats.armed_uses) - uses0])
+	if not placing:
+		out.append("IOS-40: the second tap did not press the build button (no placement)")
+	if _controls.armed_state().armed or _help(hud).get("shown", false):
+		out.append("IOS-40: the help or the arm stayed after the second tap")
+	# f. "Act at once": one tap presses (after a hold cancels this placement); the pointer the tap leaves on it opens no help
+	await _hold(get_viewport().get_visible_rect().size * Vector2(0.5, 0.35))
+	await _wait(0.5)
+	await _select_builder(hud)
+	_controls.set_button_taps("act")
+	await _tap(side)
+	await _wait(0.8)
+	print("TOUCH SELFTEST IOS-40 act at once: placing %s, help shown %s" % [hud.get_placement().placing, _help(hud).get("shown")])
+	if not hud.get_placement().placing:
+		out.append("IOS-40: \"Act at once\": a tap did not press the build button")
+	if _help(hud).get("shown", false):
+		out.append("the help showed after a tap")
+	_controls.set_button_taps(mode0)
+	return out
+
+
+## lane IOS-40: a press of the HUD button at `at` as the option has it: two taps on a previewed one, one on any other
+func _press(hud: Node, at: Vector2) -> void:
+	await _tap(at)
+	if _controls.armed_state().armed:
+		await _wait(0.45)  # past the double tap's window: a use, never an autocast toggle
+		await _tap(at)
 
 
 ## lane IOS-21: a double tap on an autocast ability toggles its autocast, and again back; its single tap waits for the second. The auto game's
@@ -451,7 +539,7 @@ func _placement_check(hud: Node) -> PackedStringArray:
 	if button.is_empty():
 		out.append("placement: no side bar build button of the builder on screen")
 		return out
-	await _tap(button.position)
+	await _press(hud, button.position)
 	await _wait(0.8)
 	var pl: Dictionary = hud.get_placement()
 	if not pl.placing:
@@ -512,7 +600,7 @@ func _placement_check(hud: Node) -> PackedStringArray:
 			print("TOUCH SELFTEST ✕: placing %s, confirm shown %s" % [hud.get_placement().placing, _confirm_state().get("shown")])
 			if hud.get_placement().placing:
 				out.append("placement: ✕ did not cancel the placement")
-			await _tap(button.position)
+			await _press(hud, button.position)
 			await _wait(0.8)
 			if not hud.get_placement().placing:
 				out.append("placement: the build button did not start the placement again after ✕")
@@ -650,7 +738,7 @@ func _wall_check(hud: Node) -> PackedStringArray:
 	var rect: Rect2 = bubble.rect
 	var at_bubble := rect.position + rect.size * 0.5
 	print("TOUCH SELFTEST wall: %s bubble at %s for a finger: %s" % [bubble.name, at_bubble, JSON.stringify(hud.touch_button_at(at_bubble))])
-	await _tap(at_bubble)
+	await _press(hud, at_bubble)
 	await _wait(0.8)
 	var probe: Dictionary = hud.touch_placement_at(size * Vector2(0.6, 0.6))
 	print("TOUCH SELFTEST wall: hub %d at %s (pixel %s), %s tapped: %s" % [hub, hub_at, hub_px, bubble.name, JSON.stringify(probe)])

@@ -558,6 +558,35 @@ ControlBar::RightPress ControlBar::rightPressKind(int slot, bool inPalantir) con
 	}
 }
 
+// lane IOS-40 (ControlBar.h; the owner's decision 2026-11-05: "click once to see name/info and twice to build"): the commands whose press spends money,
+// the spell book's points or a recharge. INFERENCE (OpenBFME's own rule, no retail counterpart): by the Command alone, so the answer never depends on the
+// player's money or the button's state (a button the player cannot afford is still previewed: its help says why)
+bool ControlBar::pressCosts(const CommandButton &b)
+{
+	switch (b.m_command)
+	{
+		case GUI_COMMAND_DOZER_CONSTRUCT:        // a structure (the press starts its placement; ✓ then builds it)
+		case GUI_COMMAND_FOUNDATION_CONSTRUCT:   // a building on a castle / camp plot
+		case GUI_COMMAND_CASTLE_UNPACK:          // a castle from its camp flag
+		case GUI_COMMAND_CASTLE_UNPACK_EXPLICIT_OBJECT:
+		case GUI_COMMAND_UNIT_BUILD:             // recruit
+		case GUI_COMMAND_SECONDARY_UNIT_BUILD:
+		case GUI_COMMAND_REVIVE:                 // a fallen hero
+		case GUI_COMMAND_PLAYER_UPGRADE:         // upgrades
+		case GUI_COMMAND_OBJECT_UPGRADE:
+		case GUI_COMMAND_CASTLE_UPGRADE:
+		case GUI_COMMAND_PURCHASE_SCIENCE:       // the spell book's points
+		case GUI_COMMAND_SPECIAL_POWER:          // powers and abilities: a recharge
+		case GUI_COMMAND_SPECIAL_POWER_FROM_COMMAND_CENTER:
+		case GUI_COMMAND_SPECIAL_POWER_TOGGLE:
+		case GUI_COMMAND_FIRE_WEAPON:
+		case GUI_COMMAND_ONE_RING:
+			return true;
+		default:
+			return false;
+	}
+}
+
 bool ControlBar::rightPressButton(int slot, bool inPalantir, bool shift)
 {
 	switch (rightPressKind(slot, inPalantir))

@@ -619,13 +619,125 @@ InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
 		bool arc = false;
 		int slot = -1;
 		out.autocast = m_palantirRef && m_palantirRef->contentSlotAt(out.target, arc, slot) && m_bar->rightPressKind(slot, arc) == ControlBar::RightPress::AutoAbility;
+		out.button = touchCommandAt(out.target);
+		out.costs = out.button && ControlBar::pressCosts(*out.button);
+		// lane IOS-40: the hit area's box (AptMenuPlayer::find_button's rule: the Hit records' placement of the button's bounds, else the bounds), through
+		// the button's global matrix (the HUD size's transform included) to window pixels
+		float x0, y0, x1, y1;
+		if (b->contentBounds(x0, y0, x1, y1))
+		{
+			float corners[8] = { x0, y0, x1, y0, x1, y1, x0, y1 };
+			float hx0 = 0, hy0 = 0, hx1 = 0, hy1 = 0;
+			bool any = false;
+			auto add = [&](float px, float py) {
+				hx0 = any ? std::min(hx0, px) : px;
+				hy0 = any ? std::min(hy0, py) : py;
+				hx1 = any ? std::max(hx1, px) : px;
+				hy1 = any ? std::max(hy1, py) : py;
+				any = true;
+			};
+			if (const AptButtonInfo *info = b->info())
+			{
+				for (const AptButtonRecord &rec : info->records)
+				{
+					if (!(rec.stateMask & 8))
+					{
+						continue;
+					}
+					for (int k = 0; k < 4; ++k)
+					{
+						add(rec.matrix[0] * corners[2 * k] + rec.matrix[2] * corners[2 * k + 1] + rec.translation[0],
+						    rec.matrix[1] * corners[2 * k] + rec.matrix[3] * corners[2 * k + 1] + rec.translation[1]);
+					}
+				}
+			}
+			if (!any)
+			{
+				for (int k = 0; k < 4; ++k)
+				{
+					add(corners[2 * k], corners[2 * k + 1]);
+				}
+			}
+			const AptMatrix g = b->globalMatrix();
+			const float local[8] = { hx0, hy0, hx1, hy0, hx1, hy1, hx0, hy1 };
+			for (int k = 0; k < 4; ++k)
+			{
+				float gx, gy, wx, wy;
+				g.apply(local[2 * k], local[2 * k + 1], gx, gy);
+				m.stageToWindow(gx, gy, wx, wy);
+				out.rect[0] = k == 0 ? wx : std::min(out.rect[0], wx);
+				out.rect[1] = k == 0 ? wy : std::min(out.rect[1], wy);
+				out.rect[2] = k == 0 ? wx : std::max(out.rect[2], wx);
+				out.rect[3] = k == 0 ? wy : std::max(out.rect[3], wy);
+			}
+			out.hasRect = true;
+		}
 		return out;
 	}
 	if (hud6OverGui(x, y))
 	{
 		out.kind = TouchButton::Radial; // the ring's right press only cancels (ControlBarRadialMenu::mouseButton): never an autocast
+		out.radialSlot = m_radial.hit(x, y);
+		for (const ControlBarRadialMenu::Button &rb : m_radial.buttons())
+		{
+			if (rb.slot == out.radialSlot)
+			{
+				out.button = rb.source.button;
+				out.costs = out.button && ControlBar::pressCosts(*out.button);
+				out.rect[0] = (float)rb.rect.x;
+				out.rect[1] = (float)rb.rect.y;
+				out.rect[2] = (float)(rb.rect.x + rb.rect.w);
+				out.rect[3] = (float)(rb.rect.y + rb.rect.h);
+				out.hasRect = true;
+			}
+		}
 	}
 	return out;
+}
+
+// lane IOS-40 (InGameHud.h): the help box's lookups (hoveredAptButton, hoveredHelpButton's spell book) for a path instead of the hovered button
+const CommandButton *InGameHud::touchCommandAt(const std::string &path)
+{
+	if (!m_palantirRef)
+	{
+		return nullptr;
+	}
+	bool arc = false;
+	int slot = -1;
+	if (m_palantirRef->contentSlotAt(path, arc, slot))
+	{
+		for (const ControlBarButton &c : arc ? m_bar->palantirButtons() : m_bar->sideButtons())
+		{
+			if (c.slot == slot)
+			{
+				return c.button;
+			}
+		}
+		return nullptr;
+	}
+	const std::string spellBook = m_palantirRef->spellBookTarget();
+	if (spellBook.empty())
+	{
+		return nullptr;
+	}
+	for (int i = 0; i < AptPalantir::kSpellSlots; ++i)
+	{
+		const std::string clip = spellBook + ".Spell" + std::to_string(i + 1);
+		if (path != clip && !(path.size() > clip.size() && path.compare(0, clip.size(), clip) == 0 && path[clip.size()] == '.'))
+		{
+			continue;
+		}
+		const int index = m_palantirRef->spellSlotButton(i);
+		for (const InGameSpellBookModel::Button &sb : m_spellBar.buttons())
+		{
+			if (sb.index == index)
+			{
+				return sb.button;
+			}
+		}
+		return nullptr;
+	}
+	return nullptr;
 }
 
 void InGameHud::hud6MouseMove(int x, int y)

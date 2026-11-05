@@ -70,6 +70,9 @@ const EXTRAS := {
 	# lane IOS-35 (the owner's request 2026-11-04, the scheme of daisyhasacat/openbfme-godot 607d6406): touch only (touch_available): what a one-finger drag
 	# on the battlefield does: "select" a selection box (IOS-2), "pan" moves the camera (a hold, then a drag, is the box). scripts/touch/touch_controls.gd
 	"OpenBFMETouchDrag": {"default": "select", "choices": ["select", "pan"]},
+	# lane IOS-40 (the owner's decision 2026-11-05): touch only: what a tap on a HUD button does. "costs": a button whose press costs (build, recruit,
+	# upgrades, powers, abilities) shows its help and arms on the first tap and is used by the second; "all": every HUD button so; "act": at once (IOS-21)
+	"OpenBFMETouchButtonTaps": {"default": "costs", "choices": ["costs", "all", "act"]},
 }
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
@@ -301,8 +304,11 @@ func apply_global(values: Dictionary) -> PackedStringArray:
 	var touch := get_node_or_null("/root/TouchControls") if is_inside_tree() else null
 	if touch != null and touch.has_method("set_drag_mode"):
 		touch.set_drag_mode(values.OpenBFMETouchDrag) # lane IOS-35 (inert without touch: the touch layer is off)
+		if touch.has_method("set_button_taps"):
+			touch.set_button_taps(values.OpenBFMETouchButtonTaps) # lane IOS-40
 		if touch_available():
 			done.append("one finger drag " + values.OpenBFMETouchDrag)
+			done.append("button taps " + values.OpenBFMETouchButtonTaps)
 	apply_brightness()
 	apply_detail()
 	if _hud != null:

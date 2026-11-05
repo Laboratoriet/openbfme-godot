@@ -158,6 +158,12 @@ public:
 		Cancel
 	};
 	RightPress rightPressKind(int slot, bool inPalantir) const;
+	// lane IOS-40 (OpenBFME, not retail; touch only: scripts/touch/touch_controls.gd "Button taps"): whether a press of `b` spends something, read from its
+	// Command: money (build a structure, recruit, an upgrade, revive a hero, unpack or build a castle / camp), the spell book's points (PURCHASE_SCIENCE) or
+	// a recharge (a special power, a weapon ability, the One Ring). Such a button is previewed on a phone (the first tap shows its help and arms it, the
+	// second uses it); every other command (stop, guard, formations, stances, rally points, gates, evacuate, sell, the spell book's opening ...) acts at
+	// once. A pure function of the command, so the touch layer and the tests agree on it
+	static bool pressCosts(const CommandButton &b);
 	unsigned autoAbilityToggles() const { return m_autoToggles; }
 	const std::map<std::string, unsigned> &unportedPresses() const { return m_unported; }
 

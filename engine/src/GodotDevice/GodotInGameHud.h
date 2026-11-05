@@ -171,7 +171,9 @@ public:
 	// placement, a power or a command keep the tap where it is)
 	Dictionary nearest_button(const Vector2 &pixel, double radius_px);
 	// lane IOS-21 (OpenBFME, not retail; touch only): the help box without a hover (InGameHud::setTouchHelp / holdHelp), and what a finger at window
-	// `pixel` is on: { kind: "movie" (a Palantir / side bar / spell book / hero bar button) | "radial" (a bubble) | "" , target, autocast }
+	// `pixel` is on: { kind: "movie" (a Palantir / side bar / spell book / hero bar button) | "radial" (a bubble) | "" , target, autocast }; lane IOS-40:
+	// + { costs (InGameHud::TouchButton: its press spends, ControlBar::pressCosts), name (the CommandButton's, "" none), command (its GUI command's name),
+	// slot (a bubble's, -1 else), rect (the button's window rectangle, Rect2() unmeasured) }
 	void set_touch_help(bool on);
 	void hold_help(bool on);
 	// lane IOS-29 (OpenBFME presentation, not retail): the round-HUD audit (InGameHud::hudScaleAudit): [{ level, path, sx, sy, fix_x, fix_y, unit,
