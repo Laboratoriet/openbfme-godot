@@ -2,7 +2,7 @@
 //
 // openbfme_apt_swf: the APT <-> SWF converter's command line (docs/APT-SWF.md).
 //
-//   openbfme_apt_swf export    (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--no-embed]
+//   openbfme_apt_swf export    (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--no-embed] [--resolve-strings]
 //   openbfme_apt_swf roundtrip (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR
 //   openbfme_apt_swf import    FILE.swf --out DIR
 //   openbfme_apt_swf info      FILE.swf
@@ -18,6 +18,7 @@
 #include "Common/ArchiveFile.h"
 #include "Common/RetailArchivePolicy.h"
 #include "GameClient/AptCanvas.h"
+#include "GameClient/GameText.h"
 #include "GameEngineDevice/Win32Device/Common/Win32BIGFileSystem.h"
 #include "Libraries/Source/Apt/AptLoad.h"
 #include "Libraries/Source/Apt/AptSwfExport.h"
@@ -339,6 +340,7 @@ struct Options
 	std::set<std::string> movies; // lower case
 	fs::path out;
 	bool embed = true;
+	bool resolveStrings = false; // export only: a preview with the game's strings in place of "$Label" texts (no private tags)
 };
 
 bool parseArgs(int argc, char **argv, Options &o)
@@ -372,6 +374,10 @@ bool parseArgs(int argc, char **argv, Options &o)
 		{
 			o.embed = false;
 		}
+		else if (a == "--resolve-strings")
+		{
+			o.resolveStrings = true;
+		}
 		else
 		{
 			o.positional.push_back(a);
@@ -384,7 +390,7 @@ int usage()
 {
 	std::fprintf(stderr,
 		"usage:\n"
-		"  openbfme_apt_swf export    (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--no-embed]\n"
+		"  openbfme_apt_swf export    (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--no-embed] [--resolve-strings]\n"
 		"  openbfme_apt_swf roundtrip (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR\n"
 		"  openbfme_apt_swf import    FILE.swf --out DIR\n"
 		"  openbfme_apt_swf info      FILE.swf\n"
@@ -488,7 +494,7 @@ std::string extOf(const std::string &path)
 
 int runConvert(Options &o, bool roundtrip)
 {
-	if (o.out.empty())
+	if (o.out.empty() || (roundtrip && o.resolveStrings))
 	{
 		return usage();
 	}
@@ -508,7 +514,13 @@ int runConvert(Options &o, bool roundtrip)
 	}
 	ExportOptions options;
 	options.textures = mount.lookup();
-	options.embedOriginal = o.embed;
+	options.embedOriginal = o.embed && !o.resolveStrings;
+	GameTextTable strings;
+	if (o.resolveStrings && !strings.loadRetail(*mount.fs, &error))
+	{
+		std::fprintf(stderr, "--resolve-strings: %s\n", error.c_str());
+		return 1;
+	}
 	std::map<std::string, std::size_t> noteMovies;
 	std::map<std::string, std::pair<std::size_t, std::size_t>> perExt; // ext -> (identical, total)
 	std::size_t moviesOk = 0, moviesFailed = 0, moviesIdentical = 0;
@@ -527,6 +539,25 @@ int runConvert(Options &o, bool roundtrip)
 			failures << "- " << job.files.name << " (" << job.archive << "): export failed: " << error << "\n";
 			std::fprintf(stderr, "FAIL %s: %s\n", job.files.name.c_str(), error.c_str());
 			continue;
+		}
+		if (o.resolveStrings)
+		{
+			// a preview: "$Label" texts replaced by the game's strings (GameText.h ResolveAptText), no private tags (it is not
+			// meant to go back to APT: the importer would take the strings for edits)
+			for (SwfTag *t : flattenTagsMutable(r.tags))
+			{
+				SwfEditText et;
+				if (t->code == SWF_TAG_DEFINEEDITTEXT && decodeEditText(t->body, et))
+				{
+					const AptTextResolution res = ResolveAptText(et.initialText, strings);
+					if (res.wasLabel && res.found)
+					{
+						et.initialText = res.text;
+						t->body = encodeEditText(et);
+					}
+				}
+			}
+			swf = swfWriteFile(r.header, r.tags);
 		}
 		writeFile(o.out / (job.files.name + ".swf"), swf);
 		for (const std::string &n : r.notes)
