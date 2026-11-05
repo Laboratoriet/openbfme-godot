@@ -5,16 +5,18 @@
 // OpenBFMEPortraitLayout (no Options row). Without it, and in landscape always, the layout is today's exactly (IOS-3 / 18 / 27 / 29 / 32 / 33).
 //
 // Each prototype is one coherent whole for a phone held upright (the iPhone Duo's inner screen: 626 x 890 pt):
-//   A "More map"   the Palantir docked in the bottom-left corner at today's size, the side bar a block beside it in the bottom-right corner (the
-//                  upper three quarters of the screen are map only), the resource bar at the top-left, the camera's view as wide as a 4:3 screen's
-//                  is tall (Hor+ turned upright: about four times today's ground);
+//   A "More map"   the Palantir docked in the bottom-left corner, the side bar a block beside it in the bottom-right corner (the upper three
+//                  quarters of the screen are map only), the camera's view as wide as a 4:3 screen's is tall (Hor+ turned upright: about four times
+//                  today's ground). Lane IOS-42 (the owner's pick, 2026-11-05; the touch default): the resource bar stays in the Palantir's band (no
+//                  empty slot in the frame, no plate over the map), and the Palantir follows the HUD size: 100 % its own 1.25 (the arc 27 pt, the
+//                  digits retail's), 150 % the factor whose arc buttons are 44 pt and digits 11 pt type (moreMapPalantir);
 //   B "One hand"   the Palantir large in the lower third (its arc's buttons at least 44 pt), the side bar one column on the right edge from the bottom
 //                  up (in the right thumb's reach), the camera between today's and A's;
 //   C "Split"      mobile strategy-game conventions: the command arc and the portrait centred at the bottom, the minimap globe apart in the top-right
 //                  corner under the toolbar strip, the resource bar at the top-left beside it, the side bar a block in the bottom-right corner.
-// All three keep a strip of kToolbarPt at the top of the safe area free (the touch command toolbar of lane IOS-37 lives there), move InGameUI's
-// message lines below it (at least kTextPt), and draw the resource bar's digits as tall as 11 pt type's capitals (kTextCapPt): A and C move the bar
-// to the top-left under the strip, B's large Palantir draws it that size in place.
+// All three keep a strip of kToolbarPt at the top of the safe area free (the touch command toolbar of lane IOS-37 lives there) and move InGameUI's
+// message lines below it (at least kTextPt). B and C draw the resource bar's digits as tall as 11 pt type's capitals (kTextCapPt): C moves the bar to
+// the top-left under the strip, B's large Palantir draws it that size in place; A (IOS-42) from a HUD size of 150 %.
 // How: transforms only. Palantir.apt's root is flat (the frame, each globe's clips, the arc, the resource bar are siblings), so each root child gets
 // a viewportTransform that scales it uniformly about an anchor of its own and moves the anchor to a point of the safe area (place()); C hides the
 // carved frame around both globes. The round-HUD rule (AptUniformHud) then finds every unit uniform already. The hit tests read the same matrices (AptCharacterInst::globalMatrix), so a press lands on what is drawn.
@@ -52,6 +54,7 @@ public:
 	static constexpr float kResourceCapPerFont = 0.42f;
 	static constexpr float kTargetPt = 44.0f;  ///< Apple's smallest comfortable touch target
 	static constexpr float kDefaultPointPx = 1.5f; ///< pixels per point when the device does not say (the Mac stand-in: the Duo's 3 px / pt at half size)
+	static constexpr float kMoreMapTopScale = 1.5f; ///< lane IOS-42: the HUD size at which A's Palantir reaches `large` (the slider's top)
 
 	struct Spec
 	{
@@ -65,7 +68,7 @@ public:
 		float sideBarPt = 0.0f; ///< the side bar's button pitch in points (0: IOS-27's size)
 		bool radarApart = false; ///< C: the minimap globe in the top-right corner
 		float radarPt = 0.0f;   ///< C: the globe's diameter in points
-		bool resourcesTop = false; ///< A, C: the resource bar at the top-left, under the toolbar strip, on a plate the device draws
+		bool resourcesTop = false; ///< C (A until IOS-42): the resource bar at the top-left, under the toolbar strip, on a plate the device draws
 		float hfovDeg = 0.0f;   ///< the camera's horizontal field of view in portrait, degrees (0: IOS-3's 4:3 vertical view, narrowed: 27.6 at the Duo's aspect)
 		float bubbles = 0.0f;   ///< the radial bubbles' square size factor over a building (0: the HUD size option's, 125 % on a phone: 35 pt)
 	};
@@ -76,4 +79,7 @@ public:
 	static AptMatrix place(float ax, float ay, float a, float d, float px, float py);
 	// the factor that makes `extentStage` (stage units, drawn at `unitPx` window pixels per stage unit) measure `pt` points at `pointPx`
 	static float factorFor(float pt, float extentStage, float unitPx, float pointPx);
+	// lane IOS-42: A's Palantir factor at HUD size `hudScale` (OpenBFMEHudScale / 100): its spec's at 1 and below, `large` (the arc's 44 pt / the
+	// digits' 11 pt factor) at kMoreMapTopScale and above, linear between; never below the spec's
+	static float moreMapPalantir(float hudScale, float large);
 };

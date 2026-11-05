@@ -1011,7 +1011,9 @@ void AptPalantir::setViewportSize(int width, int height, const HudLayout &layout
 		// takes that ratio on top, so its buttons are as large on the screen as the landscape block's (as far as the height below the message lines holds)
 		const bool portrait = width < height;
 		const float turned = portrait ? std::min((float)height / (float)width, stageWidth / stageHeight) : 1.0f;
-		float k = layout.scale > 1.0f ? layout.scale * kSideBarBoost * turned : 1.0f; // 100 %: the IOS-18 column (arrangeSideBar undoes its layout)
+		// 100 %, and (lane IOS-42) landscape with the one-column choice: the IOS-18 column (arrangeSideBar undoes its layout)
+		const bool block = layout.scale > 1.0f && (portrait || !layout.sideBarOneColumn);
+		float k = block ? layout.scale * kSideBarBoost * turned : 1.0f;
 		const float top = std::max(safeTop, layout.topRightReserve / unitY); // portrait: the column starts below the message lines
 		if (arrangeSideBar(root, portrait, vscale, stageWidth, stageHeight, top, safeBottom, k))
 		{

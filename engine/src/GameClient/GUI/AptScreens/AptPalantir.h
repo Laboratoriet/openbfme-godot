@@ -50,6 +50,10 @@ public:
 		///< applies in a portrait window only; landscape and 0 keep the layout above exactly
 		int portraitLayout = 0;
 		float pointPx = 0.0f; ///< lane IOS-38: window pixels per point (the toolbar strip, the text floor); 0 = unknown (the prototype takes 1.5)
+		///< lane IOS-42 (OpenBFME presentation; the owner's choice, Options > Touch > Side bar): in landscape the side bar stays the retail column at the
+		///< HUD size (IOS-18's group factor, as far as the safe area's height holds it), not IOS-27's block of one or two columns at the size x 1.12.
+		///< Portrait and the prototypes keep theirs
+		bool sideBarOneColumn = false;
 		bool portraitPrototype(int width, int height) const { return portraitLayout != 0 && width < height; }
 		// the retail layout: a desktop at 100 % (scale 1, no insets)
 		bool retail() const { return scale == 1.0f && safeInsets[0] == 0.0f && safeInsets[1] == 0.0f && safeInsets[2] == 0.0f && safeInsets[3] == 0.0f; }

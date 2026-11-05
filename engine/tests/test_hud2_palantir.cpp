@@ -794,6 +794,133 @@ TEST_CASE("hud2 palantir: above 100 % the side bar wraps into two columns in lan
 	}
 }
 
+// lane IOS-42 (OpenBFME presentation; the owner's choice, Options > Touch > Side bar "One column"): in landscape the side bar stays the retail column at
+// the HUD size (IOS-18's group factor, as far as the safe area's height holds it) instead of IOS-27's block; portrait keeps its top column. The hit test,
+// the touch button and a held finger's help follow the column
+TEST_CASE("hud2 palantir: with the one-column choice the landscape side bar is the retail column at the HUD size, and the hit test follows")
+{
+	if (!haveWorld("hud2 side bar one column"))
+	{
+		return;
+	}
+	PalantirRig hud(shared(), "Player_1", "FactionMen");
+	hud.frames(30);
+	Object *builder = hud.rig.make("MenPorter", 2800, 1400);
+	REQUIRE(builder != nullptr);
+	hud.hud->input().ui().selectObject(builder->getID());
+	hud.frames(40);
+	AptPalantir *p = hud.hud->palantir();
+	REQUIRE(p->sideBarShown());
+	const int n = p->sideBarCount();
+	REQUIRE(n == 12); // tolerance: the Men's builder's build list (measured), more than kSideBarMaxRows: the block would wrap it
+	std::vector<AptSpriteInst *> frames;
+	std::vector<AptButtonInst *> buttons;
+	for (int i = 0; i < n; ++i)
+	{
+		frames.push_back(hud.clip("SideCommandBar.ButtonSet.Button" + std::to_string(i)));
+		REQUIRE(frames.back() != nullptr);
+		buttons.push_back(firstButton(frames.back()));
+		REQUIRE(buttons.back() != nullptr);
+	}
+	AptSpriteInst *side = hud.clip("SideCommandBar");
+	REQUIRE(side != nullptr);
+	const int width = 1335, height = 939;
+	AptStageMapping m;
+	m.windowW = (float)width;
+	m.windowH = (float)height;
+	hud.hud->setWindowSize(width, height);
+	// 100 %: the retail column whatever the choice
+	hud.hud->setHudLayout(AptPalantir::HudLayout());
+	hud.frames(2);
+	const AptMatrix retailSide = side->viewportTransform;
+	float base[4];
+	globalBox(buttons[0], m, base);
+	for (float scale : { 1.0f, 1.25f, 1.5f })
+	{
+		INFO("HUD size ", scale);
+		AptPalantir::HudLayout layout;
+		layout.scale = scale;
+		layout.roundHud = true;
+		layout.sideBarOneColumn = true;
+		hud.hud->setHudLayout(layout);
+		hud.frames(2);
+		CHECK(p->sideBarColumns() == 1);
+		const float k = p->hudGroupScale(AptPalantir::HudGroup::BottomRight);
+		CHECK(k <= scale); // tolerance: a range: never past the HUD size (no IOS-27 boost); less where the window's height holds the column
+		CHECK(k >= 1.0f);
+		if (scale == 1.0f)
+		{
+			CHECK(side->viewportTransform.a == retailSide.a);
+			CHECK(side->viewportTransform.tx == retailSide.tx);
+			CHECK(side->viewportTransform.ty == retailSide.ty);
+		}
+		float first[4], last[4], art[4];
+		globalBox(buttons[0], m, first);
+		globalBox(buttons[n - 1], m, last);
+		// the buttons at the group's factor (against the retail column), one x for the whole column, and no frame moved by IOS-27
+		// tolerance: the boxes go through the stage <-> window float mappings; 1e-3 relative
+		CHECK((first[2] - first[0]) == doctest::Approx((base[2] - base[0]) * k).epsilon(1e-3));
+		CHECK(last[0] == doctest::Approx(first[0]).epsilon(1e-4)); // tolerance: float mappings of the same transforms
+		for (int i = 0; i < n; ++i)
+		{
+			INFO("button ", i);
+			CHECK(frames[i]->viewportTransform.tx == 0.0f);
+			CHECK(frames[i]->viewportTransform.ty == 0.0f);
+			AptSpriteInst *frameArt = hud.clip("SideCommandBar.ButtonSet.Button" + std::to_string(i) + ".Frame");
+			REQUIRE(frameArt != nullptr);
+			CHECK(frameArtSection(*frameArt) == (i == 0 ? "_top" : (i == n - 1 ? "_bottom" : "_middle")));
+			globalBox(frames[i], m, art);
+			CHECK(art[1] >= -0.01f); // tolerance: the art may touch the window's edge; 0.01 px of float rounding
+			CHECK(art[2] <= (float)width + 0.01f); // tolerance: as above
+			CHECK(art[3] <= (float)height + 0.01f); // tolerance: as above
+			float box[4];
+			globalBox(buttons[i], m, box);
+			const InGameHud::TouchButton t = hud.hud->touchButtonAt((int)((box[0] + box[2]) * 0.5f), (int)((box[1] + box[3]) * 0.5f));
+			CHECK(t.kind == InGameHud::TouchButton::Movie);
+			const std::string framePath = "_level" + std::to_string(p->level()) + ".SideCommandBar.ButtonSet.Button" + std::to_string(i) + ".";
+			CHECK(t.target.compare(0, framePath.size(), framePath) == 0);
+			float sx, sy;
+			m.windowToStage((box[0] + box[2]) * 0.5f, (box[1] + box[3]) * 0.5f, sx, sy);
+			CHECK(hud.hud->apt().input().hitTestButtons(sx, sy) == buttons[i]);
+		}
+		// a held finger on the first and the last button shows that button's help
+		std::vector<HelpDrawOp> ops;
+		hud.hud->helpBoxRender(400.0f, 500.0f, 360.0f, 40.0f, ops);
+		hud.hud->setTouchHelp(true);
+		for (int i : { 0, n - 1 })
+		{
+			INFO("held on button ", i);
+			float box[4];
+			globalBox(buttons[i], m, box);
+			hud.hud->mouseMove((int)((box[0] + box[2]) * 0.5f), (int)((box[1] + box[3]) * 0.5f));
+			hud.hud->holdHelp(true);
+			hud.frames(3);
+			CHECK(hud.hud->helpBox().isShown());
+			CHECK(hud.hud->helpBox().provider().bar == 1);
+			hud.hud->holdHelp(false);
+			hud.hud->mouseMove(width / 2, 60);
+			hud.frames(10);
+		}
+		hud.hud->setTouchHelp(false);
+		// the other choice in the same window: IOS-27's block (two columns)
+		layout.sideBarOneColumn = false;
+		hud.hud->setHudLayout(layout);
+		hud.frames(2);
+		const int blockColumns = scale == 1.0f ? 1 : 2; // 100 %: the retail column whatever the choice
+		CHECK(p->sideBarColumns() == blockColumns);
+	}
+	// portrait keeps IOS-27's top column at the boosted size with either choice
+	hud.hud->setWindowSize(height, width);
+	AptPalantir::HudLayout portrait;
+	portrait.scale = 1.25f;
+	portrait.sideBarOneColumn = true;
+	hud.hud->setHudLayout(portrait);
+	hud.frames(2);
+	CHECK(p->sideBarColumns() == 1);
+	// tolerance: the same float product in another order
+	CHECK(p->hudGroupScale(AptPalantir::HudGroup::BottomRight) == doctest::Approx(1.25f * AptPalantir::kSideBarBoost * 1024.0f / 768.0f).epsilon(1e-6));
+}
+
 // lane IOS-27 (OpenBFME presentation, not retail): the spell book hangs from the Palantir's top-left with the Palantir's factor, and fits on its own under the
 // safe area's top: a long vine (every power bought) no longer holds the whole Palantir at 100 %. A held finger on a power shows its help and presses nothing
 TEST_CASE("hud2 palantir: the spell book grows with the Palantir, fits under the safe area's top, and a held finger shows a power's help")

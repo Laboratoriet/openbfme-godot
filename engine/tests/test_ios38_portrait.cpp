@@ -289,8 +289,11 @@ TEST_CASE("ios38 portrait: each prototype places the HUD round, inside the safe 
 			REQUIRE(windowBox(h.at("CommandButtons.glass0"), m, gb));
 			CHECK(gb[2] - gb[0] >= PortraitLayout::kTargetPt * ppt - 0.5f); // tolerance: half a pixel of float mapping
 		}
-		// the resource bar's text at least 11 pt
-		CHECK(r.at("text_pt") >= PortraitLayout::kTextPt - 0.01f); // tolerance: float products
+		// the resource bar's text at least 11 pt (lane IOS-42: A from a HUD size of 150 %, below)
+		if (s.id != PortraitLayout::MoreMap)
+		{
+			CHECK(r.at("text_pt") >= PortraitLayout::kTextPt - 0.01f); // tolerance: float products
+		}
 		// C: the minimap globe apart in the top-right corner, below the strip; the press on it is the radar's
 		if (s.radarApart)
 		{
@@ -310,6 +313,55 @@ TEST_CASE("ios38 portrait: each prototype places the HUD round, inside the safe 
 		{
 			CHECK(frame->visible);
 		}
+	}
+	// lane IOS-42: A follows the HUD size. 100 %: its own 1.25, the resource bar in the frame's band (the frame's transform, no plate at the top);
+	// 150 %: the arc's buttons 44 pt and the digits 11 pt type; between, between
+	{
+		AptPalantir::HudLayout a = base;
+		a.portraitLayout = PortraitLayout::MoreMap;
+		a.scale = 1.0f;
+		h.hud->setHudLayout(a);
+		h.frames(2);
+		const std::map<std::string, float> &r = p->portraitReport();
+		CHECK(r.at("palantir") == doctest::Approx(PortraitLayout::spec(PortraitLayout::MoreMap).palantir)); // tolerance: float mapping
+		CHECK(r.count("resources_x0") == 0); // no plate: the bar is in its band
+		AptCharacterInst *bar = h.at("ResourceBar");
+		REQUIRE(bar != nullptr);
+		// tolerance: the bar is placed about its own centre with the Palantir's factor: the same matrix up to float rounding
+		CHECK(bar->viewportTransform.a == doctest::Approx(frame->viewportTransform.a).epsilon(1e-5));
+		CHECK(bar->viewportTransform.d == doctest::Approx(frame->viewportTransform.d).epsilon(1e-5)); // tolerance: as above
+		CHECK(bar->viewportTransform.tx == doctest::Approx(frame->viewportTransform.tx).epsilon(1e-3)); // tolerance: as above
+		CHECK(bar->viewportTransform.ty == doctest::Approx(frame->viewportTransform.ty).epsilon(1e-3)); // tolerance: as above
+		float barBox[4], frameBox[4];
+		REQUIRE(windowBox(bar, m, barBox));
+		REQUIRE(windowBox(frame, m, frameBox));
+		CHECK(barBox[1] >= frameBox[1]); // tolerance: a range: inside the frame's box (its band)
+		CHECK(barBox[3] <= frameBox[3] + 0.5f); // tolerance: half a pixel of float mapping
+		const float small = r.at("palantir");
+		a.scale = 1.25f;
+		h.hud->setHudLayout(a);
+		h.frames(2);
+		const float middle = p->portraitReport().at("palantir");
+		a.scale = 1.5f;
+		h.hud->setHudLayout(a);
+		h.frames(2);
+		const std::map<std::string, float> &top = p->portraitReport();
+		CHECK(middle > small); // tolerance: a range: the Palantir grows with the HUD size
+		CHECK(top.at("palantir") > middle); // tolerance: as above
+		// tolerance: linear in the HUD size: the middle size halfway
+		CHECK(middle == doctest::Approx((small + top.at("palantir")) * 0.5f).epsilon(1e-4));
+		float gb[4];
+		REQUIRE(windowBox(h.at("CommandButtons.glass0"), m, gb));
+		CHECK(gb[2] - gb[0] >= PortraitLayout::kTargetPt * ppt - 0.5f); // tolerance: half a pixel of float mapping
+		CHECK(top.at("text_pt") >= PortraitLayout::kTextPt - 0.01f); // tolerance: float products
+		CHECK(top.at("hud_top") >= PortraitLayout::kToolbarPt * ppt - 0.5f); // tolerance: half a pixel; still below the toolbar strip
+		float pb[4];
+		REQUIRE(windowBox(frame, m, pb));
+		CHECK(pb[2] <= (float)width + 0.5f); // tolerance: half a pixel of float mapping
+		// the mapping itself: the spec's at 100 % and below, `large` at 150 % and above
+		CHECK(PortraitLayout::moreMapPalantir(0.8f, 2.0f) == PortraitLayout::spec(PortraitLayout::MoreMap).palantir);
+		CHECK(PortraitLayout::moreMapPalantir(2.0f, 2.0f) == 2.0f);
+		CHECK(PortraitLayout::moreMapPalantir(1.5f, 1.0f) == PortraitLayout::spec(PortraitLayout::MoreMap).palantir); // never below the spec's
 	}
 	// back to today's: exactly as before, and the report is empty
 	h.hud->setHudLayout(base);

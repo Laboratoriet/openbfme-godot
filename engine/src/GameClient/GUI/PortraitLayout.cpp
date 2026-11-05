@@ -13,11 +13,19 @@ const PortraitLayout::Spec &PortraitLayout::spec(Id id)
 	// view turned upright: as much ground across as a 4:3 screen shows top to bottom); B 33 x 45.6; C 36 x 49.1. Bubbles 1.6: 35 pt at 1.25 -> 45 pt
 	static const Spec kSpecs[Count] = {
 		{ Today, "default", "Today", 1.0f, 0.0f, SideTopColumn, 1, 0.0f, false, 0.0f, false, 0.0f },
-		{ MoreMap, "a", "More map", 1.25f, 0.0f, SideBottomBlock, 2, 52.0f, false, 0.0f, true, 38.58f, 0.0f },
+		// lane IOS-42: A's resource bar stays in the Palantir's band (resourcesTop false); its Palantir follows the HUD size (moreMapPalantir)
+		{ MoreMap, "a", "More map", 1.25f, 0.0f, SideBottomBlock, 2, 52.0f, false, 0.0f, false, 38.58f, 0.0f },
 		{ OneHand, "b", "One hand", 2.0f, 0.0f, SideBottomColumn, 1, 54.0f, false, 0.0f, false, 33.0f, 1.6f },
 		{ Split, "c", "Split", 2.0f, 0.5f, SideBottomBlock, 2, 52.0f, true, 120.0f, true, 36.0f, 1.6f },
 	};
 	return kSpecs[id >= Today && id < Count ? id : Today];
+}
+
+float PortraitLayout::moreMapPalantir(float hudScale, float large)
+{
+	const float base = spec(MoreMap).palantir;
+	const float t = std::clamp((hudScale - 1.0f) / (kMoreMapTopScale - 1.0f), 0.0f, 1.0f);
+	return base + (std::max(large, base) - base) * t;
 }
 
 bool PortraitLayout::parse(const std::string &key, Id &id)

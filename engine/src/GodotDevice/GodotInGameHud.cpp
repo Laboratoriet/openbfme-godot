@@ -4114,6 +4114,15 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 			d->hud->setHudLayout(d->hudLayout);
 		}
 	}
+	if (o.has("side_bar_one_column"))
+	{
+		// lane IOS-42 (OpenBFME presentation): Options > Touch > Side bar: landscape keeps the retail column at the HUD size (HudLayout::sideBarOneColumn)
+		d->hudLayout.sideBarOneColumn = (bool)o["side_bar_one_column"];
+		if (d->hud)
+		{
+			d->hud->setHudLayout(d->hudLayout);
+		}
+	}
 	if (o.has("point_px"))
 	{
 		const double px = o["point_px"];
@@ -4159,6 +4168,7 @@ Dictionary InGameHudNode::set_view_options(const Dictionary &o)
 	r["ui_scale"] = d->uiScale;
 	r["hud_scale"] = d->hudLayout.scale;
 	r["round_hud"] = d->hudLayout.uniform(); // lane IOS-29: the rule in effect
+	r["side_bar_one_column"] = d->hudLayout.sideBarOneColumn; // lane IOS-42
 	r["portrait_layout"] = String(PortraitLayout::spec((PortraitLayout::Id)d->hudLayout.portraitLayout).key); // lane IOS-38
 	r["point_px"] = d->hudLayout.pointPx > 0.0f ? d->hudLayout.pointPx : PortraitLayout::kDefaultPointPx;
 	return r;

@@ -274,11 +274,15 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 		return false;
 	}
 	float k = spec.palantir;
+	if (spec.id == PortraitLayout::MoreMap)
+	{
+		k = PortraitLayout::moreMapPalantir(layout.scale, std::max(arcK, textK)); // lane IOS-42: A follows the HUD size
+	}
 	if (spec.id == PortraitLayout::OneHand || spec.id == PortraitLayout::Split)
 	{
 		k = std::max(k, arcK); // B and C: the arc's buttons at least 44 pt
 	}
-	if (!spec.resourcesTop)
+	if (spec.id == PortraitLayout::OneHand)
 	{
 		k = std::max(k, textK); // B: the resource bar stays in the frame's band, the whole Palantir as large as its text needs
 	}
@@ -322,8 +326,9 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 		}
 		else
 		{
-			// B: in the frame's bottom band, with the Palantir (whose factor is at least textK)
-			const float kr = std::max(k, textK);
+			// B: in the frame's bottom band, with the Palantir (whose factor is at least textK); lane IOS-42, A: there too, at the Palantir's factor (the
+			// band is the bar's frame: moved away, it left an empty slot)
+			const float kr = spec.id == PortraitLayout::MoreMap ? k : std::max(k, textK);
 			const float cx = (rb.x0 + rb.x1) * 0.5f, cy = (rb.y0 + rb.y1) * 0.5f;
 			float wx, wy;
 			palantir.apply(cx, cy, wx, wy);
