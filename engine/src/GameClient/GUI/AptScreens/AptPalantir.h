@@ -45,6 +45,11 @@ public:
 		float topRightReserve = 0.0f; ///< lane IOS-27: window pixels from the top a portrait side bar keeps clear of (InGameUI's message lines)
 		///< lane IOS-29: touch / mobile (InGameHudNode set_view_options round_hud): the round-HUD rule even at 100 % (uniform())
 		bool roundHud = false;
+		///< lane IOS-38 (a PROTOTYPE behind a developer switch, not retail): the portrait layout to try (PortraitLayout::Id; 0 = today's portrait). It
+		///< applies in a portrait window only; landscape and 0 keep the layout above exactly
+		int portraitLayout = 0;
+		float pointPx = 0.0f; ///< lane IOS-38: window pixels per point (the toolbar strip, the text floor); 0 = unknown (the prototype takes 1.5)
+		bool portraitPrototype(int width, int height) const { return portraitLayout != 0 && width < height; }
 		// the retail layout: a desktop at 100 % (scale 1, no insets)
 		bool retail() const { return scale == 1.0f && safeInsets[0] == 0.0f && safeInsets[1] == 0.0f && safeInsets[2] == 0.0f && safeInsets[3] == 0.0f; }
 		// lane IOS-29 (OpenBFME presentation, not retail): circles stay circles - every HUD element is drawn at one scale for x and y (AptUniformHud, the
@@ -71,6 +76,9 @@ public:
 	static constexpr int kSideBarMaxRows = 6;
 	int sideBarColumns() const { return m_sideColumns; }
 	float spellBookScale() const { return m_spellBookScale; }
+	// lane IOS-38 (prototype): what the portrait prototype in effect placed, by name (the groups' factors, the reserved strip, the text's size in
+	// points ...): the hud6 portrait report and the tests read it; empty while no prototype is in effect
+	const std::map<std::string, float> &portraitReport() const { return m_portraitReport; }
 
 	// the commands the Palantir registers, in the binary's order (without the screen prefix of the command UI names)
 	static const std::vector<std::string> &retailCommandNames();
@@ -339,6 +347,12 @@ private:
 	// `k` in: the factor the side bar may take at most (the HUD size times kSideBarBoost); out: the factor that fits
 	bool arrangeSideBar(AptSpriteInst *root, bool portrait, float vscale, float stageWidth, float stageHeight, float safeTop, float safeBottom, float &k);
 	void resetSideBarArrangement(AptSpriteInst *root);
+	// lane IOS-38 (AptPalantirPortrait.cpp, prototype): the portrait prototype's placement of every root child; false when none is in effect
+	bool layoutPortraitPrototype(AptSpriteInst *root, int width, int height, const HudLayout &layout);
+	// lane IOS-38: a prototype's side bar in one column only (PortraitLayout::SideBottomColumn: 1; 0 = IOS-27's rule)
+	int m_protoSideColumns = 0;
+	std::map<std::string, float> m_portraitReport;
+	std::vector<std::string> m_protoMoved; ///< lane IOS-38: the clips below the root's children a prototype moved (back to the identity when it ends)
 	int m_sideColumns = 1;
 	bool m_sideArranged = false;            ///< some ButtonN / flash / ButtonSet carries a layout transform or a forced frame state
 	std::string m_sideForcedState[16];      ///< the frame-art label the layout set on ButtonN.Frame ("" none)

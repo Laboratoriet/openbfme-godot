@@ -263,7 +263,11 @@ bool AptPalantir::arrangeSideBar(AptSpriteInst *root, bool portrait, float vscal
 	const float width = pitch;
 	const float safeHeight = safeBottom - safeTop;
 	auto blockHeight = [&](int rows) { return (float)(rows - 1) * pitch + capAbove + capBelow; };
-	const int columns = !portrait && n > 1 && (n > kSideBarMaxRows || vscale * target * blockHeight(n) > safeHeight) ? 2 : 1;
+	int columns = !portrait && n > 1 && (n > kSideBarMaxRows || vscale * target * blockHeight(n) > safeHeight) ? 2 : 1;
+	if (m_protoSideColumns == 1)
+	{
+		columns = 1; // lane IOS-38 (prototype): one column standing in the bottom-right corner
+	}
 	const int rows = (n + columns - 1) / columns;
 	k = target;
 	if (vscale * k * blockHeight(rows) > safeHeight)

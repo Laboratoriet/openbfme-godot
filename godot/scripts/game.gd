@@ -94,6 +94,8 @@
 ##                           ui6-<step>.png; exit 0 when every step held
 ##     --widescreen=V        (lane UI-6) the Widescreen view for this run: original (RotWK's view) or wider (4:3's vertical view, wider to the
 ##                           sides); without it Options.ini OpenBFMEWidescreen (default original)
+##     --portrait-layout=V   (lane IOS-38, a PROTOTYPE) the portrait layout to try in a portrait window: a (More map), b (One hand), c (Split) or
+##                           default (today's); without it Options.ini OpenBFMEPortraitLayout (no Options row; default today's). Landscape is unchanged
 ##     --menu1-walk[=DIR]    (lane MENU-1, scripts/menu1_walk.gd) the front-end paths with real input (Skirmish's profile prompt, the lobby, its Profile
 ##                           page, Options, LAN, Replays, Create-a-Hero ...): after each step at most one screen's widgets may be visible (the top one),
 ##                           the titles never overprint; DIR: windowed screenshots walk1-<step>.png; exit 0 when every step held
@@ -405,6 +407,8 @@ var _zoom_out_flag := 0.0
 var _zoom_out_error := "" # lane ZOOM-1 r2: a --zoom-out value the option does not take
 ## lane UI-6: --widescreen=original|wider ("" = Options.ini's OpenBFMEWidescreen)
 var _widescreen_flag := ""
+## lane IOS-38 (prototype): --portrait-layout=default|a|b|c ("" = Options.ini's OpenBFMEPortraitLayout)
+var _portrait_layout_flag := ""
 ## lane PLAY-1: the input-driven scenarios of scripts/play1_player.gd (--play1=orders,palantir,powers,camera)
 var _play1 := PackedStringArray()
 var _zoom1 := PackedStringArray() # lane ZOOM-1
@@ -702,7 +706,7 @@ var _intro := "auto"            # lane CAMP-2: --intro (on) / --no-intro (off)
 var _intro_check := false       # lane CAMP-2: --intro-check (tests): the start-up movies, then quit
 ## lane MENU-1: the options a player's own start may carry (the launcher's, the display options); any other option makes a scripted run
 const PLAYER_ARG_PREFIXES := ["--fps", "--dev-overlay", "--intro", "--no-intro", "--alternate-mouse", "--classic-mouse", "--free-camera", "--res=",
-	"--vsync=", "--max-fps=", "--movies=", "--zoom-out=", "--widescreen=", "--online-lobby=", "--no-update-check", "--game=", "--bfme1-install="] # --zoom-out: ZOOM-1, --widescreen: UI-6, player options (PLAYING.md)
+	"--vsync=", "--max-fps=", "--movies=", "--zoom-out=", "--widescreen=", "--portrait-layout=", "--online-lobby=", "--no-update-check", "--game=", "--bfme1-install="] # --zoom-out: ZOOM-1, --widescreen: UI-6, player options (PLAYING.md)
 var _scripted_skirmish_ini := ""
 
 
@@ -886,6 +890,11 @@ func _ready() -> void:
 			_widescreen_flag = arg.substr(13)
 			if not Array(["original", "wider"]).has(_widescreen_flag):
 				_zoom_out_error = "--widescreen=%s: not a Widescreen view value (original or wider)" % _widescreen_flag
+		elif arg.begins_with("--portrait-layout="):
+			# lane IOS-38 (prototype): the portrait layout for a run (the key's values only; anything else is refused below)
+			_portrait_layout_flag = arg.substr(18)
+			if not Array(["default", "a", "b", "c"]).has(_portrait_layout_flag):
+				_zoom_out_error = "--portrait-layout=%s: not a portrait layout (default, a, b or c)" % _portrait_layout_flag
 		elif arg.begins_with("--play1="):
 			_play1 = arg.substr(8).split(",", false)
 		elif arg.begins_with("--edain-choice="):

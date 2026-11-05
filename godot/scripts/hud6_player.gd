@@ -25,6 +25,12 @@
 ##            (a full-bleed backdrop, edge to edge on its stretched axis, is allowed: AptUniformHud::Entry::fullBleed)
 ##   menus    (lane IOS-32, with --touch) the full-screen in-game menus with the round-HUD audit: the pause menu, the players screen, the objectives,
 ##            the save menu over the game, the spell store (hud6-menus-<name>); in portrait they sit in the middle of the safe area
+##   portrait (lane IOS-38, a PROTOTYPE comparison; with --touch, a portrait --res and --portrait-layout=default|a|b|c) the same five states for each
+##            layout: an army with its builder (hud6-portrait-army), the builder alone with its side bar (-builder), the fortress with its radial
+##            bubbles (-building), the spell book with three powers (-spellbook), the pause menu (-menu); prints "HUD6 portrait target <name>: w x h px
+##            = w x h pt" (the hit target as the touch layer finds it, walked pixel by pixel from the button's centre), "HUD6 portrait map: ..." (the
+##            share of the window that is battlefield, not HUD, and the ground it shows in world units) and the prototype's report; FAIL when a
+##            prototype's HUD leaves the window or covers the toolbar strip
 extends "res://scripts/scenario_player.gd"
 
 var game: Node
@@ -832,3 +838,207 @@ func _scenario_hudsize() -> String:
 
 func get_viewport_size() -> Vector2:
 	return Vector2(game.get_viewport().get_visible_rect().size)
+
+
+# ---- lane IOS-38: the portrait layout prototypes, measured -------------------------------------------------------------------------------------------
+
+var _portrait_px_per_pt := 1.5
+
+
+## the hit target of the HUD button at window pixel `c` as the touch layer finds it: from `c` pixel by pixel left, right, up and down while
+## touch_button_at still names the same button; {} when nothing is under `c`
+func hit_target(c: Vector2) -> Dictionary:
+	var under: Dictionary = hud.touch_button_at(c)
+	var target := str(under.get("target", ""))
+	if target.is_empty():
+		return {}
+	var reach := {}
+	for dir in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
+		var n := 0
+		while n < 400 and str(hud.touch_button_at(c + dir * float(n + 1)).get("target", "")) == target:
+			n += 1
+		reach[dir] = n
+	var w := float(reach[Vector2.LEFT] + reach[Vector2.RIGHT] + 1)
+	var h := float(reach[Vector2.UP] + reach[Vector2.DOWN] + 1)
+	return {"target": target, "w": w, "h": h, "x0": c.x - reach[Vector2.LEFT], "y0": c.y - reach[Vector2.UP]}
+
+
+func report_target(name: String, path: String, sizes: Dictionary) -> void:
+	var w: Dictionary = hud.find_button_window(path)
+	if not w.get("found", false):
+		print("HUD6 portrait target %s: no button at %s" % [name, path])
+		return
+	var t := hit_target(Vector2(w.x, w.y))
+	if t.is_empty():
+		print("HUD6 portrait target %s: nothing under its centre %s" % [name, str(Vector2(w.x, w.y))])
+		return
+	var pt := minf(t.w, t.h) / _portrait_px_per_pt
+	sizes[name] = pt
+	print("HUD6 portrait target %s: %d x %d px = %.0f x %.0f pt at (%d, %d)%s" % [name, int(t.w), int(t.h), t.w / _portrait_px_per_pt,
+		t.h / _portrait_px_per_pt, int(w.x), int(w.y), "" if pt >= 44.0 else " (under 44 pt)"])
+
+
+## the battlefield's share of the window (a 24 px grid: a point is battlefield when no HUD takes a finger there) and the ground the whole window shows
+## (the terrain under the window's corners and edge midpoints: a polygon's area in world units squared)
+func report_map(where: String) -> Dictionary:
+	var size := get_viewport_size()
+	var free := 0
+	var total := 0
+	var step := 24.0
+	var y := step * 0.5
+	while y < size.y:
+		var x := step * 0.5
+		while x < size.x:
+			total += 1
+			if bool(hud.touch_placement_at(Vector2(x, y)).get("world", false)):
+				free += 1
+			x += step
+		y += step
+	var poly := PackedVector2Array()
+	for p in [Vector2(0, 0), Vector2(size.x * 0.5, 0), Vector2(size.x - 1, 0), Vector2(size.x - 1, size.y * 0.5), Vector2(size.x - 1, size.y - 1),
+			Vector2(size.x * 0.5, size.y - 1), Vector2(0, size.y - 1), Vector2(0, size.y * 0.5)]:
+		var g: Vector2 = hud.pixel_to_world(p)
+		if g.x > -1e8:
+			poly.append(g)
+	var area := 0.0
+	for i in poly.size():
+		var a := poly[i]
+		var b := poly[(i + 1) % poly.size()]
+		area += a.x * b.y - b.x * a.y
+	area = absf(area) * 0.5
+	var top_w: float = (hud.pixel_to_world(Vector2(size.x - 1, size.y * 0.25)) - hud.pixel_to_world(Vector2(0, size.y * 0.25))).length()
+	var bottom_w: float = (hud.pixel_to_world(Vector2(size.x - 1, size.y * 0.75)) - hud.pixel_to_world(Vector2(0, size.y * 0.75))).length()
+	var depth: float = (hud.pixel_to_world(Vector2(size.x * 0.5, size.y * 0.1)) - hud.pixel_to_world(Vector2(size.x * 0.5, size.y * 0.9))).length()
+	var cam: Dictionary = hud.get_camera()
+	var r := {"free": float(free) / float(total), "area": area, "corners": poly.size(), "width_top": top_w, "width_bottom": bottom_w, "depth": depth,
+		"hfov": rad_to_deg(float(cam.get("horizontal_fov", 0.0))), "vfov": rad_to_deg(float(cam.get("vertical_fov", 0.0))),
+		"height": float(cam.get("height_above_ground", 0.0))}
+	print("HUD6 portrait map %s: battlefield %.0f %% of the window; ground shown %.0f world units^2 (%d of 8 edge points on the terrain), width %.0f at a quarter of the height, %.0f at three quarters, depth %.0f from 10 %% to 90 %%; camera %.1f x %.1f degrees at %.0f above the ground" % [
+		where, r.free * 100.0, r.area, r.corners, r.width_top, r.width_bottom, r.depth, r.hfov, r.vfov, r.height])
+	return r
+
+
+func _scenario_portrait() -> String:
+	var view: Dictionary = hud.set_view_options({})
+	_portrait_px_per_pt = float(view.get("point_px", 1.5))
+	var layout := str(view.get("portrait_layout", "default"))
+	var size := get_viewport_size()
+	print("HUD6 portrait: layout %s, window %s, %.2f px per point, round HUD %s" % [layout, str(size), _portrait_px_per_pt, str(view.get("round_hud", false))])
+	if size.x >= size.y:
+		return "portrait needs a portrait window (--res=939x1335)"
+	var problems := []
+	var me: int = game._local_index
+	var f := fortress()
+	if f.is_empty():
+		return "no own fortress citadel"
+	# three powers in the spell book (its vine grows with each)
+	world.debug_add_science_points(me, 12)
+	print("HUD6 TEST HOOK: player %d given 12 power points" % me)
+	if hud.open_spell_store():
+		await game._step(60)
+		for slot in [1, 2, 3]:
+			hud.spell_store_click(slot)
+			await game._step(6)
+		hud.close_spell_store()
+		await game._step(90)
+	# an army beside the fortress
+	var at := beside_fortress(f, 120.0)
+	var army := []
+	for i in 3:
+		var id: int = world.create_object("GondorFighterHorde", me, at.x + 80.0 * i, at.y, 0.0)
+		if id >= 0:
+			army.append(id)
+	print("HUD6 TEST HOOK: an army of %d GondorFighterHorde made beside the fortress" % army.size())
+	await game._step(30)
+	var b := find_own(func(o): return str(o.template).find("Worker") >= 0 or str(o.template).find("Porter") >= 0 or str(o.template).find("Builder") >= 0)
+	if b.is_empty():
+		return "no own builder"
+	var sizes := {}
+	var maps := {}
+	var report := func(where: String) -> void:
+		var st: Dictionary = hud.get_hud6_state()
+		print("HUD6 portrait report %s: %s" % [where, JSON.stringify(st.get("portrait", {}))])
+	# 1. the army with its builder: the arc's commands, the map
+	await look(at.x + 80.0, at.y)
+	var ids := PackedInt64Array(army)
+	ids.append(int(b.id))
+	hud.select_objects(ids)
+	hud.inject_mouse_move(Vector2(size.x * 0.5, size.y * 0.3))
+	await game._step(45)
+	report.call("army")
+	for i in 6:
+		report_target("arc%d" % i, "CommandButtons.%d" % i, sizes)
+	report_target("options", "PalantirButtons.Buttons.Options", sizes)
+	report_target("powers", "PalantirButtons.Buttons.PlayerMagic", sizes)
+	maps["army"] = report_map("army")
+	shot("portrait-army")
+	# 2. the builder alone: the side bar
+	hud.select_objects(PackedInt64Array([int(b.id)]))
+	await game._step(60)
+	var side: Dictionary = hud.get_hud6_state().get("side_bar", {})
+	var n := int(side.get("count", 0))
+	print("HUD6 portrait builder: side bar %d buttons, shown %s" % [n, str(side.get("shown", false))])
+	for i in [0, n - 1]:
+		if i >= 0:
+			report_target("side%d" % i, "SideCommandBar.ButtonSet.Button%d.Button" % i, sizes)
+	var book: Dictionary = hud.get_spellbook_state()
+	var slots: Array = book.get("slots", [])
+	for i in slots.size():
+		if str(slots[i]) != "_unused":
+			report_target("spell%d" % (i + 1), "%s.Spell%d" % [str(book.get("path", "")), i + 1], sizes)
+	maps["builder"] = report_map("builder")
+	shot("portrait-builder")
+	# 3. the fortress: its radial bubbles
+	if await select_object(f):
+		await game._step(30)
+		var bubbles: Array = radial().get("buttons", [])
+		if not bubbles.is_empty():
+			var bb: Dictionary = bubbles[0]
+			var r: Rect2 = bb.rect
+			print("HUD6 portrait target bubble: %d x %d px = %.0f x %.0f pt" % [int(r.size.x), int(r.size.y), r.size.x / _portrait_px_per_pt, r.size.y / _portrait_px_per_pt])
+			sizes["bubble"] = minf(r.size.x, r.size.y) / _portrait_px_per_pt
+	maps["building"] = report_map("building")
+	shot("portrait-building")
+	# 4. the spell book: a power held (its help box) with nothing selected
+	hud.select_objects(PackedInt64Array())
+	await game._step(30)
+	book = hud.get_spellbook_state()
+	var power := ""
+	slots = book.get("slots", [])
+	for i in slots.size():
+		if str(slots[i]) != "_unused":
+			power = "%s.Spell%d" % [str(book.get("path", "")), i + 1]
+	if not power.is_empty():
+		var w: Dictionary = hud.find_button_window(power)
+		if w.get("found", false):
+			hud.set_touch_help(true)
+			for i in 40:
+				hud.inject_mouse_move(Vector2(w.x, w.y))
+				hud.hold_help(true)
+				hud.set_touch_help(true)
+				await game._step(2)
+	shot("portrait-spellbook")
+	hud.hold_help(false)
+	hud.set_touch_help(false)
+	hud.inject_mouse_move(Vector2(size.x * 0.5, size.y * 0.3))
+	await game._step(10)
+	# 5. the pause menu
+	await game._press_escape()
+	await game._step(45)
+	shot("portrait-menu")
+	await game._press_escape()
+	await game._step(30)
+	# the prototype's own checks: nothing of the HUD in the toolbar strip
+	var st: Dictionary = hud.get_hud6_state().get("portrait", {})
+	if layout != "default":
+		if st.is_empty():
+			problems.append("the prototype %s reported nothing" % layout)
+		elif float(st.get("hud_top", 0.0)) < float(st.get("strip_bottom", 0.0)) - 0.5:
+			problems.append("the HUD reaches into the toolbar strip (top %.1f, strip ends %.1f)" % [float(st.hud_top), float(st.strip_bottom)])
+	var small := []
+	for k in sizes:
+		if float(sizes[k]) < 44.0:
+			small.append("%s %.0f pt" % [k, float(sizes[k])])
+	print("HUD6 portrait summary %s: targets under 44 pt: %s; battlefield %.0f %% (army), ground %.0f units^2" % [layout,
+		"none" if small.is_empty() else ", ".join(small), float(maps.army.free) * 100.0, float(maps.army.area)])
+	return "" if problems.is_empty() else "; ".join(problems)

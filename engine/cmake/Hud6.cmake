@@ -9,9 +9,12 @@ set(OPENBFME_HUD6_CLIENT_SOURCES
     src/GameClient/InGameHelpBox.cpp
     src/GameClient/InGameHudHud6.cpp
     src/GameClient/GUI/AptUniformHud.cpp # lane IOS-29: the round-HUD rule
+    src/GameClient/GUI/PortraitLayout.cpp # lane IOS-38: the portrait layout prototypes
+    src/GameClient/GUI/AptScreens/AptPalantirPortrait.cpp # lane IOS-38
 )
 set(OPENBFME_HUD6_TESTS
     tests/test_hud6.cpp
+    tests/test_ios38_portrait.cpp # lane IOS-38
 )
 # the device layer (GDExtension)
 set(OPENBFME_HUD6_GODOT_SOURCES

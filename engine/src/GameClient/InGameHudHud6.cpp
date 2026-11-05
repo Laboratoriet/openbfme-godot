@@ -4,6 +4,7 @@
 // ControlBarRadialMenu.h, CommandButtonHelp.h and InGameHelpBox.h for the target facts). Kept apart from InGameHud.cpp (lane UI-4 edits that file).
 
 #include "GameClient/InGameHud.h"
+#include "GameClient/GUI/PortraitLayout.h" // lane IOS-38
 
 #include "Common/ArchiveFileSystem.h"
 #include "Common/AsciiString.h"
@@ -433,7 +434,12 @@ void InGameHud::updateHud6(ObjectID context, const std::string &faction, double 
 	// lane IOS-27: a HUD layout other than retail's (the HUD size above 100 %, a phone's safe area) has square radial buttons at the HUD size; lane IOS-29:
 	// so has touch / mobile at 100 % (HudLayout::uniform, the round-HUD rule)
 	const AptPalantir::HudLayout &hl = m_hudLayout;
-	m_radial.setSquareScale(hl.uniform() ? hl.scale : 0.0f);
+	float squareScale = hl.uniform() ? hl.scale : 0.0f;
+	if (hl.portraitPrototype(m_windowW, m_windowH) && PortraitLayout::spec((PortraitLayout::Id)hl.portraitLayout).bubbles > 0.0f)
+	{
+		squareScale = PortraitLayout::spec((PortraitLayout::Id)hl.portraitLayout).bubbles; // lane IOS-38 (prototype): B, C at least 44 pt
+	}
+	m_radial.setSquareScale(squareScale);
 	m_radial.update(logic, &m_config.game.drawables(), m_config.view, m_windowW, m_windowH, context, m_bar->sideButtons(), allowed);
 	// the help box: the control bar's test of the last frame, the hover of this one, the movie clip's update
 	m_helpBox.setEndGameTimer(m_config.endGameTimer ? m_config.endGameTimer() : -1);

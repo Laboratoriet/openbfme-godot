@@ -85,6 +85,14 @@
    "reason": "lane HUD-6: the help box movie's state machine and the hover provider: user interface on the render clock"
   },
   {
+   "glob": "src/GameClient/GUI/PortraitLayout.cpp",
+   "reason": "lane IOS-38: the portrait layout prototypes' specs (a developer switch): user interface, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptPalantirPortrait.cpp",
+   "reason": "lane IOS-38: a portrait layout prototype's placement of the Palantir movie's clips (viewport transforms): user interface, never read by the logic"
+  },
+  {
    "glob": "src/GameClient/GUI/AptUniformHud.cpp",
    "reason": "lane IOS-29: the round-HUD rule (the in-game movies' presentation transform, uniform x / y scale on touch): user interface, never read by the logic"
   },

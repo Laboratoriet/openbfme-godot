@@ -76,6 +76,9 @@ const EXTRAS := {
 	# lane IOS-37 (the owner's decision 2026-11-05: a top-edge strip, after daisyhasacat/openbfme-godot's classic-HUD touch toolbar): touch only: the
 	# command toolbar along the top edge (scripts/touch/command_toolbar.gd)
 	"OpenBFMETouchToolbar": {"default": "yes", "choices": ["yes", "no"]},
+	# lane IOS-38 (a PROTOTYPE for the owner's choice, a developer switch: no Options row): the portrait layout to try in a portrait window, "default"
+	# today's (IOS-3 / 18 / 27), "a" More map, "b" One hand, "c" Split (engine/src/GameClient/GUI/PortraitLayout.h); game.gd's --portrait-layout wins
+	"OpenBFMEPortraitLayout": {"default": "default", "choices": ["default", "a", "b", "c"]},
 }
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
@@ -452,7 +455,17 @@ func view_options(values: Dictionary) -> Dictionary:
 		"free_camera": values.OpenBFMEFreeCamera == "yes" or (game != null and game.get("_free_camera_flag") == true),
 		"zoom_out_factor": _zoom_out_factor(values),
 		"widescreen_wider": _widescreen_wider(values),
+		"portrait_layout": _portrait_layout(values), # lane IOS-38 (prototype)
+		"point_px": DisplayServer.screen_get_scale() if OS.has_feature("mobile") else 0.0, # lane IOS-38: 0 = the engine's stand-in value (1.5)
 	}
+
+
+## lane IOS-38 (prototype): the portrait layout in effect: game.gd's --portrait-layout for a run, else Options.ini OpenBFMEPortraitLayout
+func _portrait_layout(values: Dictionary) -> String:
+	var flag = game.get("_portrait_layout_flag") if game != null else null
+	if flag != null and not str(flag).is_empty():
+		return str(flag)
+	return str(values.get("OpenBFMEPortraitLayout", "default"))
 
 
 ## lane UI-6: the Widescreen view in effect: game.gd's --widescreen=original|wider for a run, else Options.ini OpenBFMEWidescreen

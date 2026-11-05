@@ -219,6 +219,15 @@ public:
 		rebuildPinhole();
 	}
 	bool widescreenView() const { return m_widescreenWider; }
+	// lane IOS-38 (a PROTOTYPE behind a developer switch, not retail): a portrait viewport's horizontal field of view (radians). 0 (the default) keeps
+	// IOS-3's view (4:3's vertical angle, narrowed); above 0 the portrait view is that wide and as tall as the aspect gives (Hor+ turned upright).
+	// Landscape is never affected
+	void setPortraitHorizontalFov(float radians)
+	{
+		m_portraitHfov = radians > 0.0f ? radians : 0.0f;
+		rebuildPinhole();
+	}
+	float portraitHorizontalFov() const { return m_portraitHfov; }
 	// the horizontal field of view of the view as drawn (radians): horizontalFov() for Original or a screen up to 4:3, wider for Wider on a wider screen
 	float viewHorizontalFov() const;
 	unsigned long long frame() const { return m_frame; }
@@ -256,6 +265,7 @@ private:
 	float m_defaultAngle = 0.0f, m_defaultPitch = 0.0f;
 	float m_fov = 0.8726646f; // RW 0xBDD410: 50 degrees
 	bool m_widescreenWider = false; // lane UI-6: the Widescreen view option (Wider = Hor+; false = retail)
+	float m_portraitHfov = 0.0f;    // lane IOS-38: a portrait prototype's horizontal field of view (0: IOS-3's)
 	float m_terrainHeight = 0.0f, m_currentHeightAboveGround = 0.0f;
 	float m_groundLevel = 0.0f;
 	// the settings object (RW 0x501xxx)
