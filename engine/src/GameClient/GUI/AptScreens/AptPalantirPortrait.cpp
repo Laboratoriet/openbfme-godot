@@ -403,33 +403,47 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 			}
 		}
 	}
-	// the side bar's foot: the safe area's bottom, or (B) above the hero buttons, which stand at the Palantir's bottom-right
+	// the side bar's foot: the safe area's bottom, or (B) above the hero buttons, which stand at the Palantir's bottom-right. Lane IOS-42: A's block too
+	// when the hero buttons reach under it (a Palantir grown by the HUD size: at 150 % the hero button stood on the block's last button)
+	const Box hero = palantirSet.count("HeroSelectUI") ? movieBox("HeroSelectUI").through(palantir) : Box();
 	float sideBottom = safeBottom;
-	if (spec.sideBar == PortraitLayout::SideBottomColumn && palantirSet.count("HeroSelectUI"))
+	if (spec.sideBar == PortraitLayout::SideBottomColumn && hero.ok())
 	{
-		const Box hero = movieBox("HeroSelectUI").through(palantir);
-		if (hero.ok())
-		{
-			sideBottom = hero.y0 - gapY;
-		}
+		sideBottom = hero.y0 - gapY;
 	}
 	m_protoSideColumns = spec.sideBar == PortraitLayout::SideBottomColumn ? 1 : 0;
-	if (!arrangeSideBar(root, spec.sideBar == PortraitLayout::SideTopColumn, vs, stageW, stageH, strip, sideBottom, sideK))
-	{
-		sideK = 1.0f;
-	}
-	m_groupScale[(int)HudGroup::BottomRight] = sideK;
-	if (AptCharacterInst *side = apt.resolvePath(root, "SideCommandBar"))
-	{
-		side->viewportTransform = PortraitLayout::place(stageW, stageH, sideK, vs * sideK, m_sideShown ? safeRight : stageW, sideBottom);
-		Box sb;
-		for (int i = 0; i < std::min(m_sideCount, 16); ++i)
+	AptCharacterInst *side = apt.resolvePath(root, "SideCommandBar");
+	// arranges the bar with its foot at `bottom` and places it; the shown frames' box (root units)
+	auto placeSide = [&](float bottom) {
+		float k = sideK;
+		if (!arrangeSideBar(root, spec.sideBar == PortraitLayout::SideTopColumn, vs, stageW, stageH, strip, bottom, k))
 		{
-			if (AptCharacterInst *f = m_sideFramePath[i].empty() ? nullptr : apt.resolvePath(root, m_sideFramePath[i].substr(0, m_sideFramePath[i].rfind('.'))))
+			k = 1.0f;
+		}
+		m_groupScale[(int)HudGroup::BottomRight] = k;
+		Box sb;
+		if (side)
+		{
+			side->viewportTransform = PortraitLayout::place(stageW, stageH, k, vs * k, m_sideShown ? safeRight : stageW, bottom);
+			for (int i = 0; i < std::min(m_sideCount, 16); ++i)
 			{
-				sb.add(boxThrough(f, chainToRoot(f, root)));
+				if (AptCharacterInst *f = m_sideFramePath[i].empty() ? nullptr : apt.resolvePath(root, m_sideFramePath[i].substr(0, m_sideFramePath[i].rfind('.'))))
+				{
+					sb.add(boxThrough(f, chainToRoot(f, root)));
+				}
 			}
 		}
+		return sb;
+	};
+	Box sb = placeSide(sideBottom);
+	if (spec.id == PortraitLayout::MoreMap && hero.ok() && sb.ok() && sb.x0 < hero.x1 && sb.y1 > hero.y0)
+	{
+		sideBottom = hero.y0 - gapY;
+		sb = placeSide(sideBottom);
+	}
+	sideK = m_groupScale[(int)HudGroup::BottomRight];
+	if (side)
+	{
 		if (m_sideShown && sb.ok())
 		{
 			hudTop = std::min(hudTop, sb.y0);
