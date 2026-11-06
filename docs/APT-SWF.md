@@ -7,7 +7,8 @@ standard SWF files that SWF tools open (JPEXS Free Flash Decompiler, Ruffle), an
 - **edited** placements, text fields, button records and frame labels are written back into the `.apt` records;
 - **structural** edits are written as new records: new placements of existing characters, removals, frame labels, new text
   fields, frame items taken out;
-- **frame actions** (edited or new `DoAction` / `DoInitAction`) are assembled back into APT programs;
+- **actions** (edited or new frame actions, edited clip and button actions, clip events of new placements) are assembled back
+  into APT programs;
 - other edits are refused with the tag named (they need a full Apt writer, see "Not yet").
 
 Edits can also be written as a **recipe**, a small text file the converter applies to anyone's own copy of a movie (below).
@@ -159,11 +160,17 @@ Tag code **1000**, ignored by players; JPEXS keeps it when it saves (also throug
      with one more entry); placements of the SWF id are written with the APT id. It needs one of the movie's fonts. Text and
      variable strings are appended (retail text records never hold a null string pointer);
    - the written `.apt` is parsed again with the game's reader (`AptFile::parse`); a failure is an error.
-5. **Actions.** An edited or new `DoAction` / `DoInitAction` is assembled into a new APT program at the end of the `.apt`
-   (below) and its frame item points at it (an edited one: the item's code pointer; a new one: a new action record).
-6. Refused, naming the tag: edited clip actions and button actions, new placements with clip actions, new shapes / sprites /
-   buttons / bitmaps, removed characters, frames added or removed, imports and exports, placements of characters the converter
-   made (bitmaps, button hit shapes).
+5. **Actions.** Programs are assembled into new APT programs at the end of the `.apt` (below), and what pointed at the old
+   program points at the new one; the same actions in another encoding (an editor's re-save) are not an edit:
+   - an edited or new `DoAction` / `DoInitAction`: the frame item's code pointer, or a new action record;
+   - an edited placement's clip actions: the same events (flags, key codes) in the same order; each event record whose
+     actions changed points at its new program;
+   - an edited button's actions: the same entries and conditions; each changed one points at its new program;
+   - a new placement with clip actions: a new event table (mask, key code, a zero word as in every retail record, the
+     program) and its list record.
+6. Refused, naming the tag: clip events or button actions added, removed or given other conditions, clip actions added to
+   or removed from a placement, new shapes / sprites / buttons / bitmaps, removed characters, frames added or removed,
+   imports and exports, placements of characters the converter made (bitmaps, button hit shapes).
 
 ### Actions back to APT
 
@@ -224,8 +231,8 @@ with `#`; values with spaces go in double quotes. Every problem stops the recipe
   the export of a synthetic movie, the byte-exact round trip, a text and a placement edit re-encoded (unedited floats kept),
   each structural edit (a new placement in the root and in a sprite, a removal and an item taken out, a frame label, a new
   text field placed by its SWF id; each edited movie converts again with no edits to the same bytes), an edited and a new
-  frame action assembled back (pushes, a branch, a function, a register push and its new `.const` entry), the normalized
-  comparison, a recipe of every step, the recipe's and the importer's refusals. Synthetic movies only.
+  frame action assembled back (pushes, a branch, a function, a register push and its new `.const` entry), edited clip and
+  button actions and a new placement with two clip events (one a key press), the normalized comparison, a recipe of every step, the recipe's and the importer's refusals. Synthetic movies only.
 - `openbfme_apt_swf reassemble` over a mount: every action program assembled back and checked.
 - `openbfme_apt_swf roundtrip` over a game mount writes `report.md` with per-type byte-identical counts and the notes (what the
   SWF cannot express) with the number of movies each applies to.
@@ -250,6 +257,5 @@ with `#`; values with spaces go in double quotes. Every problem stops the recipe
 - **Opcode 0x56** (`EA_PushThis` in OpenSAGE / AptTools) appears in BFME2's OnlineQuickMatch but not in the RotWK census the
   decoder accepts; such programs are exported as empty action lists (the original bytes stay in the private tag).
 - **Curves**: `.ru` holds triangles only, so SWF shapes are polygons; the original curves are not recoverable.
-- **Full Apt writer**: new shapes, sprites and buttons, frames added or removed, shape edits (re-triangulation), bitmap
-  edits (TGA), and clip / button action edits (the assembler is there; their records are not re-pointed yet) are the next
-  steps.
+- **Full Apt writer**: new shapes, sprites and buttons, frames added or removed, shape edits (re-triangulation) and bitmap
+  edits (TGA) are the next steps.

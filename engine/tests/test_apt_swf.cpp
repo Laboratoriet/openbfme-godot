@@ -490,14 +490,16 @@ TEST_CASE("apt-swf: edits the milestone cannot re-encode are refused with the ta
 	SwfFile parsed;
 	std::string error;
 	REQUIRE(swfReadFile(swf, parsed, &error));
-	SUBCASE("a clip action")
+	SUBCASE("a clip event added to a placement's list")
 	{
 		for (SwfTag *t : flattenTagsMutable(parsed.tags))
 		{
 			SwfPlaceObject2 po;
 			if (t->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(t->body, po) && po.name == "Square")
 			{
-				po.clipActions[14] = 0x06; // Play instead of Stop
+				// a second event (Load, 0x1) with `Play`, before the end word
+				const std::vector<std::uint8_t> more = { 0x01, 0, 0, 0, 0x02, 0, 0, 0, 0x06, 0x00 };
+				po.clipActions.insert(po.clipActions.end() - 4, more.begin(), more.end());
 				t->body = encodePlaceObject2(po);
 				break;
 			}
@@ -505,7 +507,7 @@ TEST_CASE("apt-swf: edits the milestone cannot re-encode are refused with the ta
 		ImportResult back;
 		CHECK_FALSE(importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error));
 		CHECK(error.find("PlaceObject2 #") == 0);
-		CHECK(error.find("the clip actions changed (clip action programs are not re-assembled yet; frame actions are)") != std::string::npos);
+		CHECK(error.find("clip events were added or removed (not supported yet: edit the existing ones)") != std::string::npos);
 	}
 	SUBCASE("a removed tag")
 	{
@@ -821,16 +823,17 @@ TEST_CASE("apt-swf: structural edits still beyond the importer are refused, nami
 		CHECK_FALSE(e.import(back, error));
 		CHECK(error.find("character 6 is not an APT character") != std::string::npos);
 	}
-	SUBCASE("a new placement with clip actions")
+	SUBCASE("a new placement whose clip event uses an action the runtime does not have")
 	{
 		SwfPlaceObject2 p;
 		p.flags = 0x80 | 0x02;
 		p.depth = 20;
 		p.characterId = (std::uint16_t)e.movie.spriteId;
-		p.clipActions = { 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0x07, 0x00, 0, 0, 0, 0 };
+		// EnterFrame: `With` (0x94), End
+		p.clipActions = { 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 6, 0, 0, 0, 0x94, 0x02, 0x00, 0x00, 0x00, 0x00, 0, 0, 0, 0 };
 		e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
 		CHECK_FALSE(e.import(back, error));
-		CHECK(error.find("a new placement with clip actions") != std::string::npos);
+		CHECK(error.find("clip event 0: action 0x94 (#0) is not an action the APT runtime has") != std::string::npos);
 	}
 }
 
@@ -1031,4 +1034,61 @@ TEST_CASE("apt-swf: two encodings of the same AVM1 normalize to the same lines")
 	CHECK(a == b);
 	const std::vector<std::string> want = { "push string a", "push float 40000000", "op 0x1D", "op 0x00" };
 	CHECK(a == want);
+}
+
+TEST_CASE("apt-swf: clip and button actions edited in the SWF, and a new placement with a clip event, are assembled back")
+{
+	EditedSwf e;
+	for (SwfTag *t : flattenTagsMutable(e.parsed.tags))
+	{
+		SwfPlaceObject2 po;
+		if (t->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(t->body, po) && po.name == "Square")
+		{
+			REQUIRE(po.clipActions[14] == 0x07);
+			po.clipActions[14] = 0x06; // EnterFrame: Play instead of Stop
+			t->body = encodePlaceObject2(po);
+		}
+		SwfButton2 b;
+		if (t->code == SWF_TAG_DEFINEBUTTON2 && decodeButton2(t->body, b))
+		{
+			// the only action (OverDownToOverUp): `Stop`
+			b.condActions = { 0x00, 0x00, b.condActions[2], b.condActions[3], 0x07, 0x00 };
+			t->body = encodeButton2(b);
+		}
+	}
+	SwfPlaceObject2 p;
+	p.flags = 0x80 | 0x02 | 0x20;
+	p.depth = 20;
+	p.characterId = (std::uint16_t)e.movie.spriteId;
+	p.name = "Ticker";
+	// Load (0x1) and KeyPress (0x20000, key 13) events
+	p.clipActions = { 0, 0, 0x01, 0, 0x02, 0, 0x01, 0, 0, 0, 2, 0, 0, 0, 0x06, 0x00, 0, 0, 0x02, 0, 3, 0, 0, 0, 13, 0x07, 0x00, 0, 0, 0, 0 };
+	e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	const AptFile apt = parsedApt(back);
+	auto firstOp = [&](std::uint32_t offset) {
+		std::string err;
+		std::shared_ptr<const AptCodeBlock> block = apt.codeAt(offset, &err);
+		REQUIRE_MESSAGE(block, err);
+		return block->instructions[0].opcode;
+	};
+	const AptPlaceObject &square = *apt.characters[e.movie.spriteId].frames[0].items[0].place;
+	REQUIRE(square.clipEvents.size() == 1);
+	CHECK(square.clipEvents[0].mask == APT_CLIP_ENTERFRAME);
+	CHECK(firstOp(square.clipEvents[0].codeOffset) == APT_OP_PLAY);
+	REQUIRE(apt.characters[e.movie.buttonId].button->actions.size() == 1);
+	CHECK(firstOp(apt.characters[e.movie.buttonId].button->actions[0].codeOffset) == APT_OP_STOP);
+	const AptPlaceObject &ticker = *apt.frames[0].items[5].place;
+	CHECK(ticker.name == "Ticker");
+	CHECK(ticker.flags == (APT_PLACE_HASCLIPACTION | APT_PLACE_HASCHARACTER | APT_PLACE_HASNAME));
+	REQUIRE(ticker.clipEvents.size() == 2);
+	CHECK(ticker.clipEvents[0].mask == APT_CLIP_LOAD);
+	CHECK(firstOp(ticker.clipEvents[0].codeOffset) == APT_OP_PLAY);
+	CHECK(ticker.clipEvents[1].mask == APT_CLIP_KEYPRESS);
+	CHECK(ticker.clipEvents[1].keyCode == 13);
+	CHECK(ticker.clipEvents[1].nextEventOffset == 0);
+	CHECK(firstOp(ticker.clipEvents[1].codeOffset) == APT_OP_STOP);
+	checkStableAfterEdit(back);
 }

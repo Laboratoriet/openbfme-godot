@@ -112,6 +112,110 @@ void patchMatrix(AptPatch &p, std::uint32_t at, const SwfMatrix &want, const Swf
 	}
 }
 
+// SWF CLIPACTIONS (PlaceObject2): reserved u16, all-event flags u32, then per event: flags u32, size u32, [key code u8 when the
+// KeyPress bit is set, counted in the size], the actions; a zero flags word ends the list.  The flags are APT's 24-bit clip event
+// mask bit for bit (AptFile.h AptClipEventFlags).
+struct ClipEventSwf
+{
+	std::uint32_t flags = 0;
+	std::uint8_t key = 0;
+	std::vector<std::uint8_t> actions;
+};
+
+bool parseClipActions(const std::vector<std::uint8_t> &b, std::vector<ClipEventSwf> &out)
+{
+	out.clear();
+	std::size_t at = 6;
+	if (b.size() < 10)
+	{
+		return false;
+	}
+	auto u32 = [&](std::size_t o) {
+		return (std::uint32_t)b[o] | ((std::uint32_t)b[o + 1] << 8) | ((std::uint32_t)b[o + 2] << 16) | ((std::uint32_t)b[o + 3] << 24);
+	};
+	while (at + 4 <= b.size())
+	{
+		ClipEventSwf e;
+		e.flags = u32(at);
+		if (e.flags == 0)
+		{
+			return true;
+		}
+		if (at + 8 > b.size())
+		{
+			return false;
+		}
+		std::size_t size = u32(at + 4);
+		std::size_t code = at + 8;
+		if (e.flags & APT_CLIP_KEYPRESS)
+		{
+			if (size < 1 || code >= b.size())
+			{
+				return false;
+			}
+			e.key = b[code];
+			++code;
+			--size;
+		}
+		if (code + size > b.size())
+		{
+			return false;
+		}
+		e.actions.assign(b.begin() + (std::ptrdiff_t)code, b.begin() + (std::ptrdiff_t)(code + size));
+		out.push_back(std::move(e));
+		at = code + size;
+	}
+	return false;
+}
+
+// SWF BUTTONCONDACTION list (DefineButton2): per entry: size u16 (0 for the last), the two condition bytes, the actions.
+struct ButtonActionSwf
+{
+	std::uint8_t cond[2] = { 0, 0 };
+	std::vector<std::uint8_t> actions;
+};
+
+bool parseButtonActions(const std::vector<std::uint8_t> &b, std::vector<ButtonActionSwf> &out)
+{
+	out.clear();
+	std::size_t at = 0;
+	while (at < b.size())
+	{
+		if (at + 4 > b.size())
+		{
+			return false;
+		}
+		const std::size_t size = (std::size_t)b[at] | ((std::size_t)b[at + 1] << 8);
+		const std::size_t end = size ? at + size : b.size();
+		if (end > b.size() || end < at + 4)
+		{
+			return false;
+		}
+		ButtonActionSwf a;
+		a.cond[0] = b[at + 2];
+		a.cond[1] = b[at + 3];
+		a.actions.assign(b.begin() + (std::ptrdiff_t)(at + 4), b.begin() + (std::ptrdiff_t)end);
+		out.push_back(std::move(a));
+		if (!size)
+		{
+			return true;
+		}
+		at = end;
+	}
+	return true;
+}
+
+// the same actions in another encoding (an editor's re-save) are not an edit
+bool sameActions(const std::vector<std::uint8_t> &a, const std::vector<std::uint8_t> &b)
+{
+	if (a == b)
+	{
+		return true;
+	}
+	std::vector<std::string> na, nb;
+	return avm1Normalized(a, na, nullptr) && avm1Normalized(b, nb, nullptr) && na == nb;
+}
+
 class Importer
 {
 public:
@@ -752,6 +856,12 @@ private:
 					}
 					skip = 2;
 				}
+				Avm1Result before;
+				if (programAvm1(*m_movie, item.codeOffset, before, nullptr) &&
+					sameActions(before.bytes, std::vector<std::uint8_t>(tag.body.begin() + (std::ptrdiff_t)skip, tag.body.end())))
+				{
+					return true;
+				}
 				if (!assemble(tag, skip, where, program, error))
 				{
 					return false;
@@ -768,9 +878,60 @@ private:
 		}
 	}
 
+	// An edited placement's clip actions: the same events (flags, key codes) in the same order; each event whose actions changed
+	// gets a re-assembled program, and its record in the event table points at it.
+	bool editClipActions(const AptPlaceObject &orig, std::uint32_t at, const SwfPlaceObject2 &want, const SwfPlaceObject2 &got, const std::string &what,
+		const std::string &whereTag, std::string *error)
+	{
+		std::vector<ClipEventSwf> we, ge;
+		if (!(want.flags & 0x80) || !(got.flags & 0x80))
+		{
+			return true; // adding or removing the whole list: the flags check below refuses it
+		}
+		if (!parseClipActions(want.clipActions, we) || !parseClipActions(got.clipActions, ge))
+		{
+			return fail(error, whereTag + ": the clip actions do not decode");
+		}
+		if (we.size() != ge.size())
+		{
+			return fail(error, whereTag + ": clip events were added or removed (not supported yet: edit the existing ones)");
+		}
+		AptPatch p(m_apt);
+		const std::uint32_t list = p.u32(at + 60);
+		if (orig.clipActionsNull || list == 0 || orig.clipEvents.size() != we.size())
+		{
+			return fail(error, whereTag + ": the placement's clip event list does not match its SWF form");
+		}
+		const std::uint32_t table = p.u32(list + 4);
+		for (std::size_t e = 0; e < we.size(); ++e)
+		{
+			if (we[e].flags != ge[e].flags || we[e].key != ge[e].key)
+			{
+				return fail(error, whereTag + ": the events of clip action " + std::to_string(e) + " changed (not supported yet)");
+			}
+			if (sameActions(we[e].actions, ge[e].actions))
+			{
+				continue;
+			}
+			std::uint32_t program = 0;
+			if (!assembleBytes(ge[e].actions, whereTag + " clip event " + std::to_string(e), program, error))
+			{
+				return false;
+			}
+			p.putU32(table + (std::uint32_t)e * 12 + 8, program);
+			out.edits.push_back(what + ": clip event " + std::to_string(e) + " re-assembled at .apt offset " + std::to_string(program));
+		}
+		return true;
+	}
+
+	bool assemble(const SwfTag &tag, std::size_t skip, const std::string &where, std::uint32_t &program, std::string *error)
+	{
+		return assembleBytes(std::vector<std::uint8_t>(tag.body.begin() + (std::ptrdiff_t)skip, tag.body.end()), where, program, error);
+	}
+
 	// An AVM1 program (a DoAction's body, after `skip` bytes) assembled into the .apt (AptSwfAssemble.h), then checked: decoded with
 	// the game's decoder and converted back to AVM1, it must do the same actions as the SWF's (avm1Normalized).
-	bool assemble(const SwfTag &tag, std::size_t skip, const std::string &where, std::uint32_t &program, std::string *error)
+	bool assembleBytes(const std::vector<std::uint8_t> &avm1, const std::string &where, std::uint32_t &program, std::string *error)
 	{
 		if (!m_constsLoaded)
 		{
@@ -780,7 +941,6 @@ private:
 			}
 			m_constsLoaded = true;
 		}
-		const std::vector<std::uint8_t> avm1(tag.body.begin() + (std::ptrdiff_t)skip, tag.body.end());
 		AssembleStats stats;
 		std::string e;
 		if (!assembleChecked(avm1, out.movieName, m_movie->version, m_apt, m_consts, program, stats, &e))
@@ -824,9 +984,44 @@ private:
 				{
 					return fail(error, where + ": does not decode as a PlaceObject2");
 				}
+				std::uint32_t clipList = 0;
 				if (p.flags & 0x80)
 				{
-					return fail(error, where + ": a new placement with clip actions (onClipEvent code) needs the AVM1 -> APT assembler (not supported yet)");
+					std::vector<ClipEventSwf> events;
+					if (!parseClipActions(p.clipActions, events) || events.empty())
+					{
+						return fail(error, where + ": its clip actions do not decode");
+					}
+					// the event records (mask 3 bytes, key code, a zero word as every retail record has, the program), then the list
+					std::vector<std::uint32_t> programs;
+					for (std::size_t e = 0; e < events.size(); ++e)
+					{
+						if (events[e].flags & ~(std::uint32_t)APT_CLIP_ALL_MASK)
+						{
+							return fail(error, where + ": clip event flags beyond APT's 24 bits");
+						}
+						std::uint32_t program = 0;
+						if (!assembleBytes(events[e].actions, where + " clip event " + std::to_string(e), program, error))
+						{
+							return false;
+						}
+						programs.push_back(program);
+					}
+					SwfWriter table;
+					for (std::size_t e = 0; e < events.size(); ++e)
+					{
+						table.u8(events[e].flags & 0xFF);
+						table.u8((events[e].flags >> 8) & 0xFF);
+						table.u8((events[e].flags >> 16) & 0xFF);
+						table.u8(events[e].key);
+						table.u32(0);
+						table.u32(programs[e]);
+					}
+					const std::uint32_t tableAt = appendRecord(table);
+					SwfWriter list;
+					list.u32((std::uint32_t)events.size());
+					list.u32(tableAt);
+					clipList = appendRecord(list);
 				}
 				std::uint32_t character = 0xFFFFFFFFu;
 				if (p.flags & 0x02)
@@ -864,7 +1059,7 @@ private:
 				}
 				SwfWriter w;
 				w.u32(APT_ITEM_PLACEOBJECT);
-				w.u32(p.flags & 0x7Fu);
+				w.u32(p.flags & 0xFFu);
 				w.u32(p.depth);
 				w.u32(character);
 				for (float v : m)
@@ -882,7 +1077,7 @@ private:
 				w.f32((p.flags & 0x10) ? (float)(p.ratio / 65536.0) : 0.0f);
 				w.u32(name);
 				w.u32((p.flags & 0x40) ? (std::uint32_t)p.clipDepth : 0xFFFFFFFFu);
-				w.u32(0); // clip actions
+				w.u32(clipList); // clip actions (0: none)
 				record = appendRecord(w);
 				out.edits.push_back(at + ": new place object (depth " + std::to_string(p.depth) +
 					((p.flags & 0x02) ? ", character " + std::to_string(character) : std::string()) +
@@ -1248,15 +1443,15 @@ private:
 		const std::uint32_t at = origin.aptOffset;
 		AptPatch p(m_apt);
 		const std::string what = "place object (depth " + std::to_string(orig.depth) + (orig.name.empty() ? "" : ", '" + orig.name + "'") + ")";
-		if (want.clipActions != got.clipActions)
+		if (want.clipActions != got.clipActions && !editClipActions(orig, at, want, got, what, whereTag, error))
 		{
-			return fail(error, whereTag + ": the clip actions changed (clip action programs are not re-assembled yet; frame actions are)");
+			return false;
 		}
 		if (want.flags != got.flags)
 		{
 			if ((want.flags ^ got.flags) & 0x80)
 			{
-				return fail(error, whereTag + ": adding or removing clip actions is not supported in this milestone");
+				return fail(error, whereTag + ": adding clip actions to a placement or removing them is not supported yet (edit its events instead)");
 			}
 			p.putU32(at + 4, (orig.flags & ~0x7Fu) | (got.flags & 0x7Fu));
 			m_aptPatched = true;
@@ -1443,12 +1638,39 @@ private:
 		{
 			return fail(error, whereTag + ": button records were added or removed (structural edit, not in this milestone)");
 		}
-		if (got.condActions != want.condActions)
-		{
-			return fail(error, whereTag + ": the button actions changed (button action programs are not re-assembled yet; frame actions are)");
-		}
 		AptPatch p(m_apt);
 		const std::string what = "button " + std::to_string(c.id);
+		if (got.condActions != want.condActions)
+		{
+			std::vector<ButtonActionSwf> wa, ga;
+			if (!parseButtonActions(want.condActions, wa) || !parseButtonActions(got.condActions, ga))
+			{
+				return fail(error, whereTag + ": the button actions do not decode");
+			}
+			if (wa.size() != ga.size())
+			{
+				return fail(error, whereTag + ": button actions were added or removed (not supported yet: edit the existing ones)");
+			}
+			const std::uint32_t actionTable = p.u32(c.offset + 56);
+			for (std::size_t i = 0; i < wa.size(); ++i)
+			{
+				if (wa[i].cond[0] != ga[i].cond[0] || wa[i].cond[1] != ga[i].cond[1])
+				{
+					return fail(error, whereTag + ": the conditions of button action " + std::to_string(i) + " changed (not supported yet)");
+				}
+				if (sameActions(wa[i].actions, ga[i].actions))
+				{
+					continue;
+				}
+				std::uint32_t program = 0;
+				if (!assembleBytes(ga[i].actions, whereTag + " action " + std::to_string(i), program, error))
+				{
+					return false;
+				}
+				p.putU32(actionTable + (std::uint32_t)i * 8 + 4, program);
+				out.edits.push_back(what + " action " + std::to_string(i) + ": re-assembled at .apt offset " + std::to_string(program));
+			}
+		}
 		if (want.flags != got.flags)
 		{
 			p.putU32(c.offset + 8, got.flags & 1);
