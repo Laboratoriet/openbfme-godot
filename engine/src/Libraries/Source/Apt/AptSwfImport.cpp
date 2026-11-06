@@ -3,6 +3,7 @@
 
 #include "Libraries/Source/Apt/AptSwfImport.h"
 
+#include "Libraries/Source/Apt/AptSwfAssemble.h"
 #include "Libraries/Source/Apt/AptSwfAvm1.h"
 #include "Libraries/Source/Apt/AptSwfTags.h"
 
@@ -238,6 +239,11 @@ public:
 		if (!writeStructure(error))
 		{
 			return false;
+		}
+		if (m_consts.changed())
+		{
+			findFile(out.movieName + ".const")->bytes = m_consts.bytes();
+			out.edits.push_back(out.movieName + ".const: " + std::to_string(m_consts.added()) + " register entries added");
 		}
 		if (m_aptPatched)
 		{
@@ -727,10 +733,67 @@ private:
 				out.edits.push_back("background colour -> " + std::to_string(tag.body[0]) + " " + std::to_string(tag.body[1]) + " " + std::to_string(tag.body[2]));
 				m_aptPatched = true;
 				return true;
+			case SWF_TAG_DOACTION:
+			case SWF_TAG_DOINITACTION:
+			{
+				std::uint32_t program = 0;
+				std::size_t skip = 0;
+				if (tag.code == SWF_TAG_DOINITACTION)
+				{
+					if (item.type != APT_ITEM_INITACTION || tag.body.size() < 2)
+					{
+						return fail(error, where + ": a DoInitAction for a frame item that is not an init action");
+					}
+					const std::uint32_t sprite = (std::uint32_t)(tag.body[0] | (tag.body[1] << 8));
+					if (sprite != item.spriteId)
+					{
+						p.putU32(item.offset + 4, sprite);
+						out.edits.push_back("init action: sprite " + std::to_string(item.spriteId) + " -> " + std::to_string(sprite));
+					}
+					skip = 2;
+				}
+				if (!assemble(tag, skip, where, program, error))
+				{
+					return false;
+				}
+				// the action item's code pointer (+4), the init action's (+8)
+				p.putU32(item.offset + (item.type == APT_ITEM_INITACTION ? 8 : 4), program);
+				out.edits.push_back(where + ": actions re-assembled at .apt offset " + std::to_string(program) + " (was " +
+					std::to_string(item.codeOffset) + ")");
+				m_aptPatched = true;
+				return true;
+			}
 			default:
-				return fail(error, where + " was edited; re-encoding a " + tagName(tag.code) +
-					" into APT is not supported yet (action edits need the AVM1 -> APT assembler)");
+				return fail(error, where + " was edited; re-encoding a " + tagName(tag.code) + " into APT is not supported yet");
 		}
+	}
+
+	// An AVM1 program (a DoAction's body, after `skip` bytes) assembled into the .apt (AptSwfAssemble.h), then checked: decoded with
+	// the game's decoder and converted back to AVM1, it must do the same actions as the SWF's (avm1Normalized).
+	bool assemble(const SwfTag &tag, std::size_t skip, const std::string &where, std::uint32_t &program, std::string *error)
+	{
+		if (!m_constsLoaded)
+		{
+			if (!m_consts.load(findFile(out.movieName + ".const")->bytes, error))
+			{
+				return false;
+			}
+			m_constsLoaded = true;
+		}
+		const std::vector<std::uint8_t> avm1(tag.body.begin() + (std::ptrdiff_t)skip, tag.body.end());
+		AssembleStats stats;
+		std::string e;
+		if (!assembleChecked(avm1, out.movieName, m_movie->version, m_apt, m_consts, program, stats, &e))
+		{
+			return fail(error, where + ": " + e);
+		}
+		m_aptPatched = true;
+		if (stats.roundedDoubles)
+		{
+			out.ignored.push_back(where + ": " + std::to_string(stats.roundedDoubles) + " pushed number(s) rounded to float32 (APT's numbers are float32)");
+		}
+		++m_programsAssembled;
+		return true;
 	}
 
 	// a record appended to the .apt (4-byte aligned, like the file's own records); returns its offset
@@ -871,9 +934,37 @@ private:
 				out.edits.push_back(at + ": new background colour");
 				return true;
 			}
+			case SWF_TAG_DOACTION:
+			case SWF_TAG_DOINITACTION:
+			{
+				const bool init = tag.code == SWF_TAG_DOINITACTION;
+				if (init && tag.body.size() < 2)
+				{
+					return fail(error, where + ": does not decode as a DoInitAction");
+				}
+				std::uint32_t program = 0;
+				if (!assemble(tag, init ? 2 : 0, where, program, error))
+				{
+					return false;
+				}
+				SwfWriter w;
+				if (init)
+				{
+					w.u32(APT_ITEM_INITACTION);
+					w.u32((std::uint32_t)(tag.body[0] | (tag.body[1] << 8)));
+				}
+				else
+				{
+					w.u32(APT_ITEM_ACTION);
+				}
+				w.u32(program);
+				record = appendRecord(w);
+				out.edits.push_back(at + ": new " + (init ? std::string("init action") : std::string("frame action")) + " (assembled at .apt offset " +
+					std::to_string(program) + ")");
+				return true;
+			}
 			default:
-				return fail(error, where + " was added: a new " + tagName(tag.code) +
-					" needs the AVM1 -> APT assembler (not supported yet); placements, removals, frame labels and text fields can be added");
+				return fail(error, where + " was added: a new " + tagName(tag.code) + " has no APT counterpart");
 		}
 	}
 
@@ -995,6 +1086,9 @@ private:
 	}
 
 	std::vector<ManifestEntry> m_manifest;
+	AptConstWriter m_consts; // the .const, with the register entries assembled programs add
+	bool m_constsLoaded = false;
+	std::size_t m_programsAssembled = 0;
 	std::map<std::uint32_t, std::uint32_t> m_newCharacterIds; // SWF id -> APT id of the characters the SWF adds
 	std::vector<const Entry *> m_newCharacters;
 	std::vector<std::uint32_t> m_newCharacterRecords;         // their records, in APT id order
@@ -1156,7 +1250,7 @@ private:
 		const std::string what = "place object (depth " + std::to_string(orig.depth) + (orig.name.empty() ? "" : ", '" + orig.name + "'") + ")";
 		if (want.clipActions != got.clipActions)
 		{
-			return fail(error, whereTag + ": the clip actions changed (action edits need the AVM1 -> APT assembler, not in this milestone)");
+			return fail(error, whereTag + ": the clip actions changed (clip action programs are not re-assembled yet; frame actions are)");
 		}
 		if (want.flags != got.flags)
 		{
@@ -1351,7 +1445,7 @@ private:
 		}
 		if (got.condActions != want.condActions)
 		{
-			return fail(error, whereTag + ": the button actions changed (action edits need the AVM1 -> APT assembler, not in this milestone)");
+			return fail(error, whereTag + ": the button actions changed (button action programs are not re-assembled yet; frame actions are)");
 		}
 		AptPatch p(m_apt);
 		const std::string what = "button " + std::to_string(c.id);

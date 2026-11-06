@@ -24,8 +24,10 @@
 // DefineEditText (bounds, font, size, colour, alignment, read-only / multiline / word-wrap, variable, text), DefineButton2
 // records (state, depth, matrix, colour) and the menu flag, FrameLabel names, RemoveObject2 depths, SetBackgroundColor.
 // Structural edits: new PlaceObject2 (without clip actions), RemoveObject2, FrameLabel and SetBackgroundColor items, frame
-// items taken out or reordered, new DefineEditText characters.  Anything else (shapes, bitmaps, actions, new actions or clip
-// actions, new sprites / shapes / buttons, added or removed frames, imports and exports) is an error naming the tag.
+// items taken out or reordered, new DefineEditText characters.  Edited and new DoAction / DoInitAction lists are assembled into
+// new APT programs (AptSwfAssemble.h; each checked by decoding it back) and their items pointed at them.  Anything else (shapes,
+// bitmaps, clip and button actions, new sprites / shapes / buttons, added or removed frames, imports and exports) is an error
+// naming the tag.
 
 #pragma once
 

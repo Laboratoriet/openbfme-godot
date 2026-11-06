@@ -4,6 +4,7 @@
 #include "doctest.h"
 #include "AptTestUtil.h"
 
+#include "Libraries/Source/Apt/AptSwfAssemble.h"
 #include "Libraries/Source/Apt/AptSwfAvm1.h"
 #include "Libraries/Source/Apt/AptSwfExport.h"
 #include "Libraries/Source/Apt/AptSwfFormat.h"
@@ -489,20 +490,22 @@ TEST_CASE("apt-swf: edits the milestone cannot re-encode are refused with the ta
 	SwfFile parsed;
 	std::string error;
 	REQUIRE(swfReadFile(swf, parsed, &error));
-	SUBCASE("an action")
+	SUBCASE("a clip action")
 	{
 		for (SwfTag *t : flattenTagsMutable(parsed.tags))
 		{
-			if (t->code == SWF_TAG_DOACTION)
+			SwfPlaceObject2 po;
+			if (t->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(t->body, po) && po.name == "Square")
 			{
-				t->body.insert(t->body.begin(), 0x06); // Play before Stop
+				po.clipActions[14] = 0x06; // Play instead of Stop
+				t->body = encodePlaceObject2(po);
 				break;
 			}
 		}
 		ImportResult back;
 		CHECK_FALSE(importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error));
-		CHECK(error.find("DoAction #") == 0);
-		CHECK(error.find("not supported yet") != std::string::npos);
+		CHECK(error.find("PlaceObject2 #") == 0);
+		CHECK(error.find("the clip actions changed (clip action programs are not re-assembled yet; frame actions are)") != std::string::npos);
 	}
 	SUBCASE("a removed tag")
 	{
@@ -784,12 +787,12 @@ TEST_CASE("apt-swf: structural edits still beyond the importer are refused, nami
 	EditedSwf e;
 	std::string error;
 	ImportResult back;
-	SUBCASE("a new DoAction")
+	SUBCASE("a new DoAction with an action the APT runtime does not have (With)")
 	{
-		e.addToRoot(SWF_TAG_DOACTION, { 0x07, 0x00 });
+		e.addToRoot(SWF_TAG_DOACTION, { 0x94, 0x02, 0x00, 0x00, 0x00, 0x00 });
 		CHECK_FALSE(e.import(back, error));
 		CHECK(error.find("DoAction #") == 0);
-		CHECK(error.find("a new DoAction needs the AVM1 -> APT assembler") != std::string::npos);
+		CHECK(error.find("action 0x94 (#0) is not an action the APT runtime has") != std::string::npos);
 	}
 	SUBCASE("a new shape")
 	{
@@ -906,4 +909,126 @@ TEST_CASE("apt-swf: a recipe stops at the first line that does not fit the movie
 	CHECK(error == "line 3 (place): the movie has no sprite 9");
 	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nlabel sprite=0 frame=2 name=x\n", e.parsed, "Test", rr, &error));
 	CHECK(error == "line 3 (label): the timeline has 1 frames, no frame 2");
+}
+
+TEST_CASE("apt-swf: an edited DoAction is assembled back into APT and the frame item points at it")
+{
+	EditedSwf e;
+	std::uint32_t before = 0;
+	{
+		const AptFile original = [&] {
+			ImportResult unedited;
+			std::string error;
+			REQUIRE(e.import(unedited, error));
+			return parsedApt(unedited);
+		}();
+		before = original.frames[0].items[4].codeOffset;
+	}
+	// the root's frame action is `Stop`; make it `Play`
+	for (SwfTag &t : e.parsed.tags)
+	{
+		if (t.code == SWF_TAG_DOACTION)
+		{
+			REQUIRE(t.body == std::vector<std::uint8_t>({ 0x07, 0x00 }));
+			t.body = { 0x06, 0x00 };
+		}
+	}
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 1);
+	const AptFile apt = parsedApt(back);
+	const AptFrameItem &item = apt.frames[0].items[4];
+	CHECK(item.codeOffset != before);
+	CHECK(back.edits[0].find(": actions re-assembled at .apt offset " + std::to_string(item.codeOffset) + " (was " + std::to_string(before) + ")") !=
+		std::string::npos);
+	std::shared_ptr<const AptCodeBlock> block = apt.codeAt(item.codeOffset, &error);
+	REQUIRE_MESSAGE(block, error);
+	REQUIRE(block->instructions.size() == 2);
+	CHECK(block->instructions[0].opcode == APT_OP_PLAY);
+	CHECK(block->instructions[1].opcode == APT_OP_END);
+	// the sprite's frame action shared the same program and is untouched
+	CHECK(apt.characters[e.movie.spriteId].frames[0].items[1].codeOffset == before);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: AVM1 -> APT: pushes, a branch, a function and a register push assemble to the runtime's forms")
+{
+	// x = 300; if (!(x < 5)) { y = true; } f = function (a) { return a; }; push register 1; End
+	const std::string recipe = "openbfme-apt-recipe 1\n"
+							   "movie Test\n"
+							   "action sprite=0 frame=1\n"
+							   "  Push \"x\", 300\n"
+							   "  SetVariable\n"
+							   "  Push \"x\"\n"
+							   "  GetVariable\n"
+							   "  Push 5\n"
+							   "  Less2\n"
+							   "  If skip\n"
+							   "  Push \"y\", true\n"
+							   "  SetVariable\n"
+							   "  skip:\n"
+							   "  Push \"f\"\n"
+							   "  DefineFunction \"\" 1 \"a\" {\n"
+							   "    Push \"a\"\n"
+							   "    GetVariable\n"
+							   "    Return\n"
+							   "  }\n"
+							   "  SetVariable\n"
+							   "  Push register1, 2.5, -70000, null, undefined, false\n"
+							   "  Pop\n"
+							   "end\n"
+							   "value sprite=0 frame=1 action=2 old=300 new=7\n";
+	EditedSwf e;
+	RecipeResult rr;
+	std::string error;
+	REQUIRE_MESSAGE(applyRecipe(recipe, e.parsed, "Test", rr, &error), error);
+	CHECK(rr.log[1] == "sprite 0 frame 1 action list 2: the integer 300 -> 7 (1x)");
+	ImportResult back;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[1] == "Test.const: 1 register entries added");
+	const AptFile apt = parsedApt(back);
+	AptConstFile originalConsts;
+	REQUIRE(AptConstFile::parse(e.movie.files.files[1].bytes, originalConsts, &error));
+	REQUIRE(apt.consts.entries.size() == originalConsts.entries.size() + 1);
+	CHECK(apt.consts.entries.back().type == APT_CONST_REGISTER);
+	CHECK(apt.consts.entries.back().raw == 1);
+	REQUIRE(apt.frames[0].items.size() == 6);
+	std::shared_ptr<const AptCodeBlock> block = apt.codeAt(apt.frames[0].items[5].codeOffset, &error);
+	REQUIRE_MESSAGE(block, error);
+	std::vector<std::uint8_t> ops;
+	for (const AptInstruction &i : block->instructions)
+	{
+		ops.push_back(i.opcode);
+	}
+	const std::vector<std::uint8_t> want = { APT_OP_EA_PUSHSTRING, APT_OP_EA_PUSHBYTE, APT_OP_SETVARIABLE, APT_OP_EA_PUSHSTRING, APT_OP_GETVARIABLE,
+		APT_OP_EA_PUSHBYTE, APT_OP_LESS2, APT_OP_BRANCHIFTRUE, APT_OP_EA_PUSHSTRING, APT_OP_EA_PUSHTRUE, APT_OP_SETVARIABLE, APT_OP_EA_PUSHSTRING,
+		APT_OP_DEFINEFUNCTION, APT_OP_SETVARIABLE, APT_OP_PUSHDATA, APT_OP_EA_PUSHFLOAT, APT_OP_EA_PUSHLONG, APT_OP_EA_PUSHNULL,
+		APT_OP_EA_PUSHUNDEFINED, APT_OP_EA_PUSHFALSE, APT_OP_POP, APT_OP_END };
+	CHECK(ops == want);
+	CHECK(block->instructions[1].intOperand == 7);
+	CHECK(block->instructions[7].branchTarget == 11); // over `y = true`, to Push "f"
+	CHECK(block->instructions[12].function->params.size() == 1);
+	CHECK(block->instructions[12].function->params[0].name == "a");
+	CHECK(block->instructions[12].function->body->instructions.size() == 3);
+	CHECK(block->instructions[14].constants[0].type == APT_CONST_REGISTER);
+	CHECK(block->instructions[15].floatOperand == 2.5f);
+	CHECK(block->instructions[16].intOperand == -70000);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: two encodings of the same AVM1 normalize to the same lines")
+{
+	// ConstantPool "a" + Push constant8 0 / Push "a" inline; one Push of two values / two Pushes; a double 2.0 / a float 2.0
+	const std::vector<std::uint8_t> pooled = { 0x88, 0x04, 0x00, 0x01, 0x00, 'a', 0x00, 0x96, 0x0B, 0x00, 0x08, 0x00, 0x06, 0x00, 0x00, 0x00, 0x40,
+		0x00, 0x00, 0x00, 0x00, 0x1D, 0x00 };
+	const std::vector<std::uint8_t> inlined = { 0x96, 0x03, 0x00, 0x00, 'a', 0x00, 0x96, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x40, 0x1D, 0x00 };
+	std::vector<std::string> a, b;
+	std::string error;
+	REQUIRE_MESSAGE(avm1Normalized(pooled, a, &error), error);
+	REQUIRE_MESSAGE(avm1Normalized(inlined, b, &error), error);
+	CHECK(a == b);
+	const std::vector<std::string> want = { "push string a", "push float 40000000", "op 0x1D", "op 0x00" };
+	CHECK(a == want);
 }

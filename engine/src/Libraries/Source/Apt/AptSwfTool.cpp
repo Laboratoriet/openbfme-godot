@@ -5,6 +5,8 @@
 //   openbfme_apt_swf export    (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--no-embed] [--resolve-strings]
 //   openbfme_apt_swf roundtrip (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR
 //   openbfme_apt_swf import    FILE.swf --out DIR
+//   openbfme_apt_swf reassemble (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--write]   (every action program
+//                              back to APT; --write: also the movies with every program replaced by its re-assembled copy, in DIR/files)
 //   openbfme_apt_swf info      FILE.swf [--all]
 //   openbfme_apt_swf apply     RECIPE.txt (--dir FOLDER | --big ARCHIVE... | --game rotwk|bfme2 | --swf FILE.swf) --out DIR [--pack OUT.big]
 //   openbfme_apt_swf set-text  IN.swf OUT.swf CHARACTER_ID TEXT
@@ -28,6 +30,8 @@
 #include "Libraries/Source/Apt/AptLoad.h"
 #endif
 #include "GameClient/TGAFile.h"
+#include "Libraries/Source/Apt/AptSwfAssemble.h"
+#include "Libraries/Source/Apt/AptSwfAvm1.h"
 #include "Libraries/Source/Apt/AptSwfExport.h"
 #include "Libraries/Source/Apt/AptSwfImport.h"
 #include "Libraries/Source/Apt/AptSwfRecipe.h"
@@ -484,6 +488,7 @@ struct Options
 	bool embed = true;
 	bool resolveStrings = false; // export only: a preview with the game's strings in place of "$Label" texts (no private tags)
 	bool all = false;            // info: every placement, not only the named ones
+	bool write = false;          // reassemble: write the movies with every program re-assembled
 	fs::path dir;                // apply: a folder with the movie's loose files
 	std::string swfIn;           // apply: an exported SWF
 	fs::path pack;               // apply: also pack the files as this BIG
@@ -528,6 +533,10 @@ bool parseArgs(int argc, char **argv, Options &o)
 		{
 			o.all = true;
 		}
+		else if (a == "--write")
+		{
+			o.write = true;
+		}
 		else if (a == "--dir")
 		{
 			o.dir = next();
@@ -555,6 +564,7 @@ int usage()
 		"  openbfme_apt_swf export    (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--no-embed] [--resolve-strings]\n"
 		"  openbfme_apt_swf roundtrip (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR\n"
 		"  openbfme_apt_swf import    FILE.swf --out DIR\n"
+		"  openbfme_apt_swf reassemble (--game rotwk|bfme2 | --big ARCHIVE...) [--movie NAME]... --out DIR [--write]\n"
 		"  openbfme_apt_swf info      FILE.swf [--all]\n"
 		"  openbfme_apt_swf apply     RECIPE.txt (--dir FOLDER | --big ARCHIVE... | --game rotwk|bfme2 | --swf FILE.swf) --out DIR [--pack OUT.big]\n"
 		"  openbfme_apt_swf set-text  IN.swf OUT.swf CHARACTER_ID TEXT\n"
@@ -1039,6 +1049,300 @@ int runEdit(Options &o, bool text)
 	return 0;
 }
 
+fs::path g_reassembleOut; // reassemble --write: where the files go
+
+// ---- reassemble: every action program of the movies, assembled back into APT and checked (AptSwfAssemble.h) ------------------
+// The programs are the exporter's AVM1: frame and init actions, clip actions, button actions.  Each is appended to a copy of its
+// movie's .apt, decoded with the game's decoder, converted to AVM1 again and compared action by action with the original AVM1.
+void collectPrograms(const std::vector<SwfTag> &tags, std::vector<std::vector<std::uint8_t>> &out)
+{
+	for (const SwfTag *t : flattenTags(tags))
+	{
+		if (t->code == SWF_TAG_DOACTION)
+		{
+			out.push_back(t->body);
+		}
+		else if (t->code == SWF_TAG_DOINITACTION && t->body.size() > 2)
+		{
+			out.emplace_back(t->body.begin() + 2, t->body.end());
+		}
+		else if (t->code == SWF_TAG_PLACEOBJECT2)
+		{
+			SwfPlaceObject2 p;
+			if (!decodePlaceObject2(t->body, p) || !(p.flags & 0x80) || p.clipActions.size() < 6)
+			{
+				continue;
+			}
+			// CLIPACTIONS: reserved u16, all event flags u32, then (event flags u32, record size u32, [key code u8], actions) until flags 0
+			std::size_t at = 6;
+			while (at + 8 <= p.clipActions.size())
+			{
+				const std::uint32_t flags = (std::uint32_t)p.clipActions[at] | ((std::uint32_t)p.clipActions[at + 1] << 8) |
+					((std::uint32_t)p.clipActions[at + 2] << 16) | ((std::uint32_t)p.clipActions[at + 3] << 24);
+				if (flags == 0)
+				{
+					break;
+				}
+				std::size_t size = (std::size_t)p.clipActions[at + 4] | ((std::size_t)p.clipActions[at + 5] << 8) |
+					((std::size_t)p.clipActions[at + 6] << 16) | ((std::size_t)p.clipActions[at + 7] << 24);
+				std::size_t code = at + 8;
+				if (flags & APT_CLIP_KEYPRESS)
+				{
+					++code;
+					--size;
+				}
+				if (code + size > p.clipActions.size())
+				{
+					break;
+				}
+				out.emplace_back(p.clipActions.begin() + (std::ptrdiff_t)code, p.clipActions.begin() + (std::ptrdiff_t)(code + size));
+				at = code + size;
+			}
+		}
+		else if (t->code == SWF_TAG_DEFINEBUTTON2)
+		{
+			SwfButton2 b;
+			if (!decodeButton2(t->body, b))
+			{
+				continue;
+			}
+			// BUTTONCONDACTION: size u16 (0 for the last), conditions u16, actions
+			std::size_t at = 0;
+			while (at + 4 <= b.condActions.size())
+			{
+				const std::size_t size = (std::size_t)b.condActions[at] | ((std::size_t)b.condActions[at + 1] << 8);
+				const std::size_t end = size ? at + size : b.condActions.size();
+				if (end > b.condActions.size() || end < at + 4)
+				{
+					break;
+				}
+				out.emplace_back(b.condActions.begin() + (std::ptrdiff_t)(at + 4), b.condActions.begin() + (std::ptrdiff_t)end);
+				if (!size)
+				{
+					break;
+				}
+				at = end;
+			}
+		}
+	}
+}
+
+// --write: every program reference of the movie (frame and init actions, clip events, button actions) pointed at a re-assembled
+// copy of its program, so the game runs only assembled code; the files go to <out>/files.
+bool rewritePrograms(const AptMovieFiles &files, const AptFile &movie, std::size_t &repointed, std::ostringstream &failures)
+{
+	const AptMovieFile *apt = files.find(files.name + ".apt");
+	const AptMovieFile *cst = files.find(files.name + ".const");
+	std::vector<std::uint8_t> bytes = apt->bytes;
+	AptConstWriter consts;
+	std::string error;
+	if (!consts.load(cst->bytes, &error))
+	{
+		failures << "- " << files.name << ": " << error << "\n";
+		return false;
+	}
+	std::map<std::uint32_t, std::uint32_t> done; // old program -> new program (a program shared by several references once)
+	auto u32 = [&](std::uint32_t at) {
+		return (std::uint32_t)bytes[at] | ((std::uint32_t)bytes[at + 1] << 8) | ((std::uint32_t)bytes[at + 2] << 16) | ((std::uint32_t)bytes[at + 3] << 24);
+	};
+	auto put = [&](std::uint32_t at, std::uint32_t v) {
+		for (int i = 0; i < 4; ++i)
+		{
+			bytes[at + i] = (std::uint8_t)(v >> (8 * i));
+		}
+	};
+	auto repoint = [&](std::uint32_t pointerAt) -> bool {
+		const std::uint32_t old = u32(pointerAt);
+		auto it = done.find(old);
+		if (it == done.end())
+		{
+			Avm1Result avm1;
+			std::uint32_t offset = 0;
+			AssembleStats stats;
+			if (!programAvm1(movie, old, avm1, &error))
+			{
+				return true; // a program the decoder refuses stays as it was
+			}
+			if (!assembleChecked(avm1.bytes, files.name, movie.version, bytes, consts, offset, stats, &error))
+			{
+				failures << "- " << files.name << " program at " << old << ": " << error << "\n";
+				return false;
+			}
+			it = done.emplace(old, offset).first;
+		}
+		put(pointerAt, it->second);
+		++repointed;
+		return true;
+	};
+	auto frames = [&](const std::vector<AptFrame> &list) -> bool {
+		for (const AptFrame &f : list)
+		{
+			for (const AptFrameItem &it : f.items)
+			{
+				if ((it.type == APT_ITEM_ACTION && !repoint(it.offset + 4)) || (it.type == APT_ITEM_INITACTION && !repoint(it.offset + 8)))
+				{
+					return false;
+				}
+				if (it.type == APT_ITEM_PLACEOBJECT && it.place && !it.place->clipEvents.empty())
+				{
+					const std::uint32_t list = u32(it.offset + 60);
+					const std::uint32_t table = u32(list + 4);
+					for (std::size_t e = 0; e < it.place->clipEvents.size(); ++e)
+					{
+						if (!repoint(table + (std::uint32_t)e * 12 + 8))
+						{
+							return false;
+						}
+					}
+				}
+			}
+		}
+		return true;
+	};
+	if (!frames(movie.frames))
+	{
+		return false;
+	}
+	for (const AptCharacter &c : movie.characters)
+	{
+		if (c.type == APT_CHAR_SPRITE && !frames(c.frames))
+		{
+			return false;
+		}
+		if (c.type == APT_CHAR_BUTTON && c.button)
+		{
+			const std::uint32_t table = u32(c.offset + 56);
+			for (std::size_t a = 0; a < c.button->actions.size(); ++a)
+			{
+				if (!repoint(table + (std::uint32_t)a * 8 + 4))
+				{
+					return false;
+				}
+			}
+		}
+	}
+	// the result parses, and goes out with the movie's other files
+	AptConstFile parsedConsts;
+	AptFile check;
+	if (!AptConstFile::parse(consts.bytes(), parsedConsts, &error) ||
+		!AptFile::parse(files.name, std::make_shared<const std::vector<std::uint8_t>>(bytes), parsedConsts, check, &error))
+	{
+		failures << "- " << files.name << ": the rewritten movie does not parse: " << error << "\n";
+		return false;
+	}
+	for (const AptMovieFile &f : files.files)
+	{
+		const bool isApt = &f == apt, isConst = &f == cst;
+		writeFile(g_reassembleOut / "files" / normalSlash(f.path), isApt ? bytes : isConst ? consts.bytes() : f.bytes);
+	}
+	return true;
+}
+
+int runReassemble(Options &o)
+{
+	g_reassembleOut = o.out;
+	if (o.out.empty())
+	{
+		return usage();
+	}
+	std::string error;
+	std::vector<Job> jobs;
+	ArchiveSet archives;
+#ifndef OPENBFME_APTSWF_STANDALONE
+	GameMount mount;
+	if (!o.game.empty() || o.bigs.empty())
+	{
+		if (!mount.mount(o.game.empty() ? "rotwk" : o.game, o.out / ".cache", &error) || !collectJobs(o, mount, jobs, &error))
+		{
+			std::fprintf(stderr, "%s\n", error.c_str());
+			return 1;
+		}
+	}
+	else
+#endif
+	{
+		if (!archives.open(o.bigs, &error))
+		{
+			std::fprintf(stderr, "%s\n", error.c_str());
+			return 1;
+		}
+		for (const std::string &m : archives.movies())
+		{
+			if (o.movies.empty() || o.movies.count(lower(m)))
+			{
+				jobs.push_back({ archives.archiveOf(m), archives.movieFiles(m) });
+			}
+		}
+	}
+	std::size_t programs = 0, ok = 0, moviesOk = 0, instructions = 0, rounded = 0, written = 0;
+	std::ostringstream failures;
+	for (const Job &job : jobs)
+	{
+		ExportResult r;
+		if (!exportStandardTags(job.files, ExportOptions(), r, &error))
+		{
+			failures << "- " << job.files.name << ": export failed: " << error << "\n";
+			continue;
+		}
+		const AptMovieFile *apt = job.files.find(job.files.name + ".apt");
+		const AptMovieFile *cst = job.files.find(job.files.name + ".const");
+		std::vector<std::uint8_t> bytes = apt->bytes;
+		AptConstWriter consts;
+		if (!consts.load(cst->bytes, &error))
+		{
+			failures << "- " << job.files.name << ": " << error << "\n";
+			continue;
+		}
+		std::vector<std::vector<std::uint8_t>> list;
+		collectPrograms(r.tags, list);
+		std::size_t movieOk = 0;
+		for (std::size_t i = 0; i < list.size(); ++i)
+		{
+			std::uint32_t offset = 0;
+			AssembleStats stats;
+			++programs;
+			if (!assembleChecked(list[i], job.files.name, r.movie->version, bytes, consts, offset, stats, &error))
+			{
+				failures << "- " << job.files.name << " program " << i << ": " << error << "\n";
+				continue;
+			}
+			++ok;
+			++movieOk;
+			instructions += stats.instructions;
+			rounded += stats.roundedDoubles;
+		}
+		moviesOk += movieOk == list.size() ? 1 : 0;
+		std::printf("%-32s %5zu / %5zu programs re-assembled\n", job.files.name.c_str(), movieOk, list.size());
+		if (o.write)
+		{
+			std::size_t repointed = 0;
+			if (!rewritePrograms(job.files, *r.movie, repointed, failures))
+			{
+				continue;
+			}
+			written += repointed;
+		}
+	}
+	std::ostringstream report;
+	report << "# SWF actions -> APT: every program re-assembled and checked\n\n";
+	report << "Movies: " << jobs.size() << ", every program re-assembled in " << moviesOk << "\n";
+	report << "Programs: " << ok << " / " << programs << " (" << instructions << " APT instructions written, " << rounded
+		   << " numbers rounded to float32)\n";
+	if (o.write)
+	{
+		report << "Written: " << written << " program references re-pointed to re-assembled copies, in " << (o.out / "files").string() << "\n";
+	}
+	report << "\n";
+	if (!failures.str().empty())
+	{
+		report << "## Failures\n\n" << failures.str();
+	}
+	const std::string text = report.str();
+	writeFile(o.out / "reassemble.md", std::vector<std::uint8_t>(text.begin(), text.end()));
+	std::printf("\n%s", text.c_str());
+	return ok == programs ? 0 : 1;
+}
+
 // ---- apply: a recipe on the user's own copy of a movie ----------------------------------------------------------------------------
 // The movie comes from --swf (an exported SWF), --dir (loose files: NAME.apt, NAME.const, NAME.dat, NAME_geometry/*.ru), --big (archives,
 // later ones over earlier ones, file by file) or --game (the retail mount).  The recipe edits the exported SWF; the importer writes the
@@ -1335,6 +1639,10 @@ int main(int argc, char **argv)
 	if (o.command == "move")
 	{
 		return runEdit(o, false);
+	}
+	if (o.command == "reassemble")
+	{
+		return runReassemble(o);
 	}
 	if (o.command == "apply")
 	{

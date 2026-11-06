@@ -20,6 +20,13 @@
 //   label  sprite=92 frame=1 name=_ten            add a frame label
 //   text   id=Name7 font=12 bounds=0,0,120,20 height=14 color=FFFFFFFF align=center text="$Stats:FactionName_7" var=""
 //          [readonly] [multiline] [wordwrap]       a new text field; `place ... character=Name7` places it
+//   value  sprite=92 frame=1 action=1 old=7 new=10 a pushed integer in the frame's 1st action list (exactly one, or count=N)
+//   action sprite=0 frame=1                       a new action list at the end of the frame, in p-code (JPEXS's names), up to `end`:
+//            Push "_root"                           Push "s", 12, 1.5, true, false, null, undefined, register1 (comma-separated)
+//            GetVariable                            the APT runtime's single-byte actions by name (GetMember, SetMember, CallMethod, ...)
+//            If done / Jump done / done:            branches to a label in the same block
+//            DefineFunction "" 0 {  ...  }          a function (DefineFunction, the body up to a `}` line)
+//          end                                      (also GotoFrame N, GotoLabel "x", StoreRegister N, GetURL "url" "target")
 //
 // sprite=0 is the root timeline; frames count from 1 (as JPEXS shows them).  A placement is selected by name= or depth= (with
 // optional frame= and character=); it must match exactly one placing tag (one with a character).  `like=NAME` starts a new
