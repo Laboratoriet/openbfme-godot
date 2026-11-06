@@ -38,6 +38,9 @@
 ##             the release selects the own units inside and no structure, and the box is gone
 ##   selection (lane UI-4) two hordes and a hero drag-selected together: one merged jagged outline around the hordes' members and the hero's rune ring
 ##             (SelectionDecals.h, the owner's retail shot owner-shots/ui4/3); the hero alone; a hovered unit gets no marker; play1-selection-<step>.png
+##   floorrings (lane IOS-44) a horde and a hero made on the local player's castle or camp floor (an own object drawn by a W3DFloorDraw: GBCastleFloor
+##             and the like; a castle map or Edain's castles), selected: their markers show on the floor (RotWK's decals, drawn on the terrain with its
+##             projection depth bias, show through a floor that lies within it); play1-floorrings.png
 ##   build5    (lane BUILD-5) RotWK's placement by input: the builder is selected, the barracks button clicked; the ghost on a legal site (no tint, no bib, no
 ##             pointer: the Build cursor has no Mouse.ini block), on an illegal one (red, the TBRedBib bib), anchored and turned by a left drag (W_Arrow);
 ##             a right drag held past DragToleranceMS scrolls the view during the placement with the directional Scroll cursor (frames
@@ -1054,6 +1057,38 @@ func _scenario_portraits() -> String:
 		elif st.get("portrait_drawn", "") != st.get("portrait", ""):
 			failures.append("%s: the portrait %s was not drawn (drew '%s')" % [c.kind, st.get("portrait"), st.get("portrait_drawn")])
 	return "; ".join(failures)
+
+
+# lane IOS-44: markers on a castle or camp floor (a W3DFloorDraw model laid over the terrain): see the list at the top
+func _scenario_floorrings() -> String:
+	if game._local_index < 0:
+		return "no local player index"
+	await game._step(60)
+	var floor := {}
+	for o in world.get_player_objects(game._local_name):
+		if String(o.template).to_lower().contains("floor"):
+			floor = o
+			break
+	if floor.is_empty():
+		return "the local player has no floor object (a castle map or a mod's castle is needed)"
+	var centre := Vector2(floor.x, floor.y) + Vector2(0, 60)
+	var horde := _create_first(["GondorFighterHorde", "RohanPeasantHorde", "MordorOrcFighterHorde", "DwarvenGuardianHorde"], centre + Vector2(-50, 0))
+	var hero := _create_first(["GondorBoromir", "GondorFaramir", "RohanTheoden", "MordorWitchKing", "DwarvenGimli"], centre + Vector2(60, 10))
+	if horde.is_empty() or hero.is_empty():
+		return "could not create the horde (%s) or the hero (%s)" % [str(horde), str(hero)]
+	await game._step(40)
+	hud.camera_look_at(centre)
+	await game._step(20)
+	hud.select_objects([horde.id, hero.id])
+	await game._step(30)
+	var st: Dictionary = hud.get_state()
+	var decals: Array = st.get("selection_decals", [])
+	print("PLAY1 floorrings: floor %s (%d) at (%.0f, %.0f, %.2f); selection %s; markers %s (%d drawn)" % [floor.template, floor.id, floor.x, floor.y,
+		floor.z, str(hud.get_selection()), JSON.stringify(decals), st.get("selection_decals_drawn", 0)])
+	shot("floorrings")
+	if hud.get_selection().size() != 2 or decals.is_empty():
+		return "the horde and the hero are not selected with their markers"
+	return ""
 
 
 # lane UI-4: the selection markers as the owner's retail shot shows them (owner-shots/ui4/3-retail-selection-indicators.png): two hordes and a hero selected

@@ -822,6 +822,21 @@ static bool selectionDecalReceiver(const Drawable *d)
 	return d && d->isKindOfIndex(bit);
 }
 
+// lane IOS-44: a static model of a drawable that receives the selection decals: a wall top's (above) or a W3DFloorDraw's floor (a castle's, a camp's,
+// a building's bib). RotWK draws no decal ON a floor: W3DFloorDraw hands its model to the terrain's floor buffer (doDrawModule BFME2 0xCF3BA ->
+// W3DFloorBuffer::addFloor 0xE6005), drawn with the terrain before the decals (FlatHeightMap's "RenderFloors", BFME2 0xE2FBD), and flushDecals draws
+// every decal batch on the terrain's heights with bfmeSetProjectionDepthBias(9.0) (BFME2 0x109E11 -> 0x11F1C0; RotWK RW 0x509FCF, 9.0 at RW 0xBE5958):
+// the projection's z term less (zf zn / (zf - zn)) * 9 * 0.000625, which brings the decal about 0.56 % of its view depth nearer, about 2 units at the
+// default camera. Most retail floors lie 0.1 .. 1.6 above their object (Edain's and RotWK's castle floors 0.16 / 0.40, camp floors 0.10 / 0.11), within
+// that bias, so the decal on the terrain shows through them. The port draws the decals per pixel in the terrain shader, which a floor hides: the floor's
+// surface draws them instead (the wall tops' path, SELWALL-1: within 20 of the decal's height, where the surface faces up). INFERENCE: the same picture
+// for a floor within the bias of its terrain; where a floor stands higher (a few bibs' raised parts: MBFortress_bib up to 7.0) retail's decal is hidden
+// and the port's drawn
+static bool staticSelectionDecalReceiver(const Drawable *d, W3DDrawKind kind)
+{
+	return selectionDecalReceiver(d) || kind == W3D_DRAWKIND_FLOOR;
+}
+
 static int staticGlowOf(const ModuleData *data)
 {
 	const W3DModelDrawModuleData *md = dynamic_cast<const W3DModelDrawModuleData *>(data);
@@ -2105,9 +2120,9 @@ void GameWorld::refresh_view(size_t id, W3DInstancer *dyn, const LogicSnapshot *
 				{
 					ev.staticKey += ev.staticGlow == 2 ? "|glow-emissive" : "|glow";
 				}
-				if (selectionDecalReceiver(d))
+				if (staticSelectionDecalReceiver(d, e.kind))
 				{
-					ev.staticKey += "|sel"; // lane SELWALL-1: as on the animated path
+					ev.staticKey += "|sel"; // lane SELWALL-1: as on the animated path; lane IOS-44: a floor's too
 				}
 				if (ev.staticKeyColored)
 				{
@@ -2138,7 +2153,7 @@ void GameWorld::refresh_view(size_t id, W3DInstancer *dyn, const LogicSnapshot *
 				{
 					const double tm = nowMs();
 					dyn->Set_Build_Texture_Swaps(swaps);
-					dyn->Set_Build_Selection_Decals(selectionDecalReceiver(d)); // lane SELWALL-1
+					dyn->Set_Build_Selection_Decals(staticSelectionDecalReceiver(d, e.kind)); // lane SELWALL-1, IOS-44
 					if(colored) {
 					 PackedInt64Array colors;for(auto color:palette.colors) colors.push_back((int64_t)color);
 					 mid=dyn->add_model_colored(toGodot(e.staticModel),palette.kind,colors);
