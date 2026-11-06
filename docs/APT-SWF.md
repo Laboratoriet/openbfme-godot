@@ -7,6 +7,7 @@ standard SWF files that SWF tools open (JPEXS Free Flash Decompiler, Ruffle), an
 - **edited** placements, text fields, button records and frame labels are written back into the `.apt` records;
 - **structural** edits are written as new records: new placements of existing characters, removals, frame labels, new text
   fields, frame items taken out;
+- **frame actions** (edited or new `DoAction` / `DoInitAction`) are assembled back into APT programs;
 - other edits are refused with the tag named (they need a full Apt writer, see "Not yet").
 
 Edits can also be written as a **recipe**, a small text file the converter applies to anyone's own copy of a movie (below).
@@ -30,6 +31,7 @@ openbfme_apt_swf roundtrip --game rotwk --big <mod>/apt.big --out out/mod   # a 
 openbfme_apt_swf export --game rotwk --movie Options --out out/x           # one movie
 openbfme_apt_swf export --game rotwk --resolve-strings --out out/preview   # a preview: "$Label" texts replaced by the game's strings
 openbfme_apt_swf import Options.swf --out out/mod-src                      # SWF -> .apt / .const / .dat / .ru
+openbfme_apt_swf reassemble --game rotwk --out out/asm [--write]           # every action program assembled back to APT and checked
 openbfme_apt_swf pack-big out/mod-src Mod.big                              # a BIG for -mod
 openbfme_apt_swf info Options.swf [--all]                                  # tags, text fields, named (--all: every) placement
 openbfme_apt_swf apply my.recipe --game rotwk --out out/stats --pack Stats-mod.big   # a recipe on the game's movie
@@ -56,6 +58,7 @@ SRC="src/Libraries/Source/Apt/AptSwfTool.cpp src/Libraries/Source/Apt/AptSwfForm
      src/Libraries/Source/Apt/AptSwfRecipe.cpp src/Libraries/Source/Apt/AptFile.cpp src/Libraries/Source/Apt/AptActionDecoder.cpp
      src/Common/Sha256.cpp src/Common/System/FloatFromChars.cpp src/GameClient/TGAFile.cpp"
 FLAGS="-std=c++17 -O2 -DOPENBFME_APTSWF_STANDALONE -Isrc -isystem thirdparty/fast_float/include"
+SRC="$SRC src/Libraries/Source/Apt/AptSwfAssemble.cpp"
 c++ $FLAGS -o openbfme_apt_swf $SRC                                                        # macOS / Linux
 zig c++ -target x86_64-windows-gnu -static -s $FLAGS -o openbfme_apt_swf.exe $SRC          # Windows x86_64 from macOS / Linux
 x86_64-w64-mingw32-g++ -static -s $FLAGS -o openbfme_apt_swf.exe $SRC                      # or with mingw-w64
@@ -156,8 +159,29 @@ Tag code **1000**, ignored by players; JPEXS keeps it when it saves (also throug
      with one more entry); placements of the SWF id are written with the APT id. It needs one of the movie's fonts. Text and
      variable strings are appended (retail text records never hold a null string pointer);
    - the written `.apt` is parsed again with the game's reader (`AptFile::parse`); a failure is an error.
-5. Refused, naming the tag: new actions and clip actions, new shapes / sprites / buttons / bitmaps, removed characters,
-   frames added or removed, imports and exports, placements of characters the converter made (bitmaps, button hit shapes).
+5. **Actions.** An edited or new `DoAction` / `DoInitAction` is assembled into a new APT program at the end of the `.apt`
+   (below) and its frame item points at it (an edited one: the item's code pointer; a new one: a new action record).
+6. Refused, naming the tag: edited clip actions and button actions, new placements with clip actions, new shapes / sprites /
+   buttons / bitmaps, removed characters, frames added or removed, imports and exports, placements of characters the converter
+   made (bitmaps, button hit shapes).
+
+### Actions back to APT
+
+`AptSwfAssemble.h` is the inverse of the AVM1 lowering for the actions the APT runtime has (the decoder's 86 opcodes). It
+writes APT's own layout: aligned opcodes start their operand on a 4-byte boundary, strings and tables follow the code and are
+reached by pointer, branches are 32-bit offsets from the next instruction, `DefineFunction(2)` headers carry the body size and
+EA's 8-byte trailer. Values go out with EA's push opcodes, the forms the retail compiler uses everywhere: `EA_PushString` for
+strings (a constant-pool reference is resolved, so no `.const` strings are added), `EA_PushZero` / `One` / `Byte` / `Short` /
+`Long` for integers, `EA_PushFloat` (a double that is neither a float nor an integer becomes the nearest float32: APT's numbers
+are float32), `EA_PushTrue` / `False` / `Null` / `Undefined`; a register push is a `PushData` of a `.const` register entry (an
+existing one, else a new one appended to the `.const`, whose strings then move by 8 bytes each). `GotoFrame2` takes the play
+flag as its u32, `GetURL2` has no operand. Refused, naming the action: anything outside the runtime's census (`With`, `Try`,
+`SetTarget`, ...), `GotoFrame2`'s scene bias, `GetURL2` flags.
+
+Every assembled program is checked before it is kept: decoded with the game's `AptActionDecoder`, converted to AVM1 again and
+compared action by action (`avm1Normalized`: pushes split into single values, constants resolved, branch targets as indices)
+with the SWF's. `openbfme_apt_swf reassemble` runs that on every program of a mount (frame, init, clip and button actions);
+`--write` also writes the movies with every program reference pointed at its re-assembled copy, to run them in the game.
 
 ## Recipes
 
@@ -178,6 +202,13 @@ rename sprite=323 name=PlayerList to=PlayerListAll
 delete sprite=92 frame=1 name=6                        take a placement out of its frame
 remove sprite=92 frame=2 depth=408                     add a RemoveObject2
 label  sprite=92 frame=1 name=_ten                     add a frame label
+value  sprite=92 frame=1 action=1 old=7 new=10        a pushed integer in the frame's 1st action list (exactly one, or count=N)
+action sprite=0 frame=1                                a new action list at the end of the frame, in p-code, up to `end`
+  Push "_root"                                         values: "s", 12, 1.5, true, false, null, undefined, register1
+  GetVariable                                          the runtime's single-byte actions by their SWF / JPEXS names
+  If done / Jump done / done:                          branches to labels in the same block
+  DefineFunction "" 0 {   ...   }                      a function; also GotoFrame N, GotoLabel "x", StoreRegister N, GetURL "u" "t"
+end
 text   id=Name7 font=12 bounds=0,0,120,20 height=14 color=FFFFFFFF align=center text="$Stats:FactionName_7" var=""
 place  sprite=92 frame=1 depth=411 character=Name7 x=0 y=0      place the new text field
 ```
@@ -192,8 +223,10 @@ with `#`; values with spaces go in double quotes. Every problem stops the recipe
 - `engine/tests/test_apt_swf.cpp`: bit fields, zlib, the AVM1 lowering (exact bytes), branch re-targeting, triangle outlines,
   the export of a synthetic movie, the byte-exact round trip, a text and a placement edit re-encoded (unedited floats kept),
   each structural edit (a new placement in the root and in a sprite, a removal and an item taken out, a frame label, a new
-  text field placed by its SWF id; each edited movie converts again with no edits to the same bytes), a recipe of every
-  step, the recipe's and the importer's refusals. Synthetic movies only.
+  text field placed by its SWF id; each edited movie converts again with no edits to the same bytes), an edited and a new
+  frame action assembled back (pushes, a branch, a function, a register push and its new `.const` entry), the normalized
+  comparison, a recipe of every step, the recipe's and the importer's refusals. Synthetic movies only.
+- `openbfme_apt_swf reassemble` over a mount: every action program assembled back and checked.
 - `openbfme_apt_swf roundtrip` over a game mount writes `report.md` with per-type byte-identical counts and the notes (what the
   SWF cannot express) with the number of movies each applies to.
 
@@ -218,5 +251,5 @@ with `#`; values with spaces go in double quotes. Every problem stops the recipe
   decoder accepts; such programs are exported as empty action lists (the original bytes stay in the private tag).
 - **Curves**: `.ru` holds triangles only, so SWF shapes are polygons; the original curves are not recoverable.
 - **Full Apt writer**: new shapes, sprites and buttons, frames added or removed, shape edits (re-triangulation), bitmap
-  edits (TGA) and action edits (an AVM1 → Apt assembler that re-encodes the EA forms and the `.const` table) are the next
-  steps. Until then a script can be steered only through what it reads (instance names, depths, frame labels).
+  edits (TGA), and clip / button action edits (the assembler is there; their records are not re-pointed yet) are the next
+  steps.
