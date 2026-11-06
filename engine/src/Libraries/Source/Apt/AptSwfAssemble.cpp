@@ -374,7 +374,7 @@ bool normalize(const std::vector<Act> &acts, std::vector<std::string> pool, cons
 		std::string line = indent + "op " + hex2(a.op);
 		for (std::uint8_t c : a.data)
 		{
-			line += " " + hex2(c);
+			line += " " + hex2(a.op == 0x9A ? (std::uint8_t)(c & ~0x03u) : c); // GetURL2's send method is dropped (the assembler's rule)
 		}
 		mine.push_back(line);
 	}
@@ -777,9 +777,15 @@ private:
 				}
 				case 0x9A: // GetURL2: no operand in APT
 				{
-					if (a.data.size() != 1 || a.data[0] != 0)
+					// APT's GetURL2 pops the URL and the target and decides itself (AptActionInterpreter.cpp: a ".swf" into a clip
+					// target loads the movie, anything else goes to the host as a URL / fscommand). The send-variables method
+					// (flags & 0x03, GET / POST: no HTTP in the game) is dropped; a sprite-path target (0x40) or a variables load
+					// (0x80) would behave differently, so they are refused. Flag bits as SWF players read them (load variables 0x80,
+					// load target 0x40, method 0x03).
+					if (a.data.size() != 1 || (a.data[0] & 0xC0) != 0)
 					{
-						return fail(error, where + ": GetURL2 with flags (send variables, load a target or variables) has no APT form");
+						return fail(error, where + ": GetURL2 loading variables or into a sprite path (loadVariables, loadMovie with a path) has no "
+							"APT form; the game loads a movie only into a clip value");
 					}
 					opcode(a.op, false);
 					break;

@@ -789,6 +789,14 @@ TEST_CASE("apt-swf: structural edits still beyond the importer are refused, nami
 	EditedSwf e;
 	std::string error;
 	ImportResult back;
+	SUBCASE("a GetURL2 into a sprite path (loadMovie with a path)")
+	{
+		// Push "a.swf", "_root.x"; GetURL2 load-target; End
+		e.addToRoot(SWF_TAG_DOACTION, { 0x96, 0x07, 0x00, 0x00, 'a', '.', 's', 'w', 'f', 0x00, 0x96, 0x09, 0x00, 0x00, '_', 'r', 'o', 'o', 't', '.', 'x',
+										  0x00, 0x9A, 0x01, 0x00, 0x40, 0x00 });
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("GetURL2 loading variables or into a sprite path") != std::string::npos);
+	}
 	SUBCASE("a new DoAction with an action the APT runtime does not have (With)")
 	{
 		e.addToRoot(SWF_TAG_DOACTION, { 0x94, 0x02, 0x00, 0x00, 0x00, 0x00 });
@@ -1091,4 +1099,21 @@ TEST_CASE("apt-swf: clip and button actions edited in the SWF, and a new placeme
 	CHECK(ticker.clipEvents[1].nextEventOffset == 0);
 	CHECK(firstOp(ticker.clipEvents[1].codeOffset) == APT_OP_STOP);
 	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: GetURL2's send method is dropped: the game sends no variables (fscommand as JPEXS compiles it)")
+{
+	EditedSwf e;
+	// Push "FSCommand:Quit", ""; GetURL2 with method 1 (GET); End
+	e.addToRoot(SWF_TAG_DOACTION, { 0x96, 0x10, 0x00, 0x00, 'F', 'S', 'C', 'o', 'm', 'm', 'a', 'n', 'd', ':', 'Q', 'u', 'i', 't', 0x00, 0x96, 0x02, 0x00, 0x00,
+									  0x00, 0x9A, 0x01, 0x00, 0x01, 0x00 });
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	const AptFile apt = parsedApt(back);
+	std::shared_ptr<const AptCodeBlock> block = apt.codeAt(apt.frames[0].items[5].codeOffset, &error);
+	REQUIRE_MESSAGE(block, error);
+	REQUIRE(block->instructions.size() == 4);
+	CHECK(block->instructions[0].text == "FSCommand:Quit");
+	CHECK(block->instructions[2].opcode == APT_OP_GETURL2);
 }

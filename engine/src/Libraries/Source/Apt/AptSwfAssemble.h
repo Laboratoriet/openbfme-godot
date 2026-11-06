@@ -15,10 +15,11 @@
 //   Push true / false / null / undefined   EA_PushTrue / PushFalse / PushNull / PushUndefined
 //   Push register                          PushData of a .const register entry (an existing one, else a new one)
 //   ConstantPool                           nothing: its strings are pushed directly
-//   GotoFrame2 / GetURL2                   the play flag as the u32 operand / no operand (as AptSwfAvm1.h maps them)
+//   GotoFrame2 / GetURL2                   the play flag as the u32 operand / no operand (as AptSwfAvm1.h maps them); GetURL2's
+//                                          send method (GET / POST) is dropped: the game sends no variables
 //
 // What APT has no form for is refused, naming the action: opcodes outside the runtime's census (e.g. With, Try, SetTarget),
-// GotoFrame2's scene bias, GetURL2 flags.
+// GotoFrame2's scene bias, GetURL2 loading variables or into a sprite path.
 
 #pragma once
 

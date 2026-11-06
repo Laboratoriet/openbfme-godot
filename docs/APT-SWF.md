@@ -182,8 +182,14 @@ strings (a constant-pool reference is resolved, so no `.const` strings are added
 `Long` for integers, `EA_PushFloat` (a double that is neither a float nor an integer becomes the nearest float32: APT's numbers
 are float32), `EA_PushTrue` / `False` / `Null` / `Undefined`; a register push is a `PushData` of a `.const` register entry (an
 existing one, else a new one appended to the `.const`, whose strings then move by 8 bytes each). `GotoFrame2` takes the play
-flag as its u32, `GetURL2` has no operand. Refused, naming the action: anything outside the runtime's census (`With`, `Try`,
-`SetTarget`, ...), `GotoFrame2`'s scene bias, `GetURL2` flags.
+flag as its u32, `GetURL2` has no operand: the runtime decides from the URL and the target (`AptActionInterpreter.cpp`: a
+`.swf` into a clip value loads the movie, anything else goes to the host), so SWF's send method (GET / POST, which JPEXS's
+compiler sets on `fscommand`) is dropped. Refused, naming the action: anything outside the runtime's census (`With`, `Try`,
+`SetTarget`, ...), `GotoFrame2`'s scene bias, `GetURL2` loading variables or into a sprite path.
+
+A script edited in JPEXS's ActionScript editor comes back this way: JPEXS compiles the source to AVM1, the importer assembles
+that (checked as above). Tested with RotWK's Stats root script, decompiled and recompiled by JPEXS with three lines added
+(`-importScript`), running in OpenBFME.
 
 Every assembled program is checked before it is kept: decoded with the game's `AptActionDecoder`, converted to AVM1 again and
 compared action by action (`avm1Normalized`: pushes split into single values, constants resolved, branch targets as indices)
