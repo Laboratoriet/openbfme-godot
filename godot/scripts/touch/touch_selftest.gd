@@ -20,7 +20,8 @@ extends Node
 ## Lane IOS-40 ("Button taps", touch default "Preview what costs"): the builder's build button is a costing button: a tap shows its help and the gold ring
 ## and presses nothing; a second tap starts the placement. A tap elsewhere, and the arm window running out, disarm; the portrait (a quick button) acts at
 ## once; "Act at once" presses on the first tap. Pictures: touch-preview-*.png. The later steps press costing buttons with two taps (_press).
-## Lane IOS-37: the command toolbar (inside the safe area at the top, 44 pt cells, off the HUD; each button's command reaches the game as its key's
+## Lane IOS-37: the command toolbar (off by default since lane IOS-44: none shows with the option off; the step turns it on, then puts the
+## player's setting back; inside the safe area at the top, 44 pt cells, off the HUD; each button's command reaches the game as its key's
 ## meta: Select army, Deselect, Stop, Home base, Last event, a control group made by a hold and selected by a tap, the menu; a hold shows the help and
 ## presses nothing; hidden under the quit menu); a two-finger twist turns a waiting ghost, not the camera, and ✓ builds it turned; the armed recruit
 ## bubble of the fortress shows ✕ while units are queued and a tap on it takes one off. Pictures: touch-toolbar-*, touch-rotate-*, touch-cancel-*.
@@ -647,6 +648,25 @@ func _toolbar_check(hud: Node) -> PackedStringArray:
 	if not hud.has_method("command_hotkey"):
 		out.append("IOS-37: the extension has no command_hotkey (built before lane IOS-37)")
 		return out
+	# lane IOS-44: off by default (ios37_toolbar_test.gd checks the default; Options.ini may turn it on): with the option off no strip shows; the
+	# step turns it on for its checks and puts the player's setting back after
+	var was_on: bool = _controls.toolbar_enabled
+	_controls.set_toolbar(false)
+	await _wait(0.5)
+	print("TOUCH SELFTEST IOS-44 toolbar: Options.ini has it %s; off shows %s" % ["on" if was_on else "off",
+		_controls._toolbar != null and _controls._toolbar.is_shown()])
+	if _controls._toolbar != null and _controls._toolbar.is_shown():
+		out.append("IOS-44: the command toolbar shows with the option off")
+	_controls.set_toolbar(true)
+	out.append_array(await _toolbar_steps(hud))
+	_controls.set_toolbar(was_on)
+	await _wait(0.5)
+	return out
+
+
+## lane IOS-37: the command toolbar's own checks, with the option on
+func _toolbar_steps(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
 	for i in 20:
 		if _controls._toolbar != null and _controls._toolbar.is_shown():
 			break

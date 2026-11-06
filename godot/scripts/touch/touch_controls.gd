@@ -281,7 +281,7 @@ var drag_mode := DRAG_SELECT     # lane IOS-35: OpenBFMETouchDrag (set_drag_mode
 var button_taps := TAPS_COSTS    # lane IOS-40: OpenBFMETouchButtonTaps (set_button_taps)
 var _armed := {}                 # lane IOS-40: the armed button: {"key", "name", "until" (msec), "tapped" (msec of the first tap)}
 var _ring: CanvasLayer = null    # lane IOS-40: armed_ring.gd, made the first time it is needed
-var toolbar_enabled := true      # lane IOS-37: OpenBFMETouchToolbar (set_toolbar)
+var toolbar_enabled := false     # lane IOS-37: OpenBFMETouchToolbar (set_toolbar); IOS-44: off by default
 var _toolbar: CanvasLayer = null # lane IOS-37: command_toolbar.gd, made with the first game HUD
 var _tb_id := ""                 # lane IOS-37: the toolbar button a TOOLBAR gesture's finger pressed ("" slid off)
 var _tb_done := false            # its hold acted (the help shown, a group made): the lift does nothing
@@ -408,7 +408,7 @@ func set_toolbar(on: bool) -> void:
 func apply_options(values: Dictionary) -> void:
 	set_drag_mode(str(values.get("OpenBFMETouchDrag", DRAG_SELECT)))
 	set_button_taps(str(values.get("OpenBFMETouchButtonTaps", TAPS_COSTS)))
-	set_toolbar(str(values.get("OpenBFMETouchToolbar", "yes")) == "yes")
+	set_toolbar(str(values.get("OpenBFMETouchToolbar", "no")) == "yes")
 	var was := switches()
 	list_scroll = str(values.get("OpenBFMETouchListScroll", "yes")) == "yes" and not _no_list_scroll_flag
 	tap_assist = str(values.get("OpenBFMETouchTapAssist", "yes")) == "yes" and not _no_tap_assist_flag

@@ -1,5 +1,6 @@
 ## Headless test of lane IOS-37's command toolbar (scripts/touch/command_toolbar.gd through scripts/touch/touch_controls.gd), against a stand-in HUD: no game,
 ## no extension needed.
+##  * off by default (lane IOS-44): nothing is made until Options > Touch > Command toolbar is on;
 ##  * the strip shows in a game (a HUD with command_hotkey), inside the view at the top, 44 pt cells; hidden with the option off and while a mouse is in use;
 ##  * a tap presses the button's key as the CommandMap has it (Select army: Q; Stop: S; Home base: H; Last event: Space; a group: its digit), the Menu
 ##    Escape, Attack move the selection's Attack Move hotkey, Deselect the HUD's deselect_all; no mouse event reaches the game;
@@ -14,6 +15,7 @@
 extends SceneTree
 
 const TouchControls := preload("res://scripts/touch/touch_controls.gd")
+const GameOptions := preload("res://scripts/game_options.gd")
 
 
 ## InGameHudNode's calls the touch layer and the toolbar make
@@ -111,6 +113,12 @@ func _run() -> int:
 	_controls._scale = 1.0
 	_controls._hud = _hud
 	_controls._apply_edge_scroll()
+	# lane IOS-44 (the owner, 2026-11-05): off by default; Options' default and apply_options' fallback agree, and nothing is made until it is on
+	_check(not _controls.toolbar_enabled and GameOptions.EXTRAS.OpenBFMETouchToolbar.default == "no", "the toolbar is off by default")
+	_controls.apply_options({})
+	await _wait(0.6)
+	_check(_controls._toolbar == null, "off: no strip is made: %s" % [_controls._toolbar])
+	_controls.apply_options({"OpenBFMETouchToolbar": "yes"})
 	await _wait(0.6)  # past a TOOLBAR_POLL_MS: the strip is made and shown
 	var t = _controls._toolbar
 	_check(t != null and t.is_shown(), "the toolbar shows in a game")

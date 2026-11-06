@@ -74,8 +74,9 @@ const EXTRAS := {
 	# upgrades, powers, abilities) shows its help and arms on the first tap and is used by the second; "all": every HUD button so; "act": at once (IOS-21)
 	"OpenBFMETouchButtonTaps": {"default": "costs", "choices": ["costs", "all", "act"]},
 	# lane IOS-37 (the owner's decision 2026-11-05: a top-edge strip, after daisyhasacat/openbfme-godot's classic-HUD touch toolbar): touch only: the
-	# command toolbar along the top edge (scripts/touch/command_toolbar.gd)
-	"OpenBFMETouchToolbar": {"default": "yes", "choices": ["yes", "no"]},
+	# command toolbar along the top edge (scripts/touch/command_toolbar.gd). Lane IOS-44 (the owner, 2026-11-05: "I don't see much point in the added
+	# touch bar controls"): off by default; the Touch tab's row turns it on
+	"OpenBFMETouchToolbar": {"default": "no", "choices": ["yes", "no"]},
 	# lane IOS-38 (a PROTOTYPE for the owner's choice): the portrait layout to try in a portrait window, "default" today's (IOS-3 / 18 / 27), "a" More
 	# map, "b" One hand, "c" Split (engine/src/GameClient/GUI/PortraitLayout.h); game.gd's --portrait-layout wins. Lane IOS-42: a row of the Touch tab;
 	# A on a phone or tablet (MOBILE_DEFAULTS: the owner's pick, 2026-11-05)
