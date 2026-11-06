@@ -7,7 +7,8 @@ set(OPENBFME_APTSWF_SOURCES
     src/Libraries/Source/Apt/AptSwfAvm1.cpp
     src/Libraries/Source/Apt/AptSwfTags.cpp
     src/Libraries/Source/Apt/AptSwfExport.cpp
-    src/Libraries/Source/Apt/AptSwfImport.cpp)
+    src/Libraries/Source/Apt/AptSwfImport.cpp
+    src/Libraries/Source/Apt/AptSwfRecipe.cpp)
 
 set(OPENBFME_APTSWF_TESTS
     tests/test_apt_swf.cpp)

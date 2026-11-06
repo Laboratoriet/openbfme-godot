@@ -8,6 +8,7 @@
 #include "Libraries/Source/Apt/AptSwfExport.h"
 #include "Libraries/Source/Apt/AptSwfFormat.h"
 #include "Libraries/Source/Apt/AptSwfImport.h"
+#include "Libraries/Source/Apt/AptSwfRecipe.h"
 #include "Libraries/Source/Apt/AptSwfTags.h"
 
 #include <string>
@@ -501,7 +502,7 @@ TEST_CASE("apt-swf: edits the milestone cannot re-encode are refused with the ta
 		ImportResult back;
 		CHECK_FALSE(importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error));
 		CHECK(error.find("DoAction #") == 0);
-		CHECK(error.find("not supported in this milestone") != std::string::npos);
+		CHECK(error.find("not supported yet") != std::string::npos);
 	}
 	SUBCASE("a removed tag")
 	{
@@ -524,4 +525,385 @@ TEST_CASE("apt-swf: edits the milestone cannot re-encode are refused with the ta
 		CHECK_FALSE(importSwf(swfWriteFile(parsed.header, standard), back, &error));
 		CHECK(error.find("has no OpenBFME APT data") != std::string::npos);
 	}
+}
+
+namespace
+{
+
+// The edited SWF: `parsed` with its tags written back.  The root timeline's one frame ends with the last top-level tag (ShowFrame).
+struct EditedSwf
+{
+	SwfFile parsed;
+	SyntheticMovie movie;
+
+	EditedSwf()
+	{
+		ExportResult r;
+		const std::vector<std::uint8_t> swf = exportOf(movie.files, r);
+		std::string error;
+		REQUIRE(swfReadFile(swf, parsed, &error));
+		REQUIRE(parsed.tags.back().code == SWF_TAG_SHOWFRAME);
+	}
+
+	// inserts a tag at the end of the root's frame 1 (before its ShowFrame)
+	void addToRoot(std::uint16_t code, std::vector<std::uint8_t> body)
+	{
+		SwfTag t;
+		t.code = code;
+		t.body = std::move(body);
+		parsed.tags.insert(parsed.tags.end() - 1, t);
+	}
+
+	SwfTag *sprite(std::uint32_t id)
+	{
+		for (SwfTag &t : parsed.tags)
+		{
+			if (t.code == SWF_TAG_DEFINESPRITE && t.body[0] == id)
+			{
+				return &t;
+			}
+		}
+		return nullptr;
+	}
+
+	bool import(ImportResult &back, std::string &error) { return importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error); }
+};
+
+AptFile parsedApt(const ImportResult &back)
+{
+	std::string error;
+	AptConstFile consts;
+	REQUIRE(AptConstFile::parse(fileNamed(back, "Test.const")->bytes, consts, &error));
+	AptFile apt;
+	REQUIRE_MESSAGE(AptFile::parse("Test", std::make_shared<const std::vector<std::uint8_t>>(fileNamed(back, "Test.apt")->bytes), consts, apt, &error), error);
+	return apt;
+}
+
+// The edited movie exported again and imported unedited: the same files (the edit is a stable APT movie, not a one-off).
+void checkStableAfterEdit(const ImportResult &back)
+{
+	AptMovieFiles again;
+	again.name = "Test";
+	again.files = back.files;
+	std::vector<std::uint8_t> swf2;
+	ExportResult r2;
+	std::string error;
+	REQUIRE_MESSAGE(exportSwf(again, ExportOptions(), swf2, r2, &error), error);
+	ImportResult back2;
+	REQUIRE_MESSAGE(importSwf(swf2, back2, &error), error);
+	CHECK(back2.editedTags == 0);
+	CHECK(fileNamed(back2, "Test.apt")->bytes == fileNamed(back, "Test.apt")->bytes);
+}
+
+std::size_t firstTagIndex(const std::vector<SwfTag> &tags, std::uint16_t code)
+{
+	for (std::size_t i = 0; i < tags.size(); ++i)
+	{
+		if (tags[i].code == code)
+		{
+			return i;
+		}
+	}
+	return tags.size();
+}
+
+} // namespace
+
+TEST_CASE("apt-swf: a new PlaceObject2 of an existing character becomes a new APT place-object record")
+{
+	EditedSwf e;
+	SwfPlaceObject2 p;
+	p.flags = 0x02 | 0x04 | 0x08 | 0x20; // character, matrix, colour, name
+	p.depth = 7;
+	p.characterId = (std::uint16_t)e.movie.spriteId;
+	p.matrix = swfMatrixFromFloats(0.5f, 0, 0, 2.0f, 40.0f, -12.5f);
+	p.cxform.hasMult = true;
+	p.cxform.mult[3] = 128; // alpha 0.5
+	p.name = "Copy";
+	e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+	// and one inside the sprite, after its own placement (a second copy of the shape)
+	SwfPlaceObject2 q;
+	q.flags = 0x02 | 0x04;
+	q.depth = 2;
+	q.characterId = (std::uint16_t)e.movie.shapeId;
+	q.matrix = swfMatrixFromFloats(1, 0, 0, 1, 20.0f, 0);
+	SwfTag *sprite = e.sprite(e.movie.spriteId);
+	REQUIRE(sprite);
+	SwfTag t;
+	t.code = SWF_TAG_PLACEOBJECT2;
+	t.body = encodePlaceObject2(q);
+	sprite->children.insert(sprite->children.begin() + 1, t);
+
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[0] == "the root timeline frame 1: new place object (depth 7, character 5, 'Copy', at (40, -12.5))");
+	CHECK(back.edits[1] == "sprite 5 frame 1: new place object (depth 2, character 1, at (20, 0))");
+	CHECK(fileNamed(back, "Test.const")->bytes == e.movie.files.files[1].bytes);
+	CHECK(fileNamed(back, "Test_geometry/7.ru")->bytes == e.movie.files.files[3].bytes);
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.frames[0].items.size() == 6);
+	const AptPlaceObject &added = *apt.frames[0].items[5].place;
+	CHECK(added.flags == (APT_PLACE_HASCHARACTER | APT_PLACE_HASMATRIX | APT_PLACE_HASCOLORTRANSFORM | APT_PLACE_HASNAME));
+	CHECK(added.depth == 7);
+	CHECK(added.characterId == (std::int32_t)e.movie.spriteId);
+	CHECK(added.matrix[0] == 0.5f);
+	CHECK(added.matrix[3] == 2.0f);
+	CHECK(added.translation[0] == 40.0f);
+	CHECK(added.translation[1] == -12.5f);
+	CHECK(added.tint[3] == 128);
+	CHECK(added.tint[0] == 255);
+	CHECK(added.name == "Copy");
+	CHECK(added.clipDepth == -1);
+	// the frame's other items are the original records, in their order
+	CHECK(apt.frames[0].items[0].label == "start");
+	CHECK(apt.frames[0].items[1].place->name == "Clip");
+	CHECK(apt.frames[0].items[1].place->matrix[0] == 0.333333f);
+	const AptFrame &spriteFrame = apt.characters[e.movie.spriteId].frames[0];
+	REQUIRE(spriteFrame.items.size() == 3);
+	CHECK(spriteFrame.items[0].place->name == "Square");
+	CHECK(spriteFrame.items[1].place->characterId == (std::int32_t)e.movie.shapeId);
+	CHECK(spriteFrame.items[1].place->translation[0] == 20.0f);
+	CHECK(spriteFrame.items[2].type == APT_ITEM_ACTION);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: RemoveObject2 added and a placement taken out of a frame")
+{
+	EditedSwf e;
+	SwfWriter w;
+	w.u16(3);
+	e.addToRoot(SWF_TAG_REMOVEOBJECT2, w.bytes);
+	// take the text field's placement (depth 2) out of the root frame
+	for (auto it = e.parsed.tags.begin(); it != e.parsed.tags.end(); ++it)
+	{
+		SwfPlaceObject2 p;
+		if (it->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(it->body, p) && p.depth == 2)
+		{
+			e.parsed.tags.erase(it);
+			break;
+		}
+	}
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[0] == "the root timeline frame 1: new remove object (depth 3)");
+	CHECK(back.edits[1] == "the root timeline frame 1: removed place object (depth 2)");
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.frames[0].items.size() == 5);
+	CHECK(apt.frames[0].items[0].type == APT_ITEM_FRAMELABEL);
+	CHECK(apt.frames[0].items[1].place->depth == 1);
+	CHECK(apt.frames[0].items[2].place->depth == 3);
+	CHECK(apt.frames[0].items[3].type == APT_ITEM_ACTION);
+	CHECK(apt.frames[0].items[4].type == APT_ITEM_REMOVEOBJECT);
+	CHECK(apt.frames[0].items[4].removeDepth == 3);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: a new frame label gets the retail label fields")
+{
+	EditedSwf e;
+	SwfWriter w;
+	w.cstring("_open");
+	e.addToRoot(SWF_TAG_FRAMELABEL, w.bytes);
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 1);
+	CHECK(back.edits[0] == "the root timeline frame 1: new frame label '_open'");
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.frames[0].items.size() == 6);
+	CHECK(apt.frames[0].items[5].label == "_open");
+	CHECK(apt.frames[0].items[5].labelFlags == 0x70000);
+	CHECK(apt.frames[0].items[5].labelFrameId == 0);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: a new DefineEditText becomes a new APT text character, placed by its SWF id")
+{
+	EditedSwf e;
+	SwfEditText t;
+	t.id = 40; // an editor's new id, above the converter's own (the hit shape is 6)
+	t.bounds[0] = 0;
+	t.bounds[1] = 2000;
+	t.bounds[2] = 20;
+	t.bounds[3] = 400;
+	t.flags1 = 0x80 | 0x08 | 0x04 | 0x01; // text, read-only, colour, font
+	t.flags2 = 0x20;                       // layout
+	t.fontId = 2;
+	t.fontHeight = 240;
+	t.color[0] = 200;
+	t.color[1] = 100;
+	t.color[2] = 50;
+	t.color[3] = 255;
+	t.align = 1;
+	t.variableName = "FactionName_7";
+	t.initialText = "$Stats:FactionName_7";
+	SwfTag def;
+	def.code = SWF_TAG_DEFINEEDITTEXT;
+	def.body = encodeEditText(t);
+	e.parsed.tags.insert(e.parsed.tags.begin() + (std::ptrdiff_t)firstTagIndex(e.parsed.tags, SWF_TAG_EXPORTASSETS), def);
+	SwfPlaceObject2 p;
+	p.flags = 0x02 | 0x04 | 0x20;
+	p.depth = 9;
+	p.characterId = 40;
+	p.matrix = swfMatrixFromFloats(1, 0, 0, 1, 10, 20);
+	p.name = "Name7";
+	e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[0] == "new text field 40 -> APT character 6 ('$Stats:FactionName_7', variable 'FactionName_7')");
+	CHECK(back.edits[1] == "the root timeline frame 1: new place object (depth 9, character 6, 'Name7', at (10, 20))");
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.characters.size() == 7);
+	REQUIRE(apt.characters[6].text);
+	const AptTextInfo &text = *apt.characters[6].text;
+	CHECK(text.initialText == "$Stats:FactionName_7");
+	CHECK(text.variableName == "FactionName_7");
+	CHECK(text.fontId == 2);
+	CHECK(text.fontHeight == 12.0f);
+	CHECK(text.alignment == 1);
+	CHECK(text.readOnly);
+	CHECK_FALSE(text.multiline);
+	CHECK(text.color[0] == 200);
+	CHECK(text.color[2] == 50);
+	CHECK(text.bounds[0] == 0.0f);
+	CHECK(text.bounds[1] == 1.0f);
+	CHECK(text.bounds[2] == 100.0f);
+	CHECK(text.bounds[3] == 20.0f);
+	CHECK(apt.frames[0].items[5].place->characterId == 6);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: structural edits still beyond the importer are refused, naming the tag")
+{
+	EditedSwf e;
+	std::string error;
+	ImportResult back;
+	SUBCASE("a new DoAction")
+	{
+		e.addToRoot(SWF_TAG_DOACTION, { 0x07, 0x00 });
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("DoAction #") == 0);
+		CHECK(error.find("a new DoAction needs the AVM1 -> APT assembler") != std::string::npos);
+	}
+	SUBCASE("a new shape")
+	{
+		SwfTag shape = e.parsed.tags[firstTagIndex(e.parsed.tags, SWF_TAG_DEFINESHAPE3)];
+		shape.body[0] = 50;
+		e.parsed.tags.insert(e.parsed.tags.begin() + (std::ptrdiff_t)firstTagIndex(e.parsed.tags, SWF_TAG_EXPORTASSETS), shape);
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("a new character 50 (DefineShape3): only new text fields (DefineEditText) can be added") != std::string::npos);
+	}
+	SUBCASE("a new frame")
+	{
+		SwfTag show;
+		show.code = SWF_TAG_SHOWFRAME;
+		e.parsed.tags.push_back(show);
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error == "the root timeline has 2 frames where the movie has 1: frames were added or removed (a structural edit not supported: frame "
+					   "items can be added and removed, frames cannot)");
+	}
+	SUBCASE("a placement of a character the converter made")
+	{
+		SwfPlaceObject2 p;
+		p.flags = 0x02;
+		p.depth = 20;
+		p.characterId = 6; // the button's hit shape
+		e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("character 6 is not an APT character") != std::string::npos);
+	}
+	SUBCASE("a new placement with clip actions")
+	{
+		SwfPlaceObject2 p;
+		p.flags = 0x80 | 0x02;
+		p.depth = 20;
+		p.characterId = (std::uint16_t)e.movie.spriteId;
+		p.clipActions = { 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0x07, 0x00, 0, 0, 0, 0 };
+		e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("a new placement with clip actions") != std::string::npos);
+	}
+}
+
+TEST_CASE("apt-swf: a recipe's steps go through the SWF into the .apt")
+{
+	EditedSwf e;
+	const std::string recipe = "openbfme-apt-recipe 1\n"
+							   "# a comment\n"
+							   "movie Test\n"
+							   "note three more clips\n"
+							   "expect sprite=0 name=Clip character=5\n"
+							   "place sprite=0 frame=1 depth=10 character=5 name=Clip2 like=Clip x=200 y=60.5\n"
+							   "set sprite=0 name=Clip dx=-10 scale=0.5,0.5\n"
+							   "rename sprite=5 name=Square to=\"Square One\"\n"
+							   "delete sprite=0 depth=2\n"
+							   "remove sprite=0 frame=1 depth=3\n"
+							   "label sprite=5 frame=1 name=_ten\n"
+							   "text id=Name7 font=2 bounds=0,0,100,20 height=12 color=FF000080 align=center text=\"$Stats:FactionName_7\" var=v7 readonly\n"
+							   "place sprite=0 frame=1 depth=11 character=Name7 name=N7 x=5 y=6\n";
+	RecipeResult rr;
+	std::string error;
+	REQUIRE_MESSAGE(applyRecipe(recipe, e.parsed, "Test", rr, &error), error);
+	CHECK(rr.movie == "Test");
+	REQUIRE(rr.notes.size() == 1);
+	CHECK(rr.notes[0] == "three more clips");
+	REQUIRE(rr.log.size() == 9);
+	CHECK(rr.log[1] == "placed character 5 in sprite 0 frame 1 depth 10 as 'Clip2' at (200, 60.5)");
+	ImportResult back;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.characters.size() == 7); // the text field is character 6
+	CHECK(apt.characters[6].text->initialText == "$Stats:FactionName_7");
+	CHECK(apt.characters[6].text->variableName == "v7");
+	CHECK(apt.characters[6].text->alignment == 2);
+	CHECK(apt.characters[6].text->color[0] == 255);
+	CHECK(apt.characters[6].text->color[3] == 128);
+	const std::vector<AptFrameItem> &root = apt.frames[0].items;
+	// label, Clip (moved, scaled), button (depth 3), action, then Clip2, the removal and the text's placement; the text field's placement is gone
+	REQUIRE(root.size() == 7);
+	CHECK(root[1].place->name == "Clip");
+	CHECK(root[1].place->matrix[0] == 0.5f);
+	CHECK(root[1].place->translation[0] == 90.1f);
+	CHECK(root[1].place->translation[1] == 50.0f);
+	CHECK(root[2].place->depth == 3);
+	CHECK(root[4].place->name == "Clip2");
+	CHECK(root[4].place->matrix[0] == (float)(21845 / 65536.0)); // the template's scale (0.333333 as SWF's 16.16 holds it)
+	CHECK(root[4].place->translation[0] == 200.0f);
+	CHECK(root[4].place->translation[1] == 60.5f);
+	CHECK(root[5].type == APT_ITEM_REMOVEOBJECT);
+	CHECK(root[5].removeDepth == 3);
+	CHECK(root[6].place->characterId == 6);
+	CHECK(root[6].place->name == "N7");
+	const std::vector<AptFrameItem> &sprite = apt.characters[e.movie.spriteId].frames[0].items;
+	REQUIRE(sprite.size() == 3);
+	CHECK(sprite[0].place->name == "Square One");
+	CHECK(sprite[2].label == "_ten");
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: a recipe stops at the first line that does not fit the movie")
+{
+	EditedSwf e;
+	RecipeResult rr;
+	std::string error;
+	CHECK_FALSE(applyRecipe("movie Test\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 1 (movie): the first line must be 'openbfme-apt-recipe 1' (this is not a recipe, or a newer format)");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Stats\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 2 (movie): the recipe is for the movie 'Stats', not 'Test'");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nexpect sprite=0 name=Nope\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (expect): this copy of the movie is not the one the recipe was written for: no placement matches (sprite=0 name=Nope)");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nplace sprite=0 frame=1 depth=1 character=5\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (place): depth 1 is already used in frame 1 of sprite 0 (pick a free depth)");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nset sprite=0 name=Clip colour=red\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (set): unknown setting 'colour'");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nplace sprite=9 frame=1 depth=4 character=5\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (place): the movie has no sprite 9");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nlabel sprite=0 frame=2 name=x\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (label): the timeline has 1 frames, no frame 2");
 }

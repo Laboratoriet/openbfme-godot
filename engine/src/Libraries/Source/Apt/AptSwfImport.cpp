@@ -125,7 +125,6 @@ public:
 			return false;
 		}
 		std::vector<SwfTag> standard;
-		std::vector<ManifestEntry> manifest;
 		bool haveManifest = false;
 		for (SwfTag &t : swf.tags)
 		{
@@ -159,7 +158,7 @@ public:
 					e.origin.kind = (TagOrigin::Kind)r.u8();
 					e.origin.aptOffset = r.u32();
 					e.origin.characterId = r.u32();
-					manifest.push_back(e);
+					m_manifest.push_back(e);
 				}
 				haveManifest = r.ok();
 			}
@@ -186,80 +185,72 @@ public:
 		}
 		const std::vector<const SwfTag *> flat = flattenTags(standard);
 		out.standardTags = flat.size();
-		if (flat.size() != manifest.size())
+		// 1. nothing edited: every standard tag's digest matches the manifest, the original files go back as they were
+		bool allMatch = flat.size() == m_manifest.size();
+		for (std::size_t i = 0; allMatch && i < flat.size(); ++i)
 		{
-			return fail(error, "the SWF has " + std::to_string(flat.size()) + " standard tags where " + std::to_string(manifest.size()) +
-				" were exported: tags were added or removed (a structural edit; needs the full APT writer, not in this milestone)");
+			allMatch = tagDigest(*flat[i]) == m_manifest[i].digest;
 		}
-		// the export regenerated from the original files (without textures: the tag structure does not depend on them), to
-		// tell an edit from an editor's re-encoding of the same content
-		ExportResult expected;
-		bool regenerated = false;
-		std::vector<const SwfTag *> want;
-		for (std::size_t i = 0; i < flat.size(); ++i)
+		if (allMatch)
 		{
-			if (tagDigest(*flat[i]) == manifest[i].digest)
+			return true;
+		}
+		// 2. the export regenerated from the original files (without textures: the tag structure does not depend on them), to tell an
+		// edit from an editor's re-encoding of the same content, and to line the edited SWF's tags up with the APT records they came from
+		AptMovieFiles original;
+		original.name = out.movieName;
+		original.files = out.files;
+		ExportResult expected;
+		if (!exportStandardTags(original, ExportOptions(), expected, error))
+		{
+			return false;
+		}
+		if (flattenTags(expected.tags).size() != m_manifest.size())
+		{
+			return fail(error, "the regenerated export has " + std::to_string(flattenTags(expected.tags).size()) + " tags, the manifest " +
+				std::to_string(m_manifest.size()) + " (the SWF was made by another converter version)");
+		}
+		if (!movie(error))
+		{
+			return false;
+		}
+		SwfModel want, got;
+		if (!buildModel(expected.tags, want, error) || !buildModel(standard, got, error))
+		{
+			return false;
+		}
+		if (!compareGlobals(want, got, error) || !compareDefinitions(want, got, error))
+		{
+			return false;
+		}
+		for (const auto &tl : want.timelines)
+		{
+			auto g = got.timelines.find(tl.first);
+			if (g == got.timelines.end())
 			{
-				continue;
+				return fail(error, "the timeline of " + timelineName(tl.first) + " is missing from the SWF");
 			}
-			if (!regenerated)
+			if (!compareTimeline(tl.first, tl.second, g->second, error))
 			{
-				AptMovieFiles original;
-				original.name = out.movieName;
-				original.files = out.files;
-				if (!exportStandardTags(original, ExportOptions(), expected, error))
-				{
-					return false;
-				}
-				want = flattenTags(expected.tags);
-				regenerated = true;
-				if (want.size() != flat.size())
-				{
-					return fail(error, "the regenerated export has " + std::to_string(want.size()) + " tags, the SWF " + std::to_string(flat.size()) +
-						" (the SWF was made by another converter version)");
-				}
-				if (!movie(error))
-				{
-					return false;
-				}
+				return false;
 			}
-			const std::string where = tagName(flat[i]->code) + " #" + std::to_string(i);
-			if (flat[i]->code != want[i]->code)
-			{
-				return fail(error, where + ": was a " + tagName(want[i]->code) + " (a structural edit; not in this milestone)");
-			}
-			if (flat[i]->body == want[i]->body)
-			{
-				continue;
-			}
-			std::string why;
-			const std::size_t before = out.edits.size();
-			switch (flat[i]->code)
-			{
-				case SWF_TAG_DEFINESHAPE3:
-					// an editor's re-encoding of the same drawing is not an edit
-					if (!shapesEquivalent(want[i]->body, flat[i]->body, 2, &why))
-					{
-						return fail(error, where + " was edited (" + why + "); re-encoding shapes into .ru triangles is not supported in this milestone");
-					}
-					break;
-				case SWF_TAG_PLACEOBJECT2:
-				case SWF_TAG_DEFINEEDITTEXT:
-				case SWF_TAG_DEFINEBUTTON2:
-				case SWF_TAG_FRAMELABEL:
-					if (!applyEdit(*flat[i], manifest[i].origin, i, error))
-					{
-						return false;
-					}
-					break;
-				default:
-					return fail(error, where + " was edited; re-encoding a " + tagName(flat[i]->code) +
-						" into APT is not supported in this milestone (bitmaps, actions and structure need the full APT writer)");
-			}
-			out.editedTags += out.edits.size() > before ? 1 : 0;
+		}
+		if (!writeStructure(error))
+		{
+			return false;
 		}
 		if (m_aptPatched)
 		{
+			// the written .apt must parse as the game's reader parses it
+			AptMovieFile *cst = findFile(out.movieName + ".const");
+			AptConstFile consts;
+			AptFile check;
+			std::string e;
+			if (!AptConstFile::parse(cst->bytes, consts, &e) ||
+				!AptFile::parse(out.movieName, std::make_shared<const std::vector<std::uint8_t>>(m_apt), consts, check, &e))
+			{
+				return fail(error, "internal error: the edited " + out.movieName + ".apt does not parse (" + e + ")");
+			}
 			AptMovieFile *apt = findFile(out.movieName + ".apt");
 			apt->bytes = m_apt;
 		}
@@ -267,6 +258,748 @@ public:
 	}
 
 private:
+	// ---- the SWF's structure: definitions by character id, timelines by sprite id (0 = the root), frame by frame ----
+	struct Entry
+	{
+		const SwfTag *tag = nullptr;
+		std::size_t flat = 0; // index in the flattened tag list (for the regenerated export: the manifest index)
+	};
+	struct Timeline
+	{
+		std::vector<std::vector<Entry>> frames; // the items of each frame (ShowFrame not included)
+		std::size_t trailing = 0;               // items after the last ShowFrame
+	};
+	struct SwfModel
+	{
+		std::vector<Entry> globals;              // ImportAssets2 / ExportAssets, in order
+		std::map<std::uint32_t, Entry> defs;     // character id -> its definition
+		std::vector<std::uint32_t> defOrder;     // ids in file order
+		std::map<std::uint32_t, Timeline> timelines;
+	};
+
+	static bool isControl(std::uint16_t code)
+	{
+		return code == SWF_TAG_PLACEOBJECT2 || code == SWF_TAG_REMOVEOBJECT2 || code == SWF_TAG_DOACTION || code == SWF_TAG_DOINITACTION ||
+			code == SWF_TAG_FRAMELABEL || code == SWF_TAG_SETBACKGROUNDCOLOR || code == SWF_TAG_SHOWFRAME;
+	}
+
+	// tags whose body starts with the character id they define (SWF 19's Define* tags)
+	static bool definesCharacter(std::uint16_t code)
+	{
+		switch (code)
+		{
+			case 2: case 6: case 7: case 10: case 11: case 14: case 20: case 21: case 22: case 32: case 33: case 34: case 35: case 36:
+			case 37: case 39: case 46: case 48: case 60: case 75: case 83: case 84: case 90:
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	// tags an editor may add that carry nothing for the movie (file attributes, metadata, debugger and product info)
+	static bool isEditorOnly(std::uint16_t code) { return code == 69 || code == 77 || code == 41 || code == 58 || code == 63 || code == 64 || code == 24; }
+
+	bool buildModel(const std::vector<SwfTag> &tags, SwfModel &m, std::string *error)
+	{
+		std::size_t flat = 0;
+		Timeline &root = m.timelines[0];
+		root.frames.emplace_back();
+		for (const SwfTag &t : tags)
+		{
+			const std::size_t at = flat++;
+			if (isControl(t.code))
+			{
+				if (t.code == SWF_TAG_SHOWFRAME)
+				{
+					root.frames.emplace_back();
+				}
+				else
+				{
+					root.frames.back().push_back({ &t, at });
+				}
+			}
+			else if (t.code == SWF_TAG_IMPORTASSETS2 || t.code == SWF_TAG_EXPORTASSETS)
+			{
+				m.globals.push_back({ &t, at });
+			}
+			else if (definesCharacter(t.code) && t.body.size() >= 2)
+			{
+				const std::uint32_t id = (std::uint32_t)t.body[0] | ((std::uint32_t)t.body[1] << 8);
+				if (m.defs.count(id))
+				{
+					return fail(error, tagName(t.code) + " #" + std::to_string(at) + " defines character " + std::to_string(id) + " a second time");
+				}
+				m.defs[id] = { &t, at };
+				m.defOrder.push_back(id);
+				if (t.code == SWF_TAG_DEFINESPRITE)
+				{
+					Timeline &tl = m.timelines[id];
+					tl.frames.emplace_back();
+					for (const SwfTag &c : t.children)
+					{
+						const std::size_t cat = flat++;
+						if (c.code == SWF_TAG_SHOWFRAME)
+						{
+							tl.frames.emplace_back();
+						}
+						else if (isControl(c.code))
+						{
+							tl.frames.back().push_back({ &c, cat });
+						}
+						else if (!isEditorOnly(c.code))
+						{
+							return fail(error, tagName(c.code) + " #" + std::to_string(cat) + " inside sprite " + std::to_string(id) +
+								" is not a timeline tag the APT format has");
+						}
+					}
+					tl.trailing = tl.frames.back().size();
+					tl.frames.pop_back();
+				}
+				else
+				{
+					flat += t.children.size();
+				}
+			}
+			else if (isEditorOnly(t.code))
+			{
+				out.ignored.push_back(tagName(t.code) + " #" + std::to_string(at) + ": an editor's tag with no APT counterpart (left out)");
+			}
+			else
+			{
+				return fail(error, tagName(t.code) + " #" + std::to_string(at) + " has no APT counterpart (not written by this converter)");
+			}
+		}
+		root.trailing = root.frames.back().size();
+		root.frames.pop_back();
+		return true;
+	}
+
+	// unedited: the digest the manifest stores, or the body the regenerated export has (an editor's identical re-encoding)
+	bool sameAsExported(const Entry &w, const SwfTag &g) const
+	{
+		return g.code == w.tag->code && (g.body == w.tag->body || tagDigest(g) == m_manifest[w.flat].digest);
+	}
+
+	std::string timelineName(std::uint32_t id) const { return id == 0 ? std::string("the root timeline") : "sprite " + std::to_string(id); }
+
+	bool compareGlobals(const SwfModel &want, const SwfModel &got, std::string *error)
+	{
+		bool same = want.globals.size() == got.globals.size();
+		for (std::size_t i = 0; same && i < want.globals.size(); ++i)
+		{
+			same = sameAsExported(want.globals[i], *got.globals[i].tag);
+		}
+		if (!same)
+		{
+			return fail(error, "the movie's ImportAssets2 / ExportAssets changed: imports and exports are not re-encoded into APT (not supported)");
+		}
+		return true;
+	}
+
+	bool compareDefinitions(const SwfModel &want, const SwfModel &got, std::string *error)
+	{
+		for (std::uint32_t id : want.defOrder)
+		{
+			const Entry &w = want.defs.at(id);
+			auto it = got.defs.find(id);
+			if (it == got.defs.end())
+			{
+				return fail(error, tagName(w.tag->code) + " of character " + std::to_string(id) +
+					" was removed: removing characters is not supported (take its placements out instead)");
+			}
+			const Entry &g = it->second;
+			const std::string where = tagName(g.tag->code) + " #" + std::to_string(g.flat);
+			if (g.tag->code != w.tag->code)
+			{
+				return fail(error, where + ": character " + std::to_string(id) + " was a " + tagName(w.tag->code) +
+					" (changing a character's kind is not supported)");
+			}
+			if (sameAsExported(w, *g.tag))
+			{
+				continue;
+			}
+			std::string why;
+			const std::size_t before = out.edits.size();
+			switch (g.tag->code)
+			{
+				case SWF_TAG_DEFINESPRITE:
+					// the 4-byte header: id and frame count (the children are compared as a timeline)
+					if (g.tag->body != w.tag->body)
+					{
+						return fail(error, where + ": the frame count of sprite " + std::to_string(id) +
+							" changed: adding or removing frames is not supported (a structural edit beyond frame items)");
+					}
+					break;
+				case SWF_TAG_DEFINESHAPE3:
+					// an editor's re-encoding of the same drawing is not an edit
+					if (!shapesEquivalent(w.tag->body, g.tag->body, 2, &why))
+					{
+						return fail(error, where + " was edited (" + why + "); re-encoding shapes into .ru triangles is not supported yet");
+					}
+					break;
+				case SWF_TAG_DEFINEEDITTEXT:
+				case SWF_TAG_DEFINEBUTTON2:
+					if (!applyEdit(*g.tag, m_manifest[w.flat].origin, g.flat, error))
+					{
+						return false;
+					}
+					break;
+				default:
+					return fail(error, where + " was edited; re-encoding a " + tagName(g.tag->code) +
+						" into APT is not supported yet (bitmaps and fonts need the full APT writer)");
+			}
+			out.editedTags += out.edits.size() > before ? 1 : 0;
+		}
+		// characters the SWF adds: new text fields become new APT characters (ids after the movie's last one)
+		std::uint32_t next = (std::uint32_t)m_movie->characters.size();
+		for (std::uint32_t id : got.defOrder)
+		{
+			if (want.defs.count(id))
+			{
+				continue;
+			}
+			const Entry &g = got.defs.at(id);
+			const std::string where = tagName(g.tag->code) + " #" + std::to_string(g.flat);
+			if (g.tag->code != SWF_TAG_DEFINEEDITTEXT)
+			{
+				return fail(error, where + ": a new character " + std::to_string(id) + " (" + tagName(g.tag->code) +
+					"): only new text fields (DefineEditText) can be added; new shapes, sprites, buttons and bitmaps need the full APT writer");
+			}
+			m_newCharacterIds[id] = next++;
+			m_newCharacters.push_back(&g);
+		}
+		for (const Entry *g : m_newCharacters)
+		{
+			if (!newText(*g, error))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// The APT character a placement in the SWF names: an APT character id, or a text field the SWF adds.
+	bool aptCharacter(std::uint32_t swfId, const std::string &where, std::uint32_t &aptId, std::string *error) const
+	{
+		auto n = m_newCharacterIds.find(swfId);
+		if (n != m_newCharacterIds.end())
+		{
+			aptId = n->second;
+			return true;
+		}
+		if (swfId == 0 || swfId >= m_movie->characters.size())
+		{
+			return fail(error, where + ": character " + std::to_string(swfId) +
+				" is not an APT character (the converter made it: a bitmap or a button's hit shape)");
+		}
+		aptId = swfId;
+		return true;
+	}
+
+	static std::uint16_t depthOf(const SwfTag &t)
+	{
+		if (t.code == SWF_TAG_PLACEOBJECT2 && t.body.size() >= 3)
+		{
+			return (std::uint16_t)(t.body[1] | (t.body[2] << 8));
+		}
+		if (t.code == SWF_TAG_REMOVEOBJECT2 && t.body.size() >= 2)
+		{
+			return (std::uint16_t)(t.body[0] | (t.body[1] << 8));
+		}
+		return 0;
+	}
+
+	// Lines up the frame items of one timeline (the regenerated export's against the SWF's), applies the edits of paired items, and
+	// records the frames whose item list changed (items added, removed or reordered).
+	bool compareTimeline(std::uint32_t id, const Timeline &want, const Timeline &got, std::string *error)
+	{
+		const std::string name = timelineName(id);
+		if (want.frames.size() != got.frames.size())
+		{
+			return fail(error, name + " has " + std::to_string(got.frames.size()) + " frames where the movie has " + std::to_string(want.frames.size()) +
+				": frames were added or removed (a structural edit not supported: frame items can be added and removed, frames cannot)");
+		}
+		if (got.trailing != 0)
+		{
+			return fail(error, name + ": " + std::to_string(got.trailing) + " tag(s) after the last ShowFrame (every item must be in a frame)");
+		}
+		const std::vector<AptFrame> *aptFrames = nullptr;
+		if (id == 0)
+		{
+			aptFrames = &m_movie->frames;
+		}
+		else if (id < m_movie->characters.size() && m_movie->characters[id].type == APT_CHAR_SPRITE)
+		{
+			aptFrames = &m_movie->characters[id].frames;
+		}
+		for (std::size_t f = 0; f < want.frames.size(); ++f)
+		{
+			const std::vector<Entry> &E = want.frames[f];
+			const std::vector<Entry> &G = got.frames[f];
+			// anchors: the longest common subsequence of unedited items
+			const std::size_t n = E.size(), m = G.size();
+			std::vector<std::vector<std::uint16_t>> lcs(n + 1, std::vector<std::uint16_t>(m + 1, 0));
+			for (std::size_t i = n; i-- > 0;)
+			{
+				for (std::size_t j = m; j-- > 0;)
+				{
+					lcs[i][j] = sameAsExported(E[i], *G[j].tag) ? (std::uint16_t)(lcs[i + 1][j + 1] + 1) : std::max(lcs[i + 1][j], lcs[i][j + 1]);
+				}
+			}
+			std::vector<int> pairOf(m, -1); // G index -> E index
+			std::vector<bool> exact(m, false);
+			std::vector<std::pair<std::size_t, std::size_t>> anchors;
+			for (std::size_t i = 0, j = 0; i < n && j < m;)
+			{
+				if (sameAsExported(E[i], *G[j].tag))
+				{
+					anchors.push_back({ i, j });
+					pairOf[j] = (int)i;
+					exact[j] = true;
+					++i;
+					++j;
+				}
+				else if (lcs[i + 1][j] >= lcs[i][j + 1])
+				{
+					++i;
+				}
+				else
+				{
+					++j;
+				}
+			}
+			anchors.push_back({ n, m });
+			// between anchors, an edited item is paired with the exported item of the same kind (same depth first for placements)
+			std::vector<bool> eUsed(n, false);
+			for (const auto &a : anchors)
+			{
+				if (a.first < n)
+				{
+					eUsed[a.first] = true;
+				}
+			}
+			std::size_t ei = 0, gj = 0;
+			for (const auto &a : anchors)
+			{
+				for (int pass = 0; pass < 2; ++pass)
+				{
+					for (std::size_t j = gj; j < a.second; ++j)
+					{
+						if (pairOf[j] >= 0)
+						{
+							continue;
+						}
+						for (std::size_t i = ei; i < a.first; ++i)
+						{
+							if (eUsed[i] || E[i].tag->code != G[j].tag->code)
+							{
+								continue;
+							}
+							const bool depthMatters = G[j].tag->code == SWF_TAG_PLACEOBJECT2 || G[j].tag->code == SWF_TAG_REMOVEOBJECT2;
+							if (pass == 0 && depthMatters && depthOf(*E[i].tag) != depthOf(*G[j].tag))
+							{
+								continue;
+							}
+							eUsed[i] = true;
+							pairOf[j] = (int)i;
+							break;
+						}
+					}
+				}
+				ei = a.first + 1;
+				gj = a.second + 1;
+			}
+			// edits of paired items, in place in their records
+			for (std::size_t j = 0; j < m; ++j)
+			{
+				if (pairOf[j] < 0 || exact[j])
+				{
+					continue;
+				}
+				const Entry &w = E[(std::size_t)pairOf[j]];
+				const std::size_t before = out.edits.size();
+				if (!aptFrames || f >= aptFrames->size())
+				{
+					return fail(error, name + " frame " + std::to_string(f + 1) + ": no APT frame behind it");
+				}
+				if (!editItem(*G[j].tag, m_manifest[w.flat].origin, (*aptFrames)[f].items[(std::size_t)pairOf[j]], G[j].flat, error))
+				{
+					return false;
+				}
+				out.editedTags += out.edits.size() > before ? 1 : 0;
+			}
+			// the frame's item list changed: items added, removed or put in another order
+			bool structural = false;
+			int last = -1;
+			for (std::size_t j = 0; j < m; ++j)
+			{
+				structural = structural || pairOf[j] < 0 || pairOf[j] < last;
+				last = std::max(last, pairOf[j]);
+			}
+			for (std::size_t i = 0; i < n; ++i)
+			{
+				structural = structural || !eUsed[i];
+			}
+			if (!structural)
+			{
+				continue;
+			}
+			if (!aptFrames || f >= aptFrames->size())
+			{
+				return fail(error, name + " frame " + std::to_string(f + 1) + ": items were added to " +
+					(aptFrames ? "a sprite with no APT frames" : "a placeholder for an APT character the converter cannot show (image, morph, ...)") +
+					" (not supported)");
+			}
+			const std::string at = name + " frame " + std::to_string(f + 1);
+			std::vector<std::uint32_t> items;
+			for (std::size_t j = 0; j < m; ++j)
+			{
+				if (pairOf[j] >= 0)
+				{
+					items.push_back((*aptFrames)[f].items[(std::size_t)pairOf[j]].offset);
+					continue;
+				}
+				std::uint32_t record = 0;
+				if (!newItem(*G[j].tag, G[j].flat, (std::uint32_t)f, at, record, error))
+				{
+					return false;
+				}
+				items.push_back(record);
+			}
+			for (std::size_t i = 0; i < n; ++i)
+			{
+				if (!eUsed[i])
+				{
+					out.edits.push_back(at + ": removed " + describeItem((*aptFrames)[f].items[i]));
+				}
+			}
+			m_frameItems[id][(std::uint32_t)f] = std::move(items);
+			++out.editedTags;
+		}
+		return true;
+	}
+
+	static std::string describeItem(const AptFrameItem &it)
+	{
+		switch (it.type)
+		{
+			case APT_ITEM_PLACEOBJECT:
+				return "place object (depth " + std::to_string(it.place->depth) + (it.place->name.empty() ? "" : ", '" + it.place->name + "'") + ")";
+			case APT_ITEM_REMOVEOBJECT: return "remove object (depth " + std::to_string(it.removeDepth) + ")";
+			case APT_ITEM_FRAMELABEL: return "frame label '" + it.label + "'";
+			case APT_ITEM_ACTION: return "frame action";
+			case APT_ITEM_INITACTION: return "init action";
+			case APT_ITEM_BACKGROUNDCOLOR: return "background colour";
+			default: return "item of type " + std::to_string(it.type);
+		}
+	}
+
+	// an edited frame item, written into its record
+	bool editItem(const SwfTag &tag, const TagOrigin &origin, const AptFrameItem &item, std::size_t index, std::string *error)
+	{
+		const std::string where = tagName(tag.code) + " #" + std::to_string(index);
+		AptPatch p(m_apt);
+		switch (tag.code)
+		{
+			case SWF_TAG_PLACEOBJECT2:
+			case SWF_TAG_FRAMELABEL:
+				return applyEdit(tag, origin, index, error);
+			case SWF_TAG_REMOVEOBJECT2:
+			{
+				const std::uint16_t depth = depthOf(tag);
+				if ((std::int32_t)depth != item.removeDepth)
+				{
+					p.putU32(item.offset + 4, depth);
+					out.edits.push_back("remove object: depth " + std::to_string(item.removeDepth) + " -> " + std::to_string(depth));
+					m_aptPatched = true;
+				}
+				return true;
+			}
+			case SWF_TAG_SETBACKGROUNDCOLOR:
+				if (tag.body.size() < 3)
+				{
+					return fail(error, where + ": does not decode as a SetBackgroundColor");
+				}
+				for (int k = 0; k < 3; ++k)
+				{
+					m_apt[item.offset + 4 + k] = tag.body[k];
+				}
+				out.edits.push_back("background colour -> " + std::to_string(tag.body[0]) + " " + std::to_string(tag.body[1]) + " " + std::to_string(tag.body[2]));
+				m_aptPatched = true;
+				return true;
+			default:
+				return fail(error, where + " was edited; re-encoding a " + tagName(tag.code) +
+					" into APT is not supported yet (action edits need the AVM1 -> APT assembler)");
+		}
+	}
+
+	// a record appended to the .apt (4-byte aligned, like the file's own records); returns its offset
+	std::uint32_t appendRecord(const SwfWriter &w)
+	{
+		while (m_apt.size() % 4)
+		{
+			m_apt.push_back(0);
+		}
+		const std::uint32_t at = (std::uint32_t)m_apt.size();
+		m_apt.insert(m_apt.end(), w.bytes.begin(), w.bytes.end());
+		m_aptPatched = true;
+		return at;
+	}
+
+	// A frame item the SWF adds, as a new APT record.  Field values where SWF has none follow the retail records (RotWK 2.01's 47 822
+	// place objects: character -1, identity matrix, tint FF FF FF FF, additive 0, ratio 0, name 0, clip depth -1, clip actions 0; its
+	// 1 799 frame labels: flags 0x70000 and the frame's index; background colours: alpha FF).
+	bool newItem(const SwfTag &tag, std::size_t index, std::uint32_t frame, const std::string &at, std::uint32_t &record, std::string *error)
+	{
+		const std::string where = tagName(tag.code) + " #" + std::to_string(index);
+		switch (tag.code)
+		{
+			case SWF_TAG_PLACEOBJECT2:
+			{
+				SwfPlaceObject2 p;
+				if (!decodePlaceObject2(tag.body, p))
+				{
+					return fail(error, where + ": does not decode as a PlaceObject2");
+				}
+				if (p.flags & 0x80)
+				{
+					return fail(error, where + ": a new placement with clip actions (onClipEvent code) needs the AVM1 -> APT assembler (not supported yet)");
+				}
+				std::uint32_t character = 0xFFFFFFFFu;
+				if (p.flags & 0x02)
+				{
+					if (!aptCharacter(p.characterId, where, character, error))
+					{
+						return false;
+					}
+				}
+				float m[6] = { 1, 0, 0, 1, 0, 0 };
+				if (p.flags & 0x04)
+				{
+					swfMatrixToFloats(p.matrix, m);
+				}
+				std::uint8_t tint[4] = { 255, 255, 255, 255 }, add[4] = { 0, 0, 0, 0 };
+				if (p.flags & 0x08)
+				{
+					for (int k = 0; k < 4; ++k)
+					{
+						const long t = std::lround(effMult(p.cxform, k) * 255.0 / 256.0);
+						const std::int32_t a = effAdd(p.cxform, k);
+						if (t < 0 || t > 255 || a < 0 || a > 255)
+						{
+							return fail(error, where + ": a colour transform outside APT's bytes (multiplier 0..1, add 0..255)");
+						}
+						tint[k] = (std::uint8_t)t;
+						add[k] = (std::uint8_t)a;
+					}
+				}
+				std::uint32_t name = 0;
+				if (p.flags & 0x20)
+				{
+					AptPatch patch(m_apt);
+					name = patch.appendString(p.name);
+				}
+				SwfWriter w;
+				w.u32(APT_ITEM_PLACEOBJECT);
+				w.u32(p.flags & 0x7Fu);
+				w.u32(p.depth);
+				w.u32(character);
+				for (float v : m)
+				{
+					w.f32(v);
+				}
+				for (int k = 0; k < 4; ++k)
+				{
+					w.u8(tint[k]);
+				}
+				for (int k = 0; k < 4; ++k)
+				{
+					w.u8(add[k]);
+				}
+				w.f32((p.flags & 0x10) ? (float)(p.ratio / 65536.0) : 0.0f);
+				w.u32(name);
+				w.u32((p.flags & 0x40) ? (std::uint32_t)p.clipDepth : 0xFFFFFFFFu);
+				w.u32(0); // clip actions
+				record = appendRecord(w);
+				out.edits.push_back(at + ": new place object (depth " + std::to_string(p.depth) +
+					((p.flags & 0x02) ? ", character " + std::to_string(character) : std::string()) +
+					((p.flags & 0x20) ? ", '" + p.name + "'" : std::string()) + ((p.flags & 0x04) ? ", at (" + fmt(m[4]) + ", " + fmt(m[5]) + ")" : std::string()) +
+					")");
+				return true;
+			}
+			case SWF_TAG_REMOVEOBJECT2:
+			{
+				SwfWriter w;
+				w.u32(APT_ITEM_REMOVEOBJECT);
+				w.u32(depthOf(tag));
+				record = appendRecord(w);
+				out.edits.push_back(at + ": new remove object (depth " + std::to_string(depthOf(tag)) + ")");
+				return true;
+			}
+			case SWF_TAG_FRAMELABEL:
+			{
+				SwfReader r(tag.body.data(), tag.body.size());
+				const std::string label = r.cstring();
+				if (!r.ok())
+				{
+					return fail(error, where + ": does not decode as a FrameLabel");
+				}
+				AptPatch patch(m_apt);
+				const std::uint32_t name = patch.appendString(label);
+				SwfWriter w;
+				w.u32(APT_ITEM_FRAMELABEL);
+				w.u32(name);
+				w.u32(0x70000); // every retail label's flags
+				w.u32(frame);   // every retail label's frame id is its frame's index
+				record = appendRecord(w);
+				out.edits.push_back(at + ": new frame label '" + label + "'");
+				return true;
+			}
+			case SWF_TAG_SETBACKGROUNDCOLOR:
+			{
+				if (tag.body.size() < 3)
+				{
+					return fail(error, where + ": does not decode as a SetBackgroundColor");
+				}
+				SwfWriter w;
+				w.u32(APT_ITEM_BACKGROUNDCOLOR);
+				w.u8(tag.body[0]);
+				w.u8(tag.body[1]);
+				w.u8(tag.body[2]);
+				w.u8(255);
+				record = appendRecord(w);
+				out.edits.push_back(at + ": new background colour");
+				return true;
+			}
+			default:
+				return fail(error, where + " was added: a new " + tagName(tag.code) +
+					" needs the AVM1 -> APT assembler (not supported yet); placements, removals, frame labels and text fields can be added");
+		}
+	}
+
+	// A text field the SWF adds, as a new APT edit-text character (AptFile.cpp parseText's layout).
+	bool newText(const Entry &g, std::string *error)
+	{
+		const std::string where = tagName(g.tag->code) + " #" + std::to_string(g.flat);
+		SwfEditText t;
+		if (!decodeEditText(g.tag->body, t))
+		{
+			return fail(error, where + ": does not decode as a DefineEditText");
+		}
+		if (!(t.flags1 & 0x01) || t.fontId >= m_movie->characters.size() || m_movie->characters[t.fontId].type != APT_CHAR_FONT)
+		{
+			return fail(error, where + ": a new text field needs one of the movie's fonts (an APT font character); " +
+				((t.flags1 & 0x01) ? "character " + std::to_string(t.fontId) + " is not one" : std::string("it has none")));
+		}
+		const std::uint32_t align = (t.flags2 & 0x20) ? t.align : 0;
+		if (align > 2)
+		{
+			return fail(error, where + ": alignment " + std::to_string(align) + " (justify) has no APT code");
+		}
+		std::uint8_t rgba[4] = { 255, 255, 255, 255 };
+		if (t.flags1 & 0x04)
+		{
+			std::memcpy(rgba, t.color, 4);
+		}
+		AptPatch patch(m_apt);
+		const std::uint32_t text = patch.appendString((t.flags1 & 0x80) ? t.initialText : std::string());
+		const std::uint32_t variable = patch.appendString(t.variableName);
+		SwfWriter w;
+		w.u32(APT_CHAR_EDITTEXT);
+		w.u32(0x09876543); // the character signature
+		w.f32((float)(t.bounds[0] / 20.0)); // x0 y0 x1 y1 = SWF xmin ymin xmax ymax
+		w.f32((float)(t.bounds[2] / 20.0));
+		w.f32((float)(t.bounds[1] / 20.0));
+		w.f32((float)(t.bounds[3] / 20.0));
+		w.u32(t.fontId);
+		w.u32(align);
+		w.u8(rgba[2]); // the dword 0xAARRGGBB: bytes B G R A
+		w.u8(rgba[1]);
+		w.u8(rgba[0]);
+		w.u8(rgba[3]);
+		w.f32((float)(t.fontHeight / 20.0));
+		w.u32((t.flags1 & 0x08) ? 1 : 0);
+		w.u32((t.flags1 & 0x20) ? 1 : 0);
+		w.u32((t.flags1 & 0x40) ? 1 : 0);
+		w.u32(text);
+		w.u32(variable);
+		const std::uint32_t swfId = t.id;
+		m_newCharacterRecords.push_back(appendRecord(w));
+		out.edits.push_back("new text field " + std::to_string(swfId) + " -> APT character " + std::to_string(m_newCharacterIds.at(swfId)) + " ('" +
+			((t.flags1 & 0x80) ? t.initialText : std::string()) + "', variable '" + t.variableName + "')");
+		++out.editedTags;
+		return true;
+	}
+
+	// The new item lists and characters, linked in: every changed timeline gets a new frame table (a copy of the old one with the
+	// changed frames' item lists replaced), the movie a new character table when characters were added.  Only appended data is new;
+	// the old tables stay in the file unreferenced (other records may share them).
+	bool writeStructure(std::string *error)
+	{
+		AptPatch p(m_apt);
+		const std::uint32_t movieRecord = m_movie->consts.aptDataEntryOffset + 8;
+		for (const auto &tl : m_frameItems)
+		{
+			const std::uint32_t header = tl.first == 0 ? movieRecord : m_movie->characters[tl.first].offset + 8;
+			const std::uint32_t count = p.u32(header);
+			const std::uint32_t table = p.u32(header + 4);
+			std::vector<std::uint32_t> lists(count);
+			for (const auto &f : tl.second)
+			{
+				if (f.first >= count)
+				{
+					return fail(error, "internal error: frame " + std::to_string(f.first + 1) + " beyond " + timelineName(tl.first) + "'s frame table");
+				}
+				SwfWriter w;
+				for (std::uint32_t item : f.second)
+				{
+					w.u32(item);
+				}
+				lists[f.first] = f.second.empty() ? 0 : appendRecord(w);
+			}
+			SwfWriter frames;
+			for (std::uint32_t f = 0; f < count; ++f)
+			{
+				auto changed = tl.second.find(f);
+				if (changed != tl.second.end())
+				{
+					frames.u32((std::uint32_t)changed->second.size());
+					frames.u32(lists[f]);
+				}
+				else
+				{
+					frames.u32(p.u32(table + f * 8));
+					frames.u32(p.u32(table + f * 8 + 4));
+				}
+			}
+			p.putU32(header + 4, appendRecord(frames));
+		}
+		if (!m_newCharacterRecords.empty())
+		{
+			const std::uint32_t count = p.u32(movieRecord + 12);
+			const std::uint32_t table = p.u32(movieRecord + 16);
+			SwfWriter chars;
+			for (std::uint32_t i = 0; i < count; ++i)
+			{
+				chars.u32(p.u32(table + i * 4));
+			}
+			for (std::uint32_t record : m_newCharacterRecords)
+			{
+				chars.u32(record);
+			}
+			const std::uint32_t at = appendRecord(chars);
+			p.putU32(movieRecord + 12, count + (std::uint32_t)m_newCharacterRecords.size());
+			p.putU32(movieRecord + 16, at);
+		}
+		return true;
+	}
+
+	std::vector<ManifestEntry> m_manifest;
+	std::map<std::uint32_t, std::uint32_t> m_newCharacterIds; // SWF id -> APT id of the characters the SWF adds
+	std::vector<const Entry *> m_newCharacters;
+	std::vector<std::uint32_t> m_newCharacterRecords;         // their records, in APT id order
+	std::map<std::uint32_t, std::map<std::uint32_t, std::vector<std::uint32_t>>> m_frameItems; // timeline -> frame -> item records
+
 	AptMovieFile *findFile(const std::string &name)
 	{
 		std::string want = name;
@@ -442,8 +1175,13 @@ private:
 		}
 		if ((got.flags & 0x02) && want.characterId != got.characterId)
 		{
-			p.putU32(at + 12, got.characterId);
-			out.edits.push_back(what + ": character " + std::to_string(want.characterId) + " -> " + std::to_string(got.characterId));
+			std::uint32_t character = 0;
+			if (!aptCharacter(got.characterId, whereTag, character, error))
+			{
+				return false;
+			}
+			p.putU32(at + 12, character);
+			out.edits.push_back(what + ": character " + std::to_string(want.characterId) + " -> " + std::to_string(character));
 		}
 		if (got.flags & 0x04)
 		{

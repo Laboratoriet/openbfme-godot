@@ -13,10 +13,19 @@
 //     survives an edit of a neighbouring field.  New strings (a renamed instance, a changed text) are appended to the .apt
 //     and the record's pointer is moved to them.
 //
-// Re-encoded edit kinds in this milestone: PlaceObject2 (depth, character, matrix, colour transform, ratio, instance name,
-// clip depth, flags), DefineEditText (bounds, font, size, colour, alignment, read-only / multiline / word-wrap, variable,
-// text), DefineButton2 records (state, depth, matrix, colour) and the menu flag, FrameLabel names.  Anything else that
-// changed (shapes, bitmaps, actions, added or removed tags) is an error naming the tag: it needs the full APT writer.
+//  3. The tags are lined up with the APT records by structure, not by position: definitions by character id, frame items
+//     timeline by timeline and frame by frame (the unedited items are anchors; between them an edited item pairs with the
+//     exported item of the same kind, a placement with the same depth first).  Items the SWF adds become new records, items
+//     it leaves out are taken out of their frame: a changed frame gets a new item-pointer list and its timeline a new frame
+//     table, appended to the .apt (the old tables stay unreferenced, since other records may share them).  A DefineEditText
+//     with a new id becomes a new APT text character (the next id); placements of it are written with that id.
+//
+// Re-encoded field edits: PlaceObject2 (depth, character, matrix, colour transform, ratio, instance name, clip depth, flags),
+// DefineEditText (bounds, font, size, colour, alignment, read-only / multiline / word-wrap, variable, text), DefineButton2
+// records (state, depth, matrix, colour) and the menu flag, FrameLabel names, RemoveObject2 depths, SetBackgroundColor.
+// Structural edits: new PlaceObject2 (without clip actions), RemoveObject2, FrameLabel and SetBackgroundColor items, frame
+// items taken out or reordered, new DefineEditText characters.  Anything else (shapes, bitmaps, actions, new actions or clip
+// actions, new sprites / shapes / buttons, added or removed frames, imports and exports) is an error naming the tag.
 
 #pragma once
 
