@@ -5,7 +5,11 @@ standard SWF files that SWF tools open (JPEXS Free Flash Decompiler, Ruffle), an
 
 - **unedited**, the files come back byte for byte;
 - **edited** placements, text fields, button records and frame labels are written back into the `.apt` records;
+- **structural** edits are written as new records: new placements of existing characters, removals, frame labels, new text
+  fields, frame items taken out;
 - other edits are refused with the tag named (they need a full Apt writer, see "Not yet").
+
+Edits can also be written as a **recipe**, a small text file the converter applies to anyone's own copy of a movie (below).
 
 It is a tool, not part of the game library. It builds on the Apt player's own reader and decoder (`AptFile`, `AptActionDecoder`).
 It reads the game files at run time and writes only to the folder given with `--out`: no game data belongs in this repository.
@@ -27,7 +31,10 @@ openbfme_apt_swf export --game rotwk --movie Options --out out/x           # one
 openbfme_apt_swf export --game rotwk --resolve-strings --out out/preview   # a preview: "$Label" texts replaced by the game's strings
 openbfme_apt_swf import Options.swf --out out/mod-src                      # SWF -> .apt / .const / .dat / .ru
 openbfme_apt_swf pack-big out/mod-src Mod.big                              # a BIG for -mod
-openbfme_apt_swf info Options.swf                                          # tags, text fields, named placements
+openbfme_apt_swf info Options.swf [--all]                                  # tags, text fields, named (--all: every) placement
+openbfme_apt_swf apply my.recipe --game rotwk --out out/stats --pack Stats-mod.big   # a recipe on the game's movie
+openbfme_apt_swf apply my.recipe --big apt/Stats.big --out out/stats       # ... on the movie in these archives (later ones win)
+openbfme_apt_swf apply my.recipe --dir loose/ --out out/stats              # ... on loose files (Stats.apt, Stats.const, ...)
 openbfme_apt_swf set-text IN.swf OUT.swf 84 "New text"                     # tiny editor for tests
 openbfme_apt_swf move IN.swf OUT.swf 62 0 37 -150 0                        # sprite 62, frame 0, depth 37, 150 px left
 ```
@@ -35,6 +42,27 @@ openbfme_apt_swf move IN.swf OUT.swf 62 0 37 -150 0                        # spr
 `--game` mounts the archives as the game does (`RetailArchivePolicy`); each movie is read from the archive that provides it.
 `--big` converts every movie in the given archives; files a mod does not ship (a `.const` next to a replaced `.apt`) come from
 the mount, as the game reads them. A `--resolve-strings` preview has no private tags and is not meant to go back to Apt.
+Without `--game` and without `ROTWK_INSTALL` / `BFME2_INSTALL`, `--big` reads the archives alone: the movies and their textures
+(`art/Textures/apt_<movie>_<n>.tga`, which each movie's BIG carries), later archives over earlier ones file by file.
+
+### The standalone command line
+
+Everything but `--game` and `--resolve-strings` needs only the converter and five engine sources, so the tool also builds on
+its own, without the game library (the define `OPENBFME_APTSWF_STANDALONE` leaves the retail mount out). From `engine/`:
+
+```sh
+SRC="src/Libraries/Source/Apt/AptSwfTool.cpp src/Libraries/Source/Apt/AptSwfFormat.cpp src/Libraries/Source/Apt/AptSwfAvm1.cpp
+     src/Libraries/Source/Apt/AptSwfTags.cpp src/Libraries/Source/Apt/AptSwfExport.cpp src/Libraries/Source/Apt/AptSwfImport.cpp
+     src/Libraries/Source/Apt/AptSwfRecipe.cpp src/Libraries/Source/Apt/AptFile.cpp src/Libraries/Source/Apt/AptActionDecoder.cpp
+     src/Common/Sha256.cpp src/Common/System/FloatFromChars.cpp src/GameClient/TGAFile.cpp"
+FLAGS="-std=c++17 -O2 -DOPENBFME_APTSWF_STANDALONE -Isrc -isystem thirdparty/fast_float/include"
+c++ $FLAGS -o openbfme_apt_swf $SRC                                                        # macOS / Linux
+zig c++ -target x86_64-windows-gnu -static -s $FLAGS -o openbfme_apt_swf.exe $SRC          # Windows x86_64 from macOS / Linux
+x86_64-w64-mingw32-g++ -static -s $FLAGS -o openbfme_apt_swf.exe $SRC                      # or with mingw-w64
+```
+
+On Windows itself, the same sources build with MSVC (`cl /std:c++17 /O2 /EHsc /DOPENBFME_APTSWF_STANDALONE /Isrc
+/Ithirdparty/fast_float/include <sources> /Fe:openbfme_apt_swf.exe`) or MSYS2's MinGW g++.
 
 ## The SWF
 
@@ -111,13 +139,61 @@ Tag code **1000**, ignored by players; JPEXS keeps it when it saves (also throug
      cannot hold survive an edit next to them. New strings (an instance name, a text) are appended to the `.apt` and the record
      points at them. 16.16 values may differ by 1 (JPEXS's XML keeps 8 decimal digits);
    - anything else that changed is refused, naming the tag.
-3. Adding or removing tags is refused (a structural edit).
+3. **Structure.** The edited SWF's tags are lined up with the regenerated export by structure, not by position:
+   - definitions by character id;
+   - frame items timeline by timeline (the root, each sprite) and frame by frame: the unedited items are anchors (their
+     longest common sequence); between two anchors an edited item pairs with the exported item of the same kind (a placement
+     or removal with the same depth first) and goes through step 2.
+4. What the SWF adds becomes new records appended to the `.apt`; nothing is moved, so every other record keeps its offset:
+   - a frame whose item list changed (items added, taken out or reordered) gets a new item-pointer list, and its timeline a
+     new frame table with that list (the old tables stay in the file unreferenced: other records may share them);
+   - a new `PlaceObject2` (without clip actions) becomes a place-object record. Fields SWF leaves out take the values every
+     retail record has (RotWK 2.01's 47 822 place objects): character -1, identity matrix, tint `FF FF FF FF`, additive 0,
+     ratio 0, no name, clip depth -1, no clip actions;
+   - a new `RemoveObject2` becomes a remove record; a new `FrameLabel` a label record with flags `0x70000` and its frame's
+     index (all 1 799 retail labels); a new `SetBackgroundColor` a background record with alpha `FF`;
+   - a `DefineEditText` with a new id becomes a new edit-text character with the next APT id (the character table is copied
+     with one more entry); placements of the SWF id are written with the APT id. It needs one of the movie's fonts. Text and
+     variable strings are appended (retail text records never hold a null string pointer);
+   - the written `.apt` is parsed again with the game's reader (`AptFile::parse`); a failure is an error.
+5. Refused, naming the tag: new actions and clip actions, new shapes / sprites / buttons / bitmaps, removed characters,
+   frames added or removed, imports and exports, placements of characters the converter made (bitmaps, button hit shapes).
+
+## Recipes
+
+A recipe describes structural and placement edits as text, so they can be shared without the game's files and applied to
+any copy of a movie (another patch version, a mod). `openbfme_apt_swf apply` exports the movie, applies the recipe to the
+SWF's standard tags (`AptSwfRecipe.h`), and imports the result as above, so a recipe can do exactly what a SWF edit can.
+
+```
+openbfme-apt-recipe 1                                  the format and its version (the first line)
+movie Stats                                            the movie it is for (checked)
+note Ten faction cards                                 printed when it is applied
+expect sprite=92 name=6 character=62                   a check that this is the movie the recipe was written for
+place  sprite=92 frame=1 depth=408 character=62 name=7 like=6 x=2.6 y=132.15 scale=0.55,0.55
+place  sprite=92 frame=20 depth=408 move x=2.6 y=142.4  a Move placement (moves the instance at that depth)
+set    sprite=92 name=0 x=-317.4 y=41.15               change a placement (x y dx dy scale to-depth to-character)
+set    sprite=92 frame=20 depth=41 y=51.4              ... also a Move placement, chosen by frame= and depth=
+rename sprite=323 name=PlayerList to=PlayerListAll
+delete sprite=92 frame=1 name=6                        take a placement out of its frame
+remove sprite=92 frame=2 depth=408                     add a RemoveObject2
+label  sprite=92 frame=1 name=_ten                     add a frame label
+text   id=Name7 font=12 bounds=0,0,120,20 height=14 color=FFFFFFFF align=center text="$Stats:FactionName_7" var=""
+place  sprite=92 frame=1 depth=411 character=Name7 x=0 y=0      place the new text field
+```
+
+`sprite=0` is the root timeline; frames count from 1 (as JPEXS shows them); numbers are pixels. A placement is chosen by
+`name=` or `depth=` (with `frame=` and `character=` to narrow it down) and must match exactly one placing tag. `like=NAME`
+starts a new placement as a copy of a named one (matrix, colour; not its name, Move flag or clip actions). Comments start
+with `#`; values with spaces go in double quotes. Every problem stops the recipe with the line named.
 
 ## Verification
 
 - `engine/tests/test_apt_swf.cpp`: bit fields, zlib, the AVM1 lowering (exact bytes), branch re-targeting, triangle outlines,
   the export of a synthetic movie, the byte-exact round trip, a text and a placement edit re-encoded (unedited floats kept),
-  and the refusals. Synthetic movies only.
+  each structural edit (a new placement in the root and in a sprite, a removal and an item taken out, a frame label, a new
+  text field placed by its SWF id; each edited movie converts again with no edits to the same bytes), a recipe of every
+  step, the recipe's and the importer's refusals. Synthetic movies only.
 - `openbfme_apt_swf roundtrip` over a game mount writes `report.md` with per-type byte-identical counts and the notes (what the
   SWF cannot express) with the number of movies each applies to.
 
@@ -141,5 +217,6 @@ Tag code **1000**, ignored by players; JPEXS keeps it when it saves (also throug
 - **Opcode 0x56** (`EA_PushThis` in OpenSAGE / AptTools) appears in BFME2's OnlineQuickMatch but not in the RotWK census the
   decoder accepts; such programs are exported as empty action lists (the original bytes stay in the private tag).
 - **Curves**: `.ru` holds triangles only, so SWF shapes are polygons; the original curves are not recoverable.
-- **Full Apt writer**: structural edits (new tags, new characters), shape edits (re-triangulation), bitmap edits (TGA) and
-  action edits (an AVM1 → Apt assembler that re-encodes the EA forms and the `.const` table) are the next steps.
+- **Full Apt writer**: new shapes, sprites and buttons, frames added or removed, shape edits (re-triangulation), bitmap
+  edits (TGA) and action edits (an AVM1 → Apt assembler that re-encodes the EA forms and the `.const` table) are the next
+  steps. Until then a script can be steered only through what it reads (instance names, depths, frame labels).
