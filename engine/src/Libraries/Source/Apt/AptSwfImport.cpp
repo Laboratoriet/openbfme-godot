@@ -646,14 +646,22 @@ private:
 		{
 			const std::vector<Entry> &E = want.frames[f];
 			const std::vector<Entry> &G = got.frames[f];
-			// anchors: the longest common subsequence of unedited items
+			// anchors: the longest common subsequence of unedited items (each SWF tag's digest computed once)
 			const std::size_t n = E.size(), m = G.size();
+			std::vector<std::string> digests(m);
+			for (std::size_t j = 0; j < m; ++j)
+			{
+				digests[j] = tagDigest(*G[j].tag);
+			}
+			auto same = [&](std::size_t i, std::size_t j) {
+				return G[j].tag->code == E[i].tag->code && (G[j].tag->body == E[i].tag->body || digests[j] == m_manifest[E[i].flat].digest);
+			};
 			std::vector<std::vector<std::uint16_t>> lcs(n + 1, std::vector<std::uint16_t>(m + 1, 0));
 			for (std::size_t i = n; i-- > 0;)
 			{
 				for (std::size_t j = m; j-- > 0;)
 				{
-					lcs[i][j] = sameAsExported(E[i], *G[j].tag) ? (std::uint16_t)(lcs[i + 1][j + 1] + 1) : std::max(lcs[i + 1][j], lcs[i][j + 1]);
+					lcs[i][j] = same(i, j) ? (std::uint16_t)(lcs[i + 1][j + 1] + 1) : std::max(lcs[i + 1][j], lcs[i][j + 1]);
 				}
 			}
 			std::vector<int> pairOf(m, -1); // G index -> E index
@@ -661,7 +669,7 @@ private:
 			std::vector<std::pair<std::size_t, std::size_t>> anchors;
 			for (std::size_t i = 0, j = 0; i < n && j < m;)
 			{
-				if (sameAsExported(E[i], *G[j].tag))
+				if (same(i, j))
 				{
 					anchors.push_back({ i, j });
 					pairOf[j] = (int)i;
