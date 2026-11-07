@@ -9,6 +9,7 @@
 #include "Libraries/Source/Apt/AptSwfExport.h"
 #include "Libraries/Source/Apt/AptSwfFormat.h"
 #include "Libraries/Source/Apt/AptSwfImport.h"
+#include "Libraries/Source/Apt/AptSwfRecipe.h"
 #include "Libraries/Source/Apt/AptSwfTags.h"
 
 #include <string>
@@ -846,6 +847,108 @@ TEST_CASE("apt-swf: structural edits still beyond the importer are refused, nami
 	}
 }
 
+TEST_CASE("apt-swf: a recipe's steps go through the SWF into the .apt")
+{
+	EditedSwf e;
+	const std::string recipe = "openbfme-apt-recipe 1\n"
+							   "# a comment\n"
+							   "movie Test\n"
+							   "note three more clips\n"
+							   "expect sprite=0 name=Clip character=5\n"
+							   "place sprite=0 frame=1 depth=10 character=5 name=Clip2 like=Clip x=200 y=60.5\n"
+							   "set sprite=0 name=Clip dx=-10 scale=0.5,0.5\n"
+							   "rename sprite=5 name=Square to=\"Square One\"\n"
+							   "delete sprite=0 depth=2\n"
+							   "remove sprite=0 frame=1 depth=3\n"
+							   "label sprite=5 frame=1 name=_ten\n"
+							   "text id=Name7 font=2 bounds=0,0,100,20 height=12 color=FF000080 align=center text=\"$Stats:FactionName_7\" var=v7 readonly\n"
+							   "place sprite=0 frame=1 depth=11 character=Name7 name=N7 x=5 y=6\n";
+	RecipeResult rr;
+	std::string error;
+	REQUIRE_MESSAGE(applyRecipe(recipe, e.parsed, "Test", rr, &error), error);
+	CHECK(rr.movie == "Test");
+	REQUIRE(rr.notes.size() == 1);
+	CHECK(rr.notes[0] == "three more clips");
+	REQUIRE(rr.log.size() == 9);
+	CHECK(rr.log[1] == "placed character 5 in sprite 0 frame 1 depth 10 as 'Clip2' at (200, 60.5)");
+	ImportResult back;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.characters.size() == 7); // the text field is character 6
+	CHECK(apt.characters[6].text->initialText == "$Stats:FactionName_7");
+	CHECK(apt.characters[6].text->variableName == "v7");
+	CHECK(apt.characters[6].text->alignment == 2);
+	CHECK(apt.characters[6].text->color[0] == 255);
+	CHECK(apt.characters[6].text->color[3] == 128);
+	const std::vector<AptFrameItem> &root = apt.frames[0].items;
+	// label, Clip (moved, scaled), button (depth 3), action, then Clip2, the removal and the text's placement; the text field's placement is gone
+	REQUIRE(root.size() == 7);
+	CHECK(root[1].place->name == "Clip");
+	CHECK(root[1].place->matrix[0] == 0.5f);
+	CHECK(root[1].place->translation[0] == 90.1f);
+	CHECK(root[1].place->translation[1] == 50.0f);
+	CHECK(root[2].place->depth == 3);
+	CHECK(root[4].place->name == "Clip2");
+	CHECK(root[4].place->matrix[0] == (float)(21845 / 65536.0)); // the template's scale (0.333333 as SWF's 16.16 holds it)
+	CHECK(root[4].place->translation[0] == 200.0f);
+	CHECK(root[4].place->translation[1] == 60.5f);
+	CHECK(root[5].type == APT_ITEM_REMOVEOBJECT);
+	CHECK(root[5].removeDepth == 3);
+	CHECK(root[6].place->characterId == 6);
+	CHECK(root[6].place->name == "N7");
+	const std::vector<AptFrameItem> &sprite = apt.characters[e.movie.spriteId].frames[0].items;
+	REQUIRE(sprite.size() == 3);
+	CHECK(sprite[0].place->name == "Square One");
+	CHECK(sprite[2].label == "_ten");
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: a recipe stops at the first line that does not fit the movie")
+{
+	EditedSwf e;
+	RecipeResult rr;
+	std::string error;
+	CHECK_FALSE(applyRecipe("movie Test\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 1 (movie): the first line must be 'openbfme-apt-recipe 1' (this is not a recipe, or a newer format)");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Stats\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 2 (movie): the recipe is for the movie 'Stats', not 'Test'");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nexpect sprite=0 name=Nope\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (expect): this copy of the movie is not the one the recipe was written for: no placement matches (sprite=0 name=Nope)");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nplace sprite=0 frame=1 depth=1 character=5\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (place): depth 1 is already used in frame 1 of sprite 0 (pick a free depth)");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nset sprite=0 name=Clip colour=red\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (set): unknown setting 'colour'");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nplace sprite=9 frame=1 depth=4 character=5\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (place): the movie has no sprite 9");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nlabel sprite=0 frame=2 name=x\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (label): the timeline has 1 frames, no frame 2");
+}
+
+TEST_CASE("apt-swf: a recipe takes CRLF lines, comments and escaped quotes; p-code and value mistakes stop it with the line named")
+{
+	EditedSwf e;
+	RecipeResult rr;
+	std::string error;
+	REQUIRE_MESSAGE(applyRecipe("openbfme-apt-recipe 1\r\n# a comment\r\n\r\nmovie test\r\nrename sprite=0 name=Clip to=\"A \\\"B\\\"\"\r\n", e.parsed, "Test", rr,
+						&error),
+		error);
+	REQUIRE(rr.log.size() == 1);
+	CHECK(rr.log[0] == "renamed 'Clip' to 'A \"B\"' in sprite 0");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nlabel sprite=0 sprite=0 frame=1 name=x\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3: 'sprite' is given twice");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\naction sprite=0 frame=1\n  Frobnicate\nend\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (action): p-code line 4: 'Frobnicate' is not an action this p-code takes (see docs/APT-SWF-RECIPES.md, \"action\")");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\naction sprite=0 frame=1\n  If nowhere\nend\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (action): p-code line 4: no label 'nowhere' in this block");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\naction sprite=0 frame=1\n  Play\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (action): an action without its 'end' line");
+	// the root frame's action list is `Stop`: no integer to change
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nmovie Test\nvalue sprite=0 frame=1 action=1 old=7 new=10\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 3 (value): the action list pushes the integer 7 0 time(s), not 1 (this is not the script the recipe was written for, or give count=)");
+	CHECK_FALSE(applyRecipe("openbfme-apt-recipe 1\nplace sprite=0 frame=1 depth=40 character=5\n", e.parsed, "Test", rr, &error));
+	CHECK(error == "line 2 (place): the 'movie' line must come before the edits");
+}
+
 TEST_CASE("apt-swf: an edited DoAction is assembled back into APT and the frame item points at it")
 {
 	EditedSwf e;
@@ -912,6 +1015,72 @@ TEST_CASE("apt-swf: AVM1 -> APT: pushes, a branch, a function and a register pus
 	e.addToRoot(SWF_TAG_DOACTION, program);
 	ImportResult back;
 	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[1] == "Test.const: 1 register entries added");
+	const AptFile apt = parsedApt(back);
+	AptConstFile originalConsts;
+	REQUIRE(AptConstFile::parse(e.movie.files.files[1].bytes, originalConsts, &error));
+	REQUIRE(apt.consts.entries.size() == originalConsts.entries.size() + 1);
+	CHECK(apt.consts.entries.back().type == APT_CONST_REGISTER);
+	CHECK(apt.consts.entries.back().raw == 1);
+	REQUIRE(apt.frames[0].items.size() == 6);
+	std::shared_ptr<const AptCodeBlock> block = apt.codeAt(apt.frames[0].items[5].codeOffset, &error);
+	REQUIRE_MESSAGE(block, error);
+	std::vector<std::uint8_t> ops;
+	for (const AptInstruction &i : block->instructions)
+	{
+		ops.push_back(i.opcode);
+	}
+	const std::vector<std::uint8_t> want = { APT_OP_EA_PUSHSTRING, APT_OP_EA_PUSHBYTE, APT_OP_SETVARIABLE, APT_OP_EA_PUSHSTRING, APT_OP_GETVARIABLE,
+		APT_OP_EA_PUSHBYTE, APT_OP_LESS2, APT_OP_BRANCHIFTRUE, APT_OP_EA_PUSHSTRING, APT_OP_EA_PUSHTRUE, APT_OP_SETVARIABLE, APT_OP_EA_PUSHSTRING,
+		APT_OP_DEFINEFUNCTION, APT_OP_SETVARIABLE, APT_OP_PUSHDATA, APT_OP_EA_PUSHFLOAT, APT_OP_EA_PUSHLONG, APT_OP_EA_PUSHNULL,
+		APT_OP_EA_PUSHUNDEFINED, APT_OP_EA_PUSHFALSE, APT_OP_POP, APT_OP_END };
+	CHECK(ops == want);
+	CHECK(block->instructions[1].intOperand == 7);
+	CHECK(block->instructions[7].branchTarget == 11); // over `y = true`, to Push "f"
+	CHECK(block->instructions[12].function->params.size() == 1);
+	CHECK(block->instructions[12].function->params[0].name == "a");
+	CHECK(block->instructions[12].function->body->instructions.size() == 3);
+	CHECK(block->instructions[14].constants[0].type == APT_CONST_REGISTER);
+	CHECK(block->instructions[15].floatOperand == 2.5f);
+	CHECK(block->instructions[16].intOperand == -70000);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: a recipe's action and value steps assemble to the runtime's forms")
+{
+	// x = 300; if (!(x < 5)) { y = true; } f = function (a) { return a; }; push register 1; End
+	const std::string recipe = "openbfme-apt-recipe 1\n"
+							   "movie Test\n"
+							   "action sprite=0 frame=1\n"
+							   "  Push \"x\", 300\n"
+							   "  SetVariable\n"
+							   "  Push \"x\"\n"
+							   "  GetVariable\n"
+							   "  Push 5\n"
+							   "  Less2\n"
+							   "  If skip\n"
+							   "  Push \"y\", true\n"
+							   "  SetVariable\n"
+							   "  skip:\n"
+							   "  Push \"f\"\n"
+							   "  DefineFunction \"\" 1 \"a\" {\n"
+							   "    Push \"a\"\n"
+							   "    GetVariable\n"
+							   "    Return\n"
+							   "  }\n"
+							   "  SetVariable\n"
+							   "  Push register1, 2.5, -70000, null, undefined, false\n"
+							   "  Pop\n"
+							   "end\n"
+							   "value sprite=0 frame=1 action=2 old=300 new=7\n";
+	EditedSwf e;
+	RecipeResult rr;
+	std::string error;
+	REQUIRE_MESSAGE(applyRecipe(recipe, e.parsed, "Test", rr, &error), error);
+	CHECK(rr.log[1] == "sprite 0 frame 1 action list 2: the integer 300 -> 7 (1x)");
+	ImportResult back;
 	REQUIRE_MESSAGE(e.import(back, error), error);
 	REQUIRE(back.edits.size() == 2);
 	CHECK(back.edits[1] == "Test.const: 1 register entries added");

@@ -7,20 +7,24 @@
 // every movie of the mount, each from the archive that provides it.  --big converts every movie in the given archives (a mod's
 // apt archives), with the game mount (--game, default rotwk when the installs are set) behind them for textures.
 // Without --game, --big reads the archives alone: the movies, and their textures (art/Textures/apt_<movie>_<n>.tga, which each
-// movie's BIG carries) from the archives given.  
+// movie's BIG carries) from the archives given.  The standalone build (OPENBFME_APTSWF_STANDALONE: tools/apt_swf/CMakeLists.txt,
+// the command line for modders, Windows included) has only that mode: no retail mount, no --resolve-strings.
 // The game files are read at run time and written only to --out; nothing of them belongs in the repository.
 
+#ifndef OPENBFME_APTSWF_STANDALONE
 #include "Common/ArchiveFile.h"
 #include "Common/RetailArchivePolicy.h"
 #include "GameClient/AptCanvas.h"
 #include "GameClient/GameText.h"
 #include "GameEngineDevice/Win32Device/Common/Win32BIGFileSystem.h"
 #include "Libraries/Source/Apt/AptLoad.h"
+#endif
 #include "GameClient/TGAFile.h"
 #include "Libraries/Source/Apt/AptSwfAssemble.h"
 #include "Libraries/Source/Apt/AptSwfAvm1.h"
 #include "Libraries/Source/Apt/AptSwfExport.h"
 #include "Libraries/Source/Apt/AptSwfImport.h"
+#include "Libraries/Source/Apt/AptSwfRecipe.h"
 #include "Libraries/Source/Apt/AptSwfTags.h"
 
 #include <algorithm>
@@ -373,6 +377,7 @@ struct ArchiveSet
 	}
 };
 
+#ifndef OPENBFME_APTSWF_STANDALONE
 // ---- the game mount -------------------------------------------------------------------------------------------------------------
 struct GameMount
 {
@@ -460,6 +465,7 @@ struct GameMount
 		};
 	}
 };
+#endif // OPENBFME_APTSWF_STANDALONE (the game mount)
 
 struct Options
 {
@@ -473,6 +479,9 @@ struct Options
 	bool resolveStrings = false; // export only: a preview with the game's strings in place of "$Label" texts (no private tags)
 	bool all = false;            // info: every placement, not only the named ones
 	bool write = false;          // reassemble: write the movies with every program re-assembled
+	fs::path dir;                // apply: a folder with the movie's loose files
+	std::string swfIn;           // apply: an exported SWF
+	fs::path pack;               // apply: also pack the files as this BIG
 	bool help = false;           // --help / -h after the command
 };
 
@@ -523,6 +532,18 @@ const Command kCommands[] = {
 		OPENBFME_APTSWF_SOURCES
 		"  Options:\n"
 		"    --write              also write the movies with every program replaced by its re-assembled copy, to DIR/files\n" },
+	{ "apply", "RECIPE (--dir FOLDER | --big ARCHIVE... | --game rotwk|bfme2 | --swf FILE.swf) --out DIR [--pack OUT.big]",
+		"apply an edit recipe to your own copy of a movie (docs/APT-SWF-RECIPES.md)",
+		"  The movie (the recipe's `movie` line) comes from one of:\n"
+		"    --dir FOLDER         loose files: NAME.apt, NAME.const, NAME.dat, NAME_geometry/*.ru\n"
+		"    --big ARCHIVE        archives (repeatable: later ones win, file by file), e.g. the game's apt/NAME.big\n"
+		"    --game rotwk|bfme2   the game's archives\n"
+		"    --swf FILE.swf       a SWF made by `export`\n"
+		"  Options:\n"
+		"    --out DIR            the edited files go to DIR/files, the edited SWF to DIR/<movie>.swf\n"
+		"    --pack OUT.big       also pack DIR/files as a BIG archive (for -mod)\n"
+		"  Example:\n"
+		"    openbfme_apt_swf apply stats.recipe --big \"<game>/apt/Stats.big\" --out out/stats --pack out/Stats-mod.big\n" },
 	{ "pack-big", "DIR OUT.big", "pack a folder as a BIG archive (for -mod)",
 		"  The paths inside the archive are the paths below DIR, with backslashes, sorted.\n" },
 	{ "set-text", "IN.swf OUT.swf CHARACTER_ID TEXT", "change a text field's text in a SWF (a tiny editor for tests)", "" },
@@ -645,6 +666,18 @@ bool parseArgs(int argc, char **argv, Options &o, std::string *error)
 		{
 			o.write = true;
 		}
+		else if (a == "--dir")
+		{
+			o.dir = next();
+		}
+		else if (a == "--swf")
+		{
+			o.swfIn = next();
+		}
+		else if (a == "--pack")
+		{
+			o.pack = next();
+		}
 		else if (a.size() > 2 && a.compare(0, 2, "--") == 0)
 		{
 			*error = "unknown option " + a;
@@ -670,6 +703,7 @@ struct Job
 	AptMovieFiles files;
 };
 
+#ifndef OPENBFME_APTSWF_STANDALONE
 bool collectJobs(Options &o, GameMount &mount, std::vector<Job> &jobs, std::string *error)
 {
 	if (!o.bigs.empty())
@@ -749,6 +783,7 @@ bool collectJobs(Options &o, GameMount &mount, std::vector<Job> &jobs, std::stri
 	return true;
 }
 
+#endif // OPENBFME_APTSWF_STANDALONE
 
 std::string extOf(const std::string &path)
 {
@@ -771,6 +806,15 @@ int runConvert(Options &o, bool roundtrip)
 	ExportOptions options;
 	options.embedOriginal = o.embed && !o.resolveStrings;
 	ArchiveSet archives;
+#ifdef OPENBFME_APTSWF_STANDALONE
+	const bool archiveOnly = true;
+	if (!o.game.empty() || o.bigs.empty() || o.resolveStrings)
+	{
+		std::fprintf(stderr, "this build reads the archives given with --big (no --game, no --resolve-strings)\n");
+		return 2;
+	}
+	const std::string game;
+#else
 	const bool archiveOnly = o.game.empty() && !o.bigs.empty() && !std::getenv("ROTWK_INSTALL") && !std::getenv("BFME2_INSTALL");
 	GameMount mount;
 	const std::string game = o.game.empty() ? "rotwk" : o.game;
@@ -794,6 +838,7 @@ int runConvert(Options &o, bool roundtrip)
 		std::fprintf(stderr, "--resolve-strings needs the game (--game, ROTWK_INSTALL / BFME2_INSTALL)\n");
 		return 2;
 	}
+#endif
 	if (archiveOnly)
 	{
 		if (!archives.open(o.bigs, &error))
@@ -829,6 +874,7 @@ int runConvert(Options &o, bool roundtrip)
 			std::fprintf(stderr, "FAIL %s: %s\n", job.files.name.c_str(), error.c_str());
 			continue;
 		}
+#ifndef OPENBFME_APTSWF_STANDALONE
 		if (o.resolveStrings)
 		{
 			// a preview: "$Label" texts replaced by the game's strings (GameText.h ResolveAptText), no private tags (it is not
@@ -848,6 +894,7 @@ int runConvert(Options &o, bool roundtrip)
 			}
 			swf = swfWriteFile(r.header, r.tags);
 		}
+#endif
 		writeFile(o.out / (job.files.name + ".swf"), swf);
 		for (const std::string &n : r.notes)
 		{
@@ -1328,6 +1375,7 @@ int runReassemble(Options &o)
 	std::string error;
 	std::vector<Job> jobs;
 	ArchiveSet archives;
+#ifndef OPENBFME_APTSWF_STANDALONE
 	GameMount mount;
 	if (!o.game.empty() || o.bigs.empty())
 	{
@@ -1338,6 +1386,7 @@ int runReassemble(Options &o)
 		}
 	}
 	else
+#endif
 	{
 		if (!archives.open(o.bigs, &error))
 		{
@@ -1421,6 +1470,270 @@ int runReassemble(Options &o)
 	return ok == programs ? 0 : 1;
 }
 
+// ---- apply: a recipe on the user's own copy of a movie ----------------------------------------------------------------------------
+// The movie comes from --swf (an exported SWF), --dir (loose files: NAME.apt, NAME.const, NAME.dat, NAME_geometry/*.ru), --big (archives,
+// later ones over earlier ones, file by file) or --game (the retail mount).  The recipe edits the exported SWF; the importer writes the
+// edits into the .apt (the same path as an edit made in a SWF editor).
+std::string recipeMovie(const std::string &text)
+{
+	std::istringstream in(text);
+	std::string line;
+	while (std::getline(in, line))
+	{
+		if (!line.empty() && line.back() == '\r')
+		{
+			line.pop_back();
+		}
+		const std::size_t at = line.find_first_not_of(" \t");
+		if (at != std::string::npos && line.compare(at, 6, "movie ") == 0)
+		{
+			std::string name = line.substr(at + 6);
+			name.erase(0, name.find_first_not_of(" \t"));
+			while (!name.empty() && (name.back() == ' ' || name.back() == '\t'))
+			{
+				name.pop_back();
+			}
+			return name;
+		}
+	}
+	return std::string();
+}
+
+bool loadMovieFromDir(const fs::path &dir, const std::string &movie, AptMovieFiles &files, std::string *error)
+{
+	files = AptMovieFiles();
+	files.name = movie;
+	std::error_code ec;
+	for (const auto &e : fs::directory_iterator(dir, ec))
+	{
+		const std::string n = e.path().filename().string();
+		if (!e.is_regular_file() || lower(n.substr(0, movie.size() + 1)) != lower(movie + "."))
+		{
+			continue;
+		}
+		const std::string ext = lower(n.substr(movie.size()));
+		if (ext == ".apt" || ext == ".const" || ext == ".dat")
+		{
+			AptMovieFile f;
+			f.path = n;
+			readFile(e.path(), f.bytes);
+			files.files.push_back(std::move(f));
+		}
+	}
+	for (const auto &e : fs::directory_iterator(dir, ec))
+	{
+		const std::string n = e.path().filename().string();
+		if (e.is_directory() && lower(n) == lower(movie + "_geometry"))
+		{
+			std::vector<fs::path> ru;
+			for (const auto &g : fs::directory_iterator(e.path(), ec))
+			{
+				if (g.is_regular_file() && lower(g.path().extension().string()) == ".ru")
+				{
+					ru.push_back(g.path());
+				}
+			}
+			std::sort(ru.begin(), ru.end());
+			for (const fs::path &p : ru)
+			{
+				AptMovieFile f;
+				f.path = n + "\\" + p.filename().string();
+				readFile(p, f.bytes);
+				files.files.push_back(std::move(f));
+			}
+		}
+	}
+	if (!files.find(movie + ".apt") || !files.find(movie + ".const"))
+	{
+		*error = dir.string() + " has no " + movie + ".apt and " + movie + ".const";
+		return false;
+	}
+	return true;
+}
+
+bool loadMovieFromBigs(const std::vector<std::string> &bigs, const std::string &movie, AptMovieFiles &files, std::string *error)
+{
+	files = AptMovieFiles();
+	files.name = movie;
+	for (const std::string &b : bigs)
+	{
+		BigArchive big;
+		if (!big.open(b, error))
+		{
+			return false;
+		}
+		for (AptMovieFile &f : big.movieFiles(movie).files)
+		{
+			bool replaced = false;
+			for (AptMovieFile &have : files.files)
+			{
+				if (lower(normalSlash(have.path)) == lower(normalSlash(f.path)))
+				{
+					have = f;
+					replaced = true;
+				}
+			}
+			if (!replaced)
+			{
+				files.files.push_back(std::move(f));
+			}
+		}
+	}
+	if (!files.find(movie + ".apt") || !files.find(movie + ".const"))
+	{
+		*error = "the archives given have no " + movie + ".apt and " + movie + ".const (give the archive with the .const too, e.g. the game's apt\\" +
+			movie + ".big first)";
+		return false;
+	}
+	return true;
+}
+
+int runApply(Options &o)
+{
+	if (o.positional.size() != 1 || o.out.empty())
+	{
+		return usage(o.command);
+	}
+	std::vector<std::uint8_t> recipeBytes;
+	if (!readFile(o.positional[0], recipeBytes))
+	{
+		std::fprintf(stderr, "cannot read the recipe %s\n", o.positional[0].c_str());
+		return 1;
+	}
+	const std::string recipe(recipeBytes.begin(), recipeBytes.end());
+	const std::string movie = recipeMovie(recipe);
+	if (movie.empty())
+	{
+		std::fprintf(stderr, "%s has no 'movie' line\n", o.positional[0].c_str());
+		return 1;
+	}
+	std::string error;
+	std::vector<std::uint8_t> swfBytes;
+	if (!o.swfIn.empty())
+	{
+		if (!readFile(o.swfIn, swfBytes))
+		{
+			std::fprintf(stderr, "cannot read %s\n", o.swfIn.c_str());
+			return 1;
+		}
+	}
+	else
+	{
+		AptMovieFiles files;
+		ExportOptions options;
+		ArchiveSet archives;
+#ifndef OPENBFME_APTSWF_STANDALONE
+		GameMount mount;
+#endif
+		if (!o.dir.empty())
+		{
+			if (!loadMovieFromDir(o.dir, movie, files, &error))
+			{
+				std::fprintf(stderr, "%s\n", error.c_str());
+				return 1;
+			}
+		}
+		else if (!o.bigs.empty())
+		{
+			if (!loadMovieFromBigs(o.bigs, movie, files, &error) || !archives.open(o.bigs, &error))
+			{
+				std::fprintf(stderr, "%s\n", error.c_str());
+				return 1;
+			}
+			options.textures = archives.lookup();
+		}
+#ifndef OPENBFME_APTSWF_STANDALONE
+		else if (!o.game.empty())
+		{
+			o.movies = { lower(movie) };
+			std::vector<Job> jobs;
+			if (!mount.mount(o.game, o.out / ".cache", &error) || !collectJobs(o, mount, jobs, &error))
+			{
+				std::fprintf(stderr, "%s\n", error.c_str());
+				return 1;
+			}
+			if (jobs.empty())
+			{
+				std::fprintf(stderr, "the game has no movie %s\n", movie.c_str());
+				return 1;
+			}
+			files = jobs[0].files;
+			options.textures = mount.lookup();
+		}
+#endif
+		else
+		{
+			std::fprintf(stderr, "apply needs the movie: --dir FOLDER, --big ARCHIVE, --game rotwk|bfme2 or --swf FILE.swf\n");
+			return 2;
+		}
+		ExportResult r;
+		if (!exportSwf(files, options, swfBytes, r, &error))
+		{
+			std::fprintf(stderr, "%s: %s\n", movie.c_str(), error.c_str());
+			return 1;
+		}
+	}
+	SwfFile swf;
+	if (!swfReadFile(swfBytes, swf, &error))
+	{
+		std::fprintf(stderr, "%s\n", error.c_str());
+		return 1;
+	}
+	RecipeResult rr;
+	if (!applyRecipe(recipe, swf, movie, rr, &error))
+	{
+		std::fprintf(stderr, "%s: %s\n", o.positional[0].c_str(), error.c_str());
+		return 1;
+	}
+	for (const std::string &n : rr.notes)
+	{
+		std::printf("note: %s\n", n.c_str());
+	}
+	for (const std::string &l : rr.log)
+	{
+		std::printf("  %s\n", l.c_str());
+	}
+	const std::vector<std::uint8_t> edited = swfWriteFile(swf.header, swf.tags);
+	ImportResult ir;
+	if (!importSwf(edited, ir, &error))
+	{
+		std::fprintf(stderr, "writing the edits into the APT failed: %s\n", error.c_str());
+		return 1;
+	}
+	const fs::path filesDir = o.out / "files";
+	std::error_code ec;
+	fs::remove_all(filesDir, ec);
+	for (const AptMovieFile &f : ir.files)
+	{
+		if (!writeFile(filesDir / normalSlash(f.path), f.bytes))
+		{
+			std::fprintf(stderr, "cannot write %s\n", (filesDir / normalSlash(f.path)).string().c_str());
+			return 1;
+		}
+	}
+	writeFile(o.out / (movie + ".swf"), edited);
+	std::printf("%s: %zu files written to %s, %zu edits\n", movie.c_str(), ir.files.size(), filesDir.string().c_str(), ir.edits.size());
+	for (const std::string &e : ir.edits)
+	{
+		std::printf("  edit: %s\n", e.c_str());
+	}
+	for (const std::string &e : ir.ignored)
+	{
+		std::printf("  ignored: %s\n", e.c_str());
+	}
+	std::printf("  the edited SWF (for a look in JPEXS): %s\n", (o.out / (movie + ".swf")).string().c_str());
+	if (!o.pack.empty())
+	{
+		if (!writeBig(filesDir, o.pack, &error))
+		{
+			std::fprintf(stderr, "%s\n", error.c_str());
+			return 1;
+		}
+		std::printf("  packed: %s\n", o.pack.string().c_str());
+	}
+	return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -1478,6 +1791,10 @@ int main(int argc, char **argv)
 	if (o.command == "reassemble")
 	{
 		return runReassemble(o);
+	}
+	if (o.command == "apply")
+	{
+		return runApply(o);
 	}
 	// pack-big
 	if (o.positional.size() != 2)

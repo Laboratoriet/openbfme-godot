@@ -1,5 +1,6 @@
 # The APT <-> SWF converter (docs/APT-SWF.md): a library on top of the Apt player's reader and decoder, the
 # openbfme_apt_swf command line, and its unit tests (synthetic data only).  Not part of the game library.
+# tools/apt_swf/CMakeLists.txt builds the same command line on its own (no game library, no Godot), for modders.
 # Included from engine/CMakeLists.txt; openbfme_aptswf_targets() runs after the test executable exists.
 
 set(OPENBFME_APTSWF_SOURCES
@@ -8,7 +9,8 @@ set(OPENBFME_APTSWF_SOURCES
     src/Libraries/Source/Apt/AptSwfTags.cpp
     src/Libraries/Source/Apt/AptSwfExport.cpp
     src/Libraries/Source/Apt/AptSwfImport.cpp
-    src/Libraries/Source/Apt/AptSwfAssemble.cpp)
+    src/Libraries/Source/Apt/AptSwfAssemble.cpp
+    src/Libraries/Source/Apt/AptSwfRecipe.cpp)
 
 set(OPENBFME_APTSWF_TESTS
     tests/test_apt_swf.cpp)

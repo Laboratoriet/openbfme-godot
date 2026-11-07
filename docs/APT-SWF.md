@@ -12,6 +12,8 @@ textures its image map names.
   - new placements of existing characters, removals, frame labels, new text fields, frame items taken out;
   - frame, clip and button actions, assembled back into APT programs.
   Anything else is refused with an error that names the tag (see "What does not come back").
+- **Recipes:** the same edits written as a small text file, which the converter applies to anyone's own copy of a movie, so
+  edits can be shared without sharing the game's files ([APT-SWF-RECIPES.md](APT-SWF-RECIPES.md)).
 
 It is a tool, not part of the game library. It builds on the Apt player's own reader and decoder (`AptFile`,
 `AptActionDecoder`). It reads the game's files at run time and writes only to the folder given with `--out`; nothing it
@@ -39,6 +41,8 @@ openbfme_apt_swf --help                 # the commands
 openbfme_apt_swf help export            # one command's arguments and options
 ```
 
+Without the game library (on Windows too) it builds on its own: see "The standalone build" below.
+
 ```sh
 export ROTWK_INSTALL=... BFME2_INSTALL=...
 
@@ -51,6 +55,7 @@ openbfme_apt_swf import Options.swf --out out/mod-src                       # SW
 openbfme_apt_swf pack-big out/mod-src Mod.big                               # a BIG for -mod
 openbfme_apt_swf roundtrip --game rotwk --out out/rotwk                     # every movie: export, import, compare
 openbfme_apt_swf reassemble --game rotwk --out out/asm                      # every action program assembled back and checked
+openbfme_apt_swf apply my.recipe --big "<game>/apt/Stats.big" --out out/stats --pack Stats-mod.big   # a recipe
 ```
 
 Where the movies come from:
@@ -209,14 +214,58 @@ with the SWF's. `openbfme_apt_swf reassemble` runs that on every program of a mo
 A script edited in JPEXS's ActionScript editor comes back this way: JPEXS compiles the source to AVM1, the importer assembles
 that.
 
+## Recipes
+
+A recipe describes structural, placement and script edits as text, so they can be shared without the game's files and
+applied to any copy of a movie (another patch version, a mod). `openbfme_apt_swf apply` exports the movie, applies the recipe
+to the SWF's standard tags (`AptSwfRecipe.h`) and imports the result, so a recipe can do exactly what a SWF edit can. The
+format is in [APT-SWF-RECIPES.md](APT-SWF-RECIPES.md).
+
+## The standalone build
+
+Everything but `--game` and `--resolve-strings` needs only the converter and five engine sources, so the tool also builds on
+its own, without the game library and without Godot (the define `OPENBFME_APTSWF_STANDALONE` leaves the retail mount out).
+This is the build to hand to modders: it reads the archives given with `--big`, or loose files with `apply --dir`.
+
+`tools/apt_swf/CMakeLists.txt` builds it with any C++17 compiler:
+
+```sh
+cmake -S tools/apt_swf -B build/apt_swf -DCMAKE_BUILD_TYPE=Release        # macOS / Linux
+cmake --build build/apt_swf                                               # -> build/apt_swf/openbfme_apt_swf
+```
+
+On Windows, from a "x64 Native Tools Command Prompt for VS" (or any shell with CMake and MSVC, MinGW or clang):
+
+```bat
+cmake -S tools\apt_swf -B build\apt_swf
+cmake --build build\apt_swf --config Release
+```
+
+Cross-compiling for 64-bit Windows from Linux or macOS, with the release's llvm-mingw toolchain
+(`tools/release/build_windows.sh` downloads it) or with Zig:
+
+```sh
+cmake -S tools/apt_swf -B build/apt_swf-win -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=engine/cmake/toolchains/windows-x64-llvm-mingw.cmake -DLLVM_MINGW_ROOT=<llvm-mingw>
+cmake --build build/apt_swf-win                                            # -> openbfme_apt_swf.exe
+
+CC="zig cc -target x86_64-windows-gnu" CXX="zig c++ -target x86_64-windows-gnu" \
+  cmake -S tools/apt_swf -B build/apt_swf-zig -G Ninja -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_BUILD_TYPE=Release
+cmake --build build/apt_swf-zig                                            # -> openbfme_apt_swf.exe
+```
+
+The MinGW builds link statically: the `.exe` needs only Windows' own DLLs (KERNEL32 and the UCRT of Windows 10 and later).
+MSVC builds use the static runtime. A binary handed to others must come with its source and the GPL-3.0 licence (and
+fast_float's licence notices: `engine/thirdparty/fast_float`).
+
 ## Verification
 
 - `engine/tests/test_apt_swf.cpp` (synthetic movies only, built byte by byte with `AptTestUtil.h`): bit fields, zlib, the
   AVM1 lowering (exact bytes), branch re-targeting, triangle outlines, the shape comparison, the export of a synthetic movie,
   the byte-exact round trip, text and placement edits re-encoded (unedited floats kept), each structural edit (each edited
   movie converts again with no edits to the same bytes), frame / clip / button actions assembled back (pushes, a branch, a
-  function, a register push and its new `.const` entry), the normalized comparison, and the importer's and
-  assembler's refusals.
+  function, a register push and its new `.const` entry), the normalized comparison, a recipe of every step, and the
+  importer's, assembler's and recipe's refusals.
 - With the game files (`roundtrip`, `reassemble` over a mount; numbers of 2026-11):
 
 | | RotWK 2.01 | BFME2 1.06 |
@@ -228,7 +277,9 @@ that.
 | Ruffle 0.7.1 loads without a panic | 86 | 84 |
 
   With every RotWK program replaced by its re-assembled copy (`reassemble --write`, mounted with `-mod`), OpenBFME's menu walk
-  gives the same transcript as with the original programs.
+  gives the same transcript as with the original programs. The standalone build's round trip over RotWK's `apt/*.big` alone
+  (no game mount): 81 movies, 2 622 / 2 622 files byte-identical; a recipe applied by it and by the full build gives the same
+  files.
 
 ## Prior work and comparison
 
