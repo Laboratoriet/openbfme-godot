@@ -11,7 +11,8 @@
 //   S-081  numeric parity: the movers mix x87 and SSE (moveForward RW 0x5E586F) and call the CRT / x87
 //          trigonometry; the facade reproduces the operation order and precision, but sin / cos / atan2 come
 //          from the platform libm (SimMath.h) and no retail oracle compares full sequences.
-//   S-084  movers and cases not ported (HOVER and SHIP: lane SHIP-1; GIANT_BIRD's rotateTowardsPosition branch: lane TAKEOVER-1), ScalesWalls look-ahead, ZAxisBehavior other
+//   S-084  movers and cases not ported (HOVER and SHIP: lane SHIP-1; GIANT_BIRD's rotateTowardsPosition branch: lane TAKEOVER-1), the ScalesWalls look-ahead's
+//          stealth reveal, drawable switch and EVA event (the look-ahead itself is ported: scaleWallsLookAhead), ZAxisBehavior other
 //          than NO_Z_MOTIVE_FORCE, FLOATING_Z and SEA_LEVEL and their layer / projectile / falling special cases, the HORDE formation
 //          path nodes.
 
@@ -51,6 +52,7 @@ int bitIndex(const char *const *names, const char *name)
 struct Bits
 {
 	int moving, walking, accelerate, decelerate, backingUp, turnLeft, turnRight, turnLeftHigh, turnRightHigh, emotionTerror, charging, overWater;
+	int climbing, rappelling;
 	int statusAttacking, statusLeashed, statusContesting, statusHordeMember;
 	Bits()
 		: moving(bitIndex(TheModelConditionNames, "MOVING"))
@@ -65,6 +67,8 @@ struct Bits
 		, emotionTerror(bitIndex(TheModelConditionNames, "EMOTION_TERROR"))
 		, charging(bitIndex(TheModelConditionNames, "CHARGING"))
 		, overWater(bitIndex(TheModelConditionNames, "OVER_WATER"))
+		, climbing(bitIndex(TheModelConditionNames, "CLIMBING"))
+		, rappelling(bitIndex(TheModelConditionNames, "RAPPELLING"))
 		, statusAttacking(bitIndex(TheObjectStatusNames, "IS_ATTACKING"))
 		, statusLeashed(bitIndex(TheObjectStatusNames, "LEASHED_RETURNING"))
 		, statusContesting(bitIndex(TheObjectStatusNames, "CONTESTING_BUILDING"))
@@ -176,7 +180,7 @@ const std::vector<std::string> &Locomotor::allStops()
 		"S-081: locomotor numeric parity unproven: the movers mix x87 and SSE (moveForward RW 0x5E586F) and use the CRT / x87 sin, cos and atan2; "
 		"operation order and PC24 precision are reproduced through NumericState, the trigonometry is NumericState's deterministic double-double "
 		"(lane WIN-1: the same bits on every OS), not the retail CRT / x87 results.",
-		"S-084: locomotor cases not ported: the ScalesWalls look-ahead (RW 0x5E8956-0x5E8FF8), "
+		"S-084: locomotor cases not ported: the ScalesWalls look-ahead's stealth reveal (RW 0x7767A9), drawable switch (RW 0x672D28) and wall owner's EVA event (RW 0x5DD9EE), "
 		"ZAxisBehavior other than NO_Z_MOTIVE_FORCE, FLOATING_Z, SEA_LEVEL, SURFACE_RELATIVE_HEIGHT, ABSOLUTE_HEIGHT, FIXED_SURFACE_RELATIVE_HEIGHT and FIXED_ABSOLUTE_HEIGHT (the last two: RW 0x5E78DB; the stealth reveal of a climbing object, RW 0x5E7C0A, is not ported) and the projectile / falling special cases of RW 0x5E774A / 0x5E5785 (its ramp and walkway height hold is ported: lane WALL-4), "
 		"and the HORDE mover's formation path nodes (types 2, 3, 7, 8; RW 0x5E6E20-0x5E7148).",
 		"S-1750: maintainCurrentPosition (RW 0x5E7CC7) is ported without its tail: the held position's z behaviour (RW 0x5E76AC on +0x08) with its "
@@ -1661,6 +1665,152 @@ void Locomotor::maintainCurrentPositionWings(LocomotorHost &host)
 	moveTowardsPositionOther(host, goal, 0.0f, getMinSpeed(host)); // RW 0x5E740D -> 0x5E6835
 }
 
+// ---- the ScalesWalls look-ahead (RW 0x5E8956 .. 0x5E8FF8) ---------------------------------------------------------------------
+// TARGET (RotWK disassembly, caveat S-001): for a climber that is no horde (the gate: LocomotorHost::isWallClimber and the template's ScalesWalls,
+// + 0x150), every move frame, before the movers:
+//   * the point ahead P = position + facing * min(7, desiredSpeed) (RW 0xBE4AD4); h0 / h the height of the object's layer under the object and under P
+//     (TheTerrainLogic vslot 0x1C at Object::getLayer RW 0x68BBE0); rise = max(0, h0 - h + 0.1) (RW 0xBD83D4);
+//   * the cell object under P (RW 0x680A75, RW 0x5E3CC9). A SCALEABLE_WALL whose frame holds P within its major radius along its x axis (|x| <= the
+//     geometry's + 0x24, CRT fabs RW 0xA3CF8A) and not above its height (RW 0xAD1920) moves the object itself, with no mover:
+//       - P below the wall's top (its z + height): the object stays where it is (P - step) and climbs: already CLIMBING, it rises by 0.6 desiredSpeed
+//         (RW 0xBDAD70) a frame, never above the top; else it turns to the wall's facing (or the opposite one when its own facing's dot with the
+//         wall's is negative, RW 0xC1B594 / normalized RW 0x644FD0) and is put on the wall's face (its local x clamped to the major radius);
+//       - otherwise (on the top) it is put on P;
+//   * no SCALEABLE_WALL under P, and P above h + rise: it stays where it is and comes down: already RAPPELLING, it sinks by 0.6 desiredSpeed a frame;
+//     within 1 (RW 0xBD1908) of h it lands on h, its AI path is destroyed (RW 0x66276B) and MOVING comes;
+//   * then (RW 0x5E8C5C .. 0x5E8CD7, 0x5E9011 .. 0x5E90A4): coming down: RAPPELLING for CLIMBING; climbing: CLIMBING for RAPPELLING; on the top: both
+//     go. The dispatcher returns (RW 0x5E91B3): no mover, no z behaviour, no transform write;
+//   * a SCALEABLE_WALL whose frame does not hold P, or neither case: CLIMBING and RAPPELLING go (RW 0x5E8FB0) and the movers run as usual.
+// INFERENCE: the facing is the 2D unit direction (RW 0x70B9E0 returns the transform's x axis; its z is 0 for the upright objects that climb), the wall's
+// frame its position and facing (RW: the object matrix and its inverse, RW 0xB26C00), as HordeWallScaling.cpp's member step reads it.
+// NOT PORTED (S-084): the climber's stealth reveal (RW 0x7767A9), the drawable's switch (RW 0x70E013 -> RW 0x672D28, client) and the wall owner's EVA
+// event 15 (RW 0x5DD9EE, client) when the climb starts.
+bool Locomotor::scaleWallsLookAhead(LocomotorHost &host, float desiredSpeed)
+{
+	const Bits &b = bits();
+	Coord3D p = host.getPosition();
+	const float here = host.groundHeightAt(p.x, p.y); // RW 0x5E89E2 .. 0x5E8A02
+	const Coord2D facing = host.getUnitDirectionVector2D();
+	const float stepLength = 7.0f > desiredSpeed ? desiredSpeed : 7.0f; // RW 0x5E8A0A .. 0x5E8A26
+	const Coord3D step{ SimMath::mulf32(facing.x, stepLength), SimMath::mulf32(facing.y, stepLength), 0.0f };
+	p.x = SimMath::addf32(step.x, p.x);
+	p.y = SimMath::addf32(step.y, p.y);
+	p.z = SimMath::addf32(step.z, p.z);
+	const float ahead = host.groundHeightAt(p.x, p.y); // RW 0x5E8A71 .. 0x5E8A94
+	float rise = SimMath::addf32(SimMath::subf32(here, ahead), kTinyAngle);
+	rise = 0.0f > rise ? 0.0f : rise; // RW 0x5E8AA7
+	bool climbing = false, rappelling = false;
+	const float climbRate = SimMath::mulf32(desiredSpeed, 0.6f); // RW 0xBDAD70
+	LocomotorHost::WallPiece wall;
+	if (host.scaleableWallUnder(p, wall))
+	{
+		const float c = SimMath::cosf32(wall.angle), s = SimMath::sinf32(wall.angle);
+		auto localX = [&](const Coord3D &q) {
+			return SimMath::addf32(SimMath::mulf32(c, SimMath::subf32(q.x, wall.position.x)), SimMath::mulf32(s, SimMath::subf32(q.y, wall.position.y)));
+		};
+		auto localY = [&](const Coord3D &q) {
+			return SimMath::subf32(SimMath::mulf32(c, SimMath::subf32(q.y, wall.position.y)), SimMath::mulf32(s, SimMath::subf32(q.x, wall.position.x)));
+		};
+		const float lx = localX(p), lz = SimMath::subf32(p.z, wall.position.z);
+		if (!(wall.majorRadius < fabsd(lx)) && !(wall.height < lz)) // RW 0x5E8BAD / 0x5E8BC8: jb (below or unordered) leaves
+		{
+			const float top = SimMath::addf32(wall.position.z, wall.height); // RW 0x5E8BE0
+			if (top > p.z)
+			{
+				p.x = SimMath::subf32(p.x, step.x); // RW 0x5E8BF9 .. 0x5E8C20: back where it stands
+				p.y = SimMath::subf32(p.y, step.y);
+				p.z = SimMath::subf32(p.z, step.z);
+				climbing = true;
+				if (host.testModelCondition(b.climbing))
+				{
+					const float z = SimMath::addf32(climbRate, p.z); // RW 0x5E8C36 .. 0x5E8C57
+					p.z = z > top ? top : z;
+				}
+				else
+				{
+					// RW 0x5E8CDC .. 0x5E8D57: face the wall
+					const float dot = SimMath::addf32(SimMath::mulf32(SimMath::sinf32(wall.angle), facing.y), SimMath::mulf32(SimMath::cosf32(wall.angle), facing.x));
+					host.setOrientation(dot >= 0.0f ? wall.angle : normalizeAngle(SimMath::addf32(wall.angle, kPi)));
+					// RW 0x5E8D5C .. 0x5E8E83: onto the wall's face, its local x within the major radius
+					float x = localX(p);
+					const float y = localY(p);
+					const float negRadius = SimMath::subf32(0.0f, wall.majorRadius);
+					x = x > wall.majorRadius ? wall.majorRadius : (negRadius > x ? negRadius : x);
+					p.x = SimMath::addf32(SimMath::subf32(SimMath::mulf32(c, x), SimMath::mulf32(s, y)), wall.position.x);
+					p.y = SimMath::addf32(SimMath::addf32(SimMath::mulf32(s, x), SimMath::mulf32(c, y)), wall.position.y);
+					noteStopOf(1); // the wall owner's EVA event 15 (RW 0x5DD9EE) and the drawable's switch (RW 0x672D28) are not ported
+				}
+			}
+			host.setPosition(p); // RW 0x5E8C62
+			finishWallStep(host, climbing, false);
+			return true;
+		}
+		clearWallClimb(host); // RW 0x5E8FAD
+		return false;
+	}
+	// RW 0x5E8EC2: no scaleable wall under the point ahead
+	const float ground = ahead;
+	if (p.z > NumericState::pc24Add(ground, rise)) // x87: fst; fadd; fcompi (RW 0x5E8EED .. 0x5E8EFA)
+	{
+		p.x = SimMath::subf32(p.x, step.x); // RW 0x5E8F00 .. 0x5E8F2C
+		p.y = SimMath::subf32(p.y, step.y);
+		p.z = SimMath::subf32(p.z, step.z);
+		rappelling = true;
+		if (host.testModelCondition(b.rappelling))
+		{
+			p.z = SimMath::subf32(p.z, climbRate); // RW 0x5E8F42 .. 0x5E8F54
+			if (!(SimMath::addf32(ground, 1.0f) < p.z)) // RW 0x5E8F68: landed
+			{
+				p.z = ground;
+				host.destroyAIPath(); // RW 0x5E8F76 .. 0x5E8F85
+				if (!host.testModelCondition(b.moving))
+				{
+					host.setModelCondition(b.moving, true); // RW 0x5E8F8A .. 0x5E8FA3
+				}
+			}
+		}
+		host.setPosition(p); // RW 0x5E8C62
+		finishWallStep(host, false, rappelling);
+		return true;
+	}
+	clearWallClimb(host); // RW 0x5E8FB0
+	return false;
+}
+
+// RW 0x5E8C67 .. 0x5E8CD7 and 0x5E9011 .. 0x5E90A4: the model conditions after the look-ahead moved the object
+void Locomotor::finishWallStep(LocomotorHost &host, bool climbing, bool rappelling)
+{
+	const Bits &b = bits();
+	if (rappelling || climbing)
+	{
+		const int on = rappelling ? b.rappelling : b.climbing, off = rappelling ? b.climbing : b.rappelling;
+		if (host.testModelCondition(off) || !host.testModelCondition(on))
+		{
+			host.clearAndSetModelConditions({ off }, { on }); // one change notification (RW 0x68B53C)
+		}
+		if (host.hasStealthModule())
+		{
+			noteStopOf(1); // the climber's stealth reveal (RW 0x7767A9) is not ported
+		}
+		return;
+	}
+	clearWallClimb(host);
+}
+
+// RW 0x5E8FB0 .. 0x5E8FD8 (and 0x5E9058 .. 0x5E9080): CLIMBING goes, then RAPPELLING, each with its notification when it was set
+void Locomotor::clearWallClimb(LocomotorHost &host)
+{
+	const Bits &b = bits();
+	if (host.testModelCondition(b.climbing))
+	{
+		host.setModelCondition(b.climbing, false);
+	}
+	if (host.testModelCondition(b.rappelling))
+	{
+		host.setModelCondition(b.rappelling, false);
+	}
+}
+
 // ---- the dispatcher (RW 0x5E8865) ---------------------------------------------------------------------------------------------
 void Locomotor::locomotorMoveTowardsPosition(LocomotorHost &host, const Coord3D &goal, float onPathDistToGoal, float desiredSpeed)
 {
@@ -1687,9 +1837,10 @@ void Locomotor::locomotorMoveTowardsPosition(LocomotorHost &host, const Coord3D 
 	{
 		m_nearPathEnd = path->isNearPathEnd(); // RW 0x5E2DBA
 	}
-	if (t.m_scalesWalls)
+	// RW 0x5E8944 .. 0x5E89B9: the ScalesWalls look-ahead's gate (no HORDE_MEMBER, not contained, no horde producer, ScalesWalls, no HORDE, CAN_CLIMB_WALLS)
+	if (t.m_scalesWalls && host.isWallClimber() && scaleWallsLookAhead(host, desiredSpeed))
 	{
-		noteStopOf(1); // the wall-scaling look-ahead (RW 0x5E8956-0x5E8FF8) is not ported
+		return; // RW 0x5E91B3: the look-ahead moved the object; no mover, no z behaviour, no transform write
 	}
 	switch (t.m_appearance)
 	{

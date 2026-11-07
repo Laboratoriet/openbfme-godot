@@ -751,17 +751,14 @@ TEST_CASE("dispatcher: a stationary-cap frame, status refusals, appearance table
 		CHECK_THROWS_WITH_AS(loco.locomotorMoveTowardsPosition(h, Coord3D{ 100, 0, 0 }, 100.0f, 11.0f), doctest::Contains("S-084"), std::logic_error);
 	}
 	{
+		// a ScalesWalls locomotor on an object that is no climber (the look-ahead's gate, RW 0x5E8944 .. 0x5E89B9): the movers run as for any other
 		LocoFixture sw(std::string(kHuman) + "  ScalesWalls = Yes\n");
 		Locomotor loco(sw.tmpl());
 		MockHost h;
 		h.place(0, 0, 0);
 		loco.locomotorMoveTowardsPosition(h, Coord3D{ 100, 0, 0 }, 100.0f, 11.0f);
-		bool noted = false;
-		for (const std::string &s : loco.unverified())
-		{
-			noted = noted || s.rfind("S-084", 0) == 0;
-		}
-		CHECK(noted);
+		CHECK(h.applied.size() == 1); // the dispatcher's transform write (RW 0x70BA76)
+		CHECK(h.pos.x > 0.0f); // tolerance: the Legs mover's first step; its length is the kinematics tests' business
 	}
 }
 
@@ -1313,5 +1310,114 @@ TEST_CASE("handleBehaviorZ NO_Z_MOTIVE_FORCE (RW 0x5E77AF .. 0x5E77EE, lane WALL
 		h.rampOrRaisedLayer = c.rampOrRaised;
 		loco.locomotorMoveTowardsPosition(h, Coord3D{ 1000, 0, 0 }, 1000.0f, 11.0f);
 		CHECK(h.pos.z == c.expect);
+	}
+}
+
+namespace
+{
+// a climber that is no horde, and one SCALEABLE_WALL piece across its way: x 45 .. 55 (major radius 5 along the wall's x axis, facing 0), y -100 .. 100,
+// height 40 on the ground (the cell object of RW 0x5E3CC9 under a point of the piece)
+struct ClimberHost : MockHost
+{
+	bool climber = true;
+	int pathsDestroyed = 0;
+	bool isWallClimber() const override { return climber; }
+	bool scaleableWallUnder(const Coord3D &p, WallPiece &out) const override
+	{
+		if (!(std::fabs(p.x - 50.0f) <= 5.0f && std::fabs(p.y) <= 100.0f))
+		{
+			return false;
+		}
+		out.position = Coord3D{ 50.0f, 0.0f, 0.0f };
+		out.angle = 0.0f;
+		out.majorRadius = 5.0f;
+		out.height = 40.0f;
+		return true;
+	}
+	void setOrientation(float a) override
+	{
+		angle = a;
+		syncTransform();
+	}
+	void setPosition(const Coord3D &p) override
+	{
+		pos = p;
+		syncTransform();
+	}
+	void destroyAIPath() override { ++pathsDestroyed; }
+};
+} // namespace
+
+TEST_CASE("ScalesWalls look-ahead (RW 0x5E8956 .. 0x5E8FF8): a climber that is no horde goes up a wall at 0.6 x its speed, along the top in steps of "
+		  "min(7, speed), down the far side, and lands with a new path; the movers do not run meanwhile")
+{
+	LocoFixture sw(std::string(kHuman) + "  ScalesWalls = Yes\n");
+	Locomotor loco(sw.tmpl());
+	ClimberHost h;
+	h.place(40.0f, 0.0f, 0.0f);
+	const int climbing = mcIndex("CLIMBING"), rappelling = mcIndex("RAPPELLING"), moving = mcIndex("MOVING");
+	struct Frame
+	{
+		float x, z;
+		bool climbing, rappelling;
+	};
+	// desiredSpeed 10: the point ahead is 7 on (RW 0xBE4AD4), the climb and the descent 6 a frame (0.6, RW 0xBDAD70)
+	const std::vector<Frame> want = {
+		{ 45.0f, 0.0f, true, false },  // the point ahead (47) is on the piece: the climber turns to the wall and is put on its face (local x -10 -> -5)
+		{ 45.0f, 6.0f, true, false },  { 45.0f, 12.0f, true, false }, { 45.0f, 18.0f, true, false }, { 45.0f, 24.0f, true, false },
+		{ 45.0f, 30.0f, true, false }, { 45.0f, 36.0f, true, false }, { 45.0f, 40.0f, true, false }, // never above the top
+		{ 52.0f, 40.0f, false, false }, // on the top: put on the point ahead
+		{ 52.0f, 40.0f, false, true },  // nothing under the point ahead (59) and above the ground: it stays and starts down
+		{ 52.0f, 34.0f, false, true }, { 52.0f, 28.0f, false, true }, { 52.0f, 22.0f, false, true }, { 52.0f, 16.0f, false, true },
+		{ 52.0f, 10.0f, false, true }, { 52.0f, 4.0f, false, true },
+		{ 52.0f, 0.0f, false, true }, // within 1 of the ground: on it, the path destroyed (RW 0x66276B), MOVING
+	};
+	for (size_t i = 0; i < want.size(); ++i)
+	{
+		INFO("frame " << i);
+		loco.locomotorMoveTowardsPosition(h, Coord3D{ 200.0f, 0.0f, 0.0f }, 160.0f, 10.0f);
+		CHECK(h.pos.x == want[i].x);
+		CHECK(h.pos.y == 0.0f);
+		CHECK(h.pos.z == want[i].z);
+		CHECK(h.testModelCondition(climbing) == want[i].climbing);
+		CHECK(h.testModelCondition(rappelling) == want[i].rappelling);
+		CHECK(h.applied.empty()); // no mover, no transform write (RW 0x5E91B3)
+		CHECK(h.pathsDestroyed == (i + 1 == want.size() ? 1 : 0));
+	}
+	CHECK(h.testModelCondition(moving));
+	CHECK(h.angle == 0.0f); // the wall's facing: the climber's own facing (0) has a positive dot with it
+	bool noted = false;
+	for (const std::string &s : loco.unverified())
+	{
+		noted = noted || s.rfind("S-084", 0) == 0; // the climb's EVA event and drawable switch are not ported
+	}
+	CHECK(noted);
+	// back on the ground: RAPPELLING goes and the movers run again
+	loco.locomotorMoveTowardsPosition(h, Coord3D{ 200.0f, 0.0f, 0.0f }, 148.0f, 10.0f);
+	CHECK_FALSE(h.testModelCondition(rappelling));
+	CHECK(h.applied.size() == 1);
+}
+
+TEST_CASE("ScalesWalls look-ahead: a climber walking against the wall's facing turns to the opposite facing; the gate refuses an object that is no climber")
+{
+	LocoFixture sw(std::string(kHuman) + "  ScalesWalls = Yes\n");
+	{
+		Locomotor loco(sw.tmpl());
+		ClimberHost h;
+		h.place(60.0f, 0.0f, 3.14159274f); // facing -x, toward the wall from its far side
+		loco.locomotorMoveTowardsPosition(h, Coord3D{ 0.0f, 0.0f, 0.0f }, 60.0f, 10.0f);
+		CHECK(h.angle == 3.14159274f); // the wall's facing + pi, normalized (RW 0x644FD0 leaves pi as it is): its dot with -x is positive
+		CHECK(h.pos.x == 55.0f);        // on the far face: local x 10 -> 5
+		CHECK(h.applied.empty());
+	}
+	{
+		Locomotor loco(sw.tmpl());
+		ClimberHost h;
+		h.climber = false; // HORDE_MEMBER, contained, a horde's product, a HORDE, or no CAN_CLIMB_WALLS
+		h.place(40.0f, 0.0f, 0.0f);
+		loco.locomotorMoveTowardsPosition(h, Coord3D{ 200.0f, 0.0f, 0.0f }, 160.0f, 10.0f);
+		CHECK(h.pos.z == 0.0f);
+		CHECK(h.applied.size() == 1); // the movers ran
+		CHECK_FALSE(h.testModelCondition(mcIndex("CLIMBING")));
 	}
 }

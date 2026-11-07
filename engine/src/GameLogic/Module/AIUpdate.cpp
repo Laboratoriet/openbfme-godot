@@ -35,6 +35,7 @@
 #include "GameLogic/Module/UnportedModule.h"
 #include "GameLogic/Object/Contain/HordeContainRuntime.h"
 #include "GameLogic/Object/Object.h"
+#include "GameLogic/Object/ObjectGeometry.h"
 #include "GameLogic/ObjectTemplateInfo.h"
 #include "Common/NumericState.h"
 #include "GameLogic/SimMath.h"
@@ -338,6 +339,39 @@ public:
 		return logic.settings().gravity;
 	}
 	bool hasStealthModule() const override { return StealthUpdate::of(obj()) != nullptr; } // RW 0x68FBD3
+	// the ScalesWalls look-ahead's object gate (RW 0x5E8944 .. 0x5E89B9): HORDE_MEMBER status (0x26), Object + 0x27C (the container), the producer
+	// (Object + 0x78, RW 0x68B6A1's id) a HORDE, the object a HORDE (KindOf 109), CAN_CLIMB_WALLS (KindOf 184)
+	bool isWallClimber() const override
+	{
+		static const int kClimb = ObjectTemplateInfoBuilder::kindOfIndex("CAN_CLIMB_WALLS");
+		const Object &o = obj();
+		if (o.testStatus((unsigned)statusBits().hordeMember) || o.getContainedBy() || o.isKindOf((unsigned)kindBits().horde) ||
+			!o.isKindOf((unsigned)kClimb))
+		{
+			return false;
+		}
+		const Object *producer = o.getProducerID() != (ObjectID)INVALID_ID ? o.logic().findObjectByID(o.getProducerID()) : nullptr;
+		return !(producer && producer->isKindOf((unsigned)kindBits().horde));
+	}
+	// RW 0x680A75 + RW 0x5E3CC9 (wallScalingCellObjectAt) and the SCALEABLE_WALL test (RW 0x5E8AFA); the frame, major radius and height as
+	// HordeWallScaling.cpp's member step reads them (INFERENCE: the wall's position and facing for its matrix)
+	bool scaleableWallUnder(const Coord3D &p, WallPiece &out) const override
+	{
+		static const int kScaleableWall = ObjectTemplateInfoBuilder::kindOfIndex("SCALEABLE_WALL");
+		const Object *wall = wallScalingCellObjectAt(obj(), p);
+		if (!wall || !wall->isKindOf((unsigned)kScaleableWall))
+		{
+			return false;
+		}
+		out.position = *wall->getPosition();
+		out.angle = wall->getOrientation();
+		out.majorRadius = m_ai.world().movementInfo(*wall->getTemplate()).geometry.majorRadius; // geometry + 0x24
+		out.height = ObjectGeometry::maxHeightAbovePosition(wall->geometryShapes());       // RW 0xAD1920
+		return true;
+	}
+	void setOrientation(float angle) override { obj().setOrientation(angle); } // RW 0x70C31E
+	void setPosition(const Coord3D &p) override { obj().setPosition(&p); }     // RW 0x70C201
+	void destroyAIPath() override { m_ai.mover().destroyPath(); }            // RW 0x66276B
 	bool isKindOfSubmarine() const override
 	{
 		static const int kSubmarine = CombatNames::kindOf("SUBMARINE"); // KindOf 187: template + 0x11F bit 3

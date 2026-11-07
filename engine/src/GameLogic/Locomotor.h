@@ -339,7 +339,8 @@ void parseLocomotorSet(INI *ini, void *instance, void *store, const void *userDa
 //   0x5E76AC for NO_Z_MOTIVE_FORCE, FLOATING_Z, SCALING_WALLS (off a wall), SEA_LEVEL, SURFACE_RELATIVE_HEIGHT and ABSOLUTE_HEIGHT; HOVER 0x5E742E and
 //   SHIP 0x5E613F (lane SHIP-1).
 // NOT ported (reported through Locomotor::unverified(), acceptance stops S-081, S-084):
-//   x87/SSE parity of the CRT trigonometry, the ScalesWalls look-ahead of the dispatcher (RW 0x5E8956-0x5E8FF8), the remaining ZAxisBehaviors
+//   x87/SSE parity of the CRT trigonometry, the ScalesWalls look-ahead's stealth reveal, drawable switch and EVA event (the look-ahead itself,
+//   RW 0x5E8956-0x5E8FF8, is ported: scaleWallsLookAhead), the remaining ZAxisBehaviors
 //   FIXED_RELATIVE_TO_GROUND_AND_BUILDINGS and RELATIVE_TO_HIGHEST_LAYER, the cliff / wading
 //   condition updates of RW 0x5E5785, and the HORDE mover's formation path nodes (types 2, 3, 7, 8).
 // =====================================================================================================
@@ -460,6 +461,40 @@ public:
 	virtual float gravity() const { throw std::logic_error("Locomotor: GameData Gravity is not available to this host"); }
 	// RW 0x68FBD3: the object has a stealth module (behaviour list + 0x4B4 whose slot answers true); the CLIMBING reveal RW 0x5E7C0A then applies (not ported)
 	virtual bool hasStealthModule() const { return false; }
+
+	// ---- the ScalesWalls look-ahead of the dispatcher (RW 0x5E8956 .. 0x5E8FF8; Locomotor::scaleWallsLookAhead) ----
+	// the object's half of its gate: no HORDE_MEMBER status (RW 0x5E8945, status 0x26), not contained (Object + 0x27C), its producer (Object + 0x78,
+	// RW 0x5E8968) no HORDE, itself no HORDE (template + 0x114 bit 13, KindOf 109) and CAN_CLIMB_WALLS (template + 0x11F bit 0, KindOf 184)
+	virtual bool isWallClimber() const { return false; }
+	// a SCALEABLE_WALL (KindOf 201, RW 0x5E8AFA) under a point: the pathfinder's cell object (RW 0x5E3CC9) on the layer TheTerrainLogic gives the point
+	// (RW 0x680A75). Its frame (position and facing), the major radius of its geometry (geometry + 0x24) and its height above its position (RW 0xAD1920)
+	struct WallPiece
+	{
+		Coord3D position{ 0.0f, 0.0f, 0.0f };
+		float angle = 0.0f;
+		float majorRadius = 0.0f;
+		float height = 0.0f;
+	};
+	virtual bool scaleableWallUnder(const Coord3D &p, WallPiece &out) const
+	{
+		(void)p;
+		(void)out;
+		return false;
+	}
+	// RW 0x70C31E Object::setOrientation (the climber turns to the wall)
+	virtual void setOrientation(float angle)
+	{
+		(void)angle;
+		throw std::logic_error("Locomotor: setOrientation (RW 0x70C31E) is not available to this host");
+	}
+	// RW 0x70C201 Object::setPosition
+	virtual void setPosition(const Coord3D &p)
+	{
+		(void)p;
+		throw std::logic_error("Locomotor: setPosition (RW 0x70C201) is not available to this host");
+	}
+	// RW 0x66276B on the object's AI (Object + 0x260): the path is destroyed (a climber that came down a wall walks on by a new path)
+	virtual void destroyAIPath() {}
 };
 
 // lane FLY-1: the GIANT_BIRD movers (RW 0x5E91E2 the path mover, RW 0x5E4CD3 the hover; LocomotorGiantBird.cpp). They read GiantBirdAIUpdate's aerial fields
@@ -485,7 +520,7 @@ public:
 	virtual float heightAboveTerrainOrWater() const = 0;              // RW 0x70BC8F
 	virtual std::uint32_t objectId() const = 0;                       // obj + 0x74
 	virtual float logicRandomReal(float lo, float hi, int line) = 0;  // RW 0x6D332C
-	virtual void setOrientation(float angle) = 0;                     // RW 0x70C31E
+	void setOrientation(float angle) override = 0;                    // RW 0x70C31E
 	virtual void setPositionZ(float z) = 0;                           // RW 0x70C0AD with the object's x, y
 	virtual bool hasBody() const = 0;                                 // obj + 0x25C
 };
@@ -544,6 +579,11 @@ public:
 	// locomotor's turn rate.
 	void rotateTowardsWrapper(LocomotorHost &host, const Coord3D &goal, float *outRelAngle);
 	void handleBehaviorZ(LocomotorHost &host, const Coord3D &goal);                                                       // RW 0x5E76AC
+	// RW 0x5E8956 .. 0x5E8FF8: the dispatcher's ScalesWalls look-ahead for a climber that is no horde (LocomotorMove.cpp). True when it moved the
+	// object itself this frame (up a wall, along its top or down its far side: the dispatcher then runs no mover, no z behaviour and no transform write)
+	bool scaleWallsLookAhead(LocomotorHost &host, float desiredSpeed);
+	void finishWallStep(LocomotorHost &host, bool climbing, bool rappelling); // RW 0x5E8C67 .. 0x5E8CD7 / 0x5E9011 .. 0x5E90A4
+	void clearWallClimb(LocomotorHost &host);                                 // RW 0x5E8FB0 .. 0x5E8FD8
 	// ---- lane FLY-1: the GIANT_BIRD movers (LocomotorGiantBird.cpp) ----
 	// RW 0x5E91E2: one step along GiantBirdAIUpdate's aerial path: `pathDistance` advances by the aerial speed, the object goes to the path's point there
 	// (turned and pitched by the points half a look-ahead behind and ahead), the speed moves toward `goalSpeed`; true when the path is used up (the AI's

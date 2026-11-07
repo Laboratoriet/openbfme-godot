@@ -159,6 +159,10 @@ public:
 	virtual void attackPositionNow(const Coord3D &pos) = 0;
 };
 
+// RW 0x5E3CC9 with the layer of TheTerrainLogic's getLayerForDestination (the ground: S-161): the owner of the OBSTACLE cell under a point, or the wall piece
+// holding a wall top's cell (lane WALL-1); null without one. The wall climbers' look-ahead (Locomotor::scaleWallsLookAhead) and the member step use it
+Object *wallScalingCellObjectAt(Object &asker, const Coord3D &pos);
+
 class HordeContain : public UpdateModule, public ContainModuleInterface, public CreateModuleInterface, public HordeContainInterface
 {
 public:

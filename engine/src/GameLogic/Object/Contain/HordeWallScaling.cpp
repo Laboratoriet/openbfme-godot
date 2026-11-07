@@ -126,8 +126,9 @@ const char *HordeContain::wallScalingStopLine()
 {
 	return "[S-4461] horde wall scaling (lane BACKLOG-8): the wall kept by the horde (contain slots 0x238 / 0x23C, RW 0x86BD54 / 0x86BCF9), its collide entry "
 		   "(RW 0x86C61E), its end (RW 0x86D170), the climbing member's position (RW 0x86E214 through RW 0x871897) and the hub's branch (RW 0x87468B: "
-		   "RW 0x8747AE ..) are ported; NOT connected: nothing calls the collide entry in a game (the horde object itself cannot cross a wall: the locomotor's "
-		   "ScalesWalls look-ahead RW 0x5E8956 is S-084, the wall layer S-161), so a horde never starts to scale; INFERENCE: the wall's frame is its position "
+		   "RW 0x8747AE ..) are ported; NOT connected: nothing calls the collide entry in a game (RotWK's collision manager meets a horde, which has a record "
+		   "while AIData HordesWaitForHordes is set (RW 0x68E3E2), with the wall pieces it overlaps; the port's overlap pass has only the AI units), so a "
+		   "horde never starts to scale; INFERENCE: the wall's frame is its position "
 		   "and facing (RW: the object matrix), its major radius the template's first shape's, the destination layer the ground; not ported: the climber's stealth reveal (RW 0x7767A9), the wall owner's "
 		   "EVA event 15, the drawable's switch (RW 0x672A02) and the member call RW 0x68B531";
 }
@@ -219,7 +220,7 @@ void HordeContain::checkWallScalingDone()
 	m_wallIdlePasses = 0;
 }
 
-static Object *cellObjectAt(Object &asker, const Coord3D &pos)
+Object *wallScalingCellObjectAt(Object &asker, const Coord3D &pos)
 {
 	// RW 0x5E3CC9 with the layer of TheTerrainLogic's getLayerForDestination (the ground: S-161): the owner of the OBSTACLE cell under the point
 	AIUpdateInterface *ai = asker.getAIUpdateInterface();
@@ -286,11 +287,11 @@ void HordeContain::wallScalingMemberPosition(Object &member, Coord3D &pos, Objec
 	// RW 0x70C55D (isSignificantlyAboveTerrain) is false for every KindOf CAN_CLIMB_WALLS object (RW 0x70C50F), the only members that come here
 	const bool onFoot = !member.testModelCondition(b.climbing) && !member.testModelCondition(b.rappelling);
 	auto middle = [&]() { return Coord3D{ SimMath::mulf32(SimMath::addf32(target.x, start.x), 0.5f), SimMath::mulf32(SimMath::addf32(target.y, start.y), 0.5f), target.z }; };
-	Object *o = cellObjectAt(member, target);
+	Object *o = wallScalingCellObjectAt(member, target);
 	if (!o && onFoot)
 	{
 		const Coord3D mid = middle();
-		o = cellObjectAt(member, mid);
+		o = wallScalingCellObjectAt(member, mid);
 		if (o)
 		{
 			target = mid;
@@ -429,7 +430,7 @@ bool HordeContain::wallScalingHub(Object &member, const Coord3D &goal, float ori
 	placed.z = ground > placed.z ? ground : placed.z;
 	member.setPosition(&placed);
 	m_workDone = true;
-	if (Object *wall = cellObjectAt(member, *member.getPosition()))
+	if (Object *wall = wallScalingCellObjectAt(member, *member.getPosition()))
 	{
 		const float dot = SimMath::addf32(SimMath::mulf32(SimMath::cosf32(horde->getOrientation()), SimMath::cosf32(wall->getOrientation())),
 										  SimMath::mulf32(SimMath::sinf32(horde->getOrientation()), SimMath::sinf32(wall->getOrientation())));

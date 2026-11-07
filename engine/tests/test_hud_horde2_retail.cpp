@@ -1002,3 +1002,70 @@ TEST_CASE("backlog8 retail: the FLOATING_Z horde members of the retail data: the
 	CHECK(hc->passStats().snaps == 0);
 	CHECK(hc->passStats().walks == 0);
 }
+
+// The wall climb of a climber that is no horde, in a game (S-084): nothing places it; it is ordered across a finished span of wall pieces and the frames
+// do the rest.
+namespace
+{
+struct WallCross
+{
+	float highest = 0.0f, endHighest = 0.0f;
+	int climbingFrames = 0, rappellingFrames = 0, groundInMiddle = 0;
+	bool crossed = false;
+};
+
+// `templateName` goes from x 600 to x 850 across a span of 15 DolGoldurWallSegmentSmall pieces end to end along y at x 700 (going round its ends is a
+// long way); its height and model conditions are watched every frame
+WallCross crossWall(const char *templateName)
+{
+	WallCross r;
+	const int climbing = AIUpdateInterface::modelConditionBit("CLIMBING");
+	const int rappelling = AIUpdateInterface::modelConditionBit("RAPPELLING");
+	Arena a(shared(), "FactionWild", "FactionMen");
+	Object *o = a.place(templateName, 0, 600.0f, 600.0f, 0.0f);
+	const ThingTemplate *piece = shared().world->things().findTemplate("DolGoldurWallSegmentSmall");
+	REQUIRE(piece != nullptr);
+	const float minor = a.ai->movementInfo(*piece).geometry.minorRadius;
+	for (int k = -7; k <= 7; ++k)
+	{
+		Object *w = a.place("DolGoldurWallSegmentSmall", 1, 700.0f, 600.0f + 2.0f * minor * (float)k, 0.0f);
+		a.ai->addObjectToPathfindMap(*w);
+	}
+	for (int i = 0; i < 40; ++i)
+	{
+		a.logic.runLogicFrame();
+	}
+	o->getAIUpdateInterface()->aiMoveToPosition(Coord3D{ 850.0f, 600.0f, 0.0f }, CMD_FROM_PLAYER);
+	for (int f = 0; f < 400; ++f)
+	{
+		a.logic.runLogicFrame();
+		const Coord3D &p = *o->getPosition();
+		r.highest = p.z > r.highest ? p.z : r.highest;
+		r.climbingFrames += o->testModelCondition(climbing) ? 1 : 0;
+		r.rappellingFrames += o->testModelCondition(rappelling) ? 1 : 0;
+		// on the ground in the middle of the wall's thickness: walking through it
+		r.groundInMiddle += std::fabs(p.x - 700.0f) < 5.0f && std::fabs(p.y - 600.0f) < 15.0f * minor && p.z == 0.0f ? 1 : 0;
+	}
+	r.crossed = o->getPosition()->x > 800.0f;
+	r.endHighest = o->getPosition()->z;
+	return r;
+}
+} // namespace
+
+TEST_CASE("wallclimb retail: a MinorSpider (a climber that is no horde, HeroHumanScalingLocomotorNoBackwards) ordered across a wall climbs it by the "
+		  "locomotor's look-ahead (RW 0x5E8956 .. 0x5E8FF8): CLIMBING up to the top, along it, RAPPELLING down, never through it")
+{
+	if (!haveWorld())
+	{
+		return;
+	}
+	const WallCross r = crossWall("MinorSpider");
+	std::printf("  info: MinorSpider across a wall: highest %.3f, climbing %d frames, rappelling %d frames, on the ground in the wall %d, end %.3f, crossed %d\n",
+		r.highest, r.climbingFrames, r.rappellingFrames, r.groundInMiddle, r.endHighest, r.crossed ? 1 : 0);
+	CHECK(r.highest == 40.0f); // the wall's top: GeometryHeight 40 above its base
+	CHECK(r.climbingFrames == 8);   // the frame it turns to the wall, then 0.6 x its speed (measured) a frame up to the top
+	CHECK(r.rappellingFrames == 9); // the frame it stops on the far edge, the descent at the same rate and the landing frame
+	CHECK(r.groundInMiddle == 0);
+	CHECK(r.crossed);
+	CHECK(r.endHighest == 0.0f);
+}
