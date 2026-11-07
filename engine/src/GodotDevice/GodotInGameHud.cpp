@@ -343,6 +343,7 @@ struct HudDevice : public AptNativeHook
 	uint64_t selExtrasKey = 0;             ///< lane PLACEDECAL-1: what the last grid's other decals were (0: none)
 	unsigned extraDecalsDrawn = 0;         ///< lane PLACEDECAL-1: the ghost's decal shadows in the grid
 	unsigned shadowCount = 0;              ///< lane PLACEDECAL-1: the last build's counts (the grid it built stays until the next)
+	unsigned drawableShadowsDrawn = 0;     ///< S-3304: the game drawables' decal shadows in the last grid built
 	int claimCount = 0, arcCount = 0, placeCount = 0;
 	double decalsLateMs = 0.0;             ///< lane PLACEDECAL-1: drawSelectionDecals' time (it runs after the ghost, inside the camera part)
 	bool placeTextDrawn = false;
@@ -1254,6 +1255,7 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("inject_key", "dik_code", "down"), &InGameHudNode::inject_key);
 	ClassDB::bind_method(D_METHOD("hold_input", "on"), &InGameHudNode::hold_input);                 // lane BACKLOG3 (QA)
 	ClassDB::bind_method(D_METHOD("set_input_enabled", "on"), &InGameHudNode::set_input_enabled); // lane BACKLOG3 (QA)
+	ClassDB::bind_method(D_METHOD("set_shadow_decals", "use_shadow_decals", "use_shadow_volumes"), &InGameHudNode::set_shadow_decals); // S-3304
 	ClassDB::bind_method(D_METHOD("input_enabled"), &InGameHudNode::input_enabled); // lane BFME2CAMP1
 	ClassDB::bind_method(D_METHOD("script_input", "enable"), &InGameHudNode::script_input); // lane OWNERFIX-1
 	ClassDB::bind_method(D_METHOD("set_broadcast_clean", "on"), &InGameHudNode::set_broadcast_clean);
@@ -1494,6 +1496,10 @@ void HudDevice::drawSelectionDecals()
 	const TerrainResourceFeedback &resources = hud->resourceFeedback();
 	extraDecalsDrawn = 0;
 	selExtras.clear();
+	// S-3304: the game's drawables' decal shadows (W3DProjectedShadow.h: the infantry's and the trolls' blobs), on the same list + 4 as the ghost's
+	const std::vector<SelectionDecal> &drawableShadows = hud->shadowDecals();
+	selExtras.insert(selExtras.end(), drawableShadows.begin(), drawableShadows.end());
+	const size_t drawableShadowCount = selExtras.size();
 	if (ghost && world && world->hud_game())
 	{
 		ghost->appendShadowDecals(selExtras);
@@ -1572,9 +1578,15 @@ void HudDevice::drawSelectionDecals()
 		resourceDecalError.clear();
 		claimCount = arcCount = placeCount = 0;
 		shadowCount = 0;
+		drawableShadowsDrawn = 0;
 		for (size_t i = 0; extras && i < selList.size(); ++i)
 		{
 			const bool in = built && i < selGrid.drawn.size() && selGrid.drawn[i] != 0;
+			if (i < drawableShadowCount)
+			{
+				drawableShadowsDrawn += in ? 1u : 0u; // S-3304
+				continue;
+			}
 			if (i < shadows)
 			{
 				shadowCount += in ? 1u : 0u;
@@ -1658,7 +1670,8 @@ void HudDevice::drawSelectionDecals()
 			rs->global_shader_parameter_set("sel_alpha_ref", (float)selGrid.alphaRef);
 			selAlphaSet = selGrid.alphaRef;
 		}
-		decalsDrawn += (unsigned)(selGrid.decals + selGrid.alphaDecals) - extraDecalsDrawn - (unsigned)claimDecalsDrawn - (unsigned)claimArcsDrawn - (placeDecalDrawn ? 1u : 0u);
+		decalsDrawn += (unsigned)(selGrid.decals + selGrid.alphaDecals) - extraDecalsDrawn - drawableShadowsDrawn - (unsigned)claimDecalsDrawn - (unsigned)claimArcsDrawn -
+			(placeDecalDrawn ? 1u : 0u);
 	}
 	else if (mode != selMode && rs)
 	{
@@ -2303,6 +2316,20 @@ Dictionary InGameHudNode::get_state() const
 		s["selection_decals"] = decals;
 		s["selection_decals_drawn"] = (int64_t)d->decalsDrawn;
 		s["ghost_shadow_decals_drawn"] = (int64_t)d->extraDecalsDrawn; // lane PLACEDECAL-1: the placement ghost's decal shadows in the same grid
+		// S-3304: the game drawables' decal shadows (W3DProjectedShadow.h): in the grid, and the list's counts (made / skipped / not drawn)
+		{
+			const W3DProjectedShadow::ShadowDecalCounts &c = d->hud->shadowDecalCounts();
+			Dictionary sh;
+			sh["drawn"] = (int64_t)d->drawableShadowsDrawn;
+			sh["listed"] = (int64_t)c.drawn;
+			sh["shadows"] = (int64_t)c.shadows;
+			sh["skipped"] = (int64_t)c.skipped;
+			sh["bounds_sized"] = (int64_t)c.boundsSized;
+			sh["other_type"] = (int64_t)c.otherType;
+			sh["use_shadow_decals"] = d->hud->shadowDecalLOD().useShadowDecals;
+			sh["use_shadow_volumes"] = d->hud->shadowDecalLOD().useShadowVolumes;
+			s["drawable_shadow_decals"] = sh;
+		}
 		d->composeMergeReport(); // lane SELPERF-1: composed here only (the terrain shader draws the merge decals)
 		Dictionary m;
 		m["decals"] = (int64_t)d->merged.decals;
@@ -2312,7 +2339,8 @@ Dictionary InGameHudNode::get_state() const
 		m["composes"] = d->mergeComposes; // lane SELPERF-1
 		m["gpu_decals"] = (int64_t)d->selGrid.decals;
 		m["gpu_alpha_decals"] = (int64_t)d->selGrid.alphaDecals; // lane HERORING-1 (lane PLACEDECAL-1: with the extra decals below)
-		m["gpu_extra_decals"] = (int64_t)(d->extraDecalsDrawn + (unsigned)d->claimDecalsDrawn + (unsigned)d->claimArcsDrawn + (d->placeDecalDrawn ? 1u : 0u)); // the ghost's and the resource decals
+		m["gpu_extra_decals"] = (int64_t)(d->extraDecalsDrawn + d->drawableShadowsDrawn + (unsigned)d->claimDecalsDrawn + (unsigned)d->claimArcsDrawn +
+			(d->placeDecalDrawn ? 1u : 0u)); // the ghost's, the drawables' shadows (S-3304) and the resource decals
 		m["gpu_max_alpha_per_cell"] = (int64_t)d->selGrid.maxAlphaPerCell;
 		m["gpu_cells"] = (int64_t)d->selGrid.cellsX * d->selGrid.cellsY;
 		m["gpu_max_per_cell"] = (int64_t)d->selGrid.maxPerCell;
@@ -3658,6 +3686,19 @@ void InGameHudNode::set_broadcast_clean(bool on)
 bool InGameHudNode::input_enabled() const
 {
 	return d->ready && d->hud && d->hud->input().ui().getInputEnabled();
+}
+
+void InGameHudNode::set_shadow_decals(bool use_shadow_decals, bool use_shadow_volumes)
+{
+	// S-3304: W3DProjectedShadowManager::addShadow's gate (RW 0x50BF7B) and W3DShadowManager::addShadow's *_OR_DECAL choice (RW 0x49A2EB) read these two
+	// flags of TheGlobalData, which applying the static LOD level sets (GameLODManager::applyStaticLODLevel, RW 0x601C62)
+	if (d->ready && d->hud)
+	{
+		W3DProjectedShadow::ShadowDecalLOD lod;
+		lod.useShadowDecals = use_shadow_decals;
+		lod.useShadowVolumes = use_shadow_volumes;
+		d->hud->setShadowDecalLOD(lod);
+	}
 }
 
 void InGameHudNode::set_input_enabled(bool on)

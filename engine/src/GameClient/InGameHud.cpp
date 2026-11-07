@@ -732,6 +732,17 @@ void InGameHud::update(double seconds)
 		++m_decalVersion;
 	}
 	m_decalClientFrame = m_clientFrames;
+	// S-3304: the drawables' decal shadows, every frame (they move with their drawables), with the terrain part's height test (MarkRaisedSelectionDecals:
+	// ShadowMaxHeight 20, RW 0x50CDE4 .. 0x50CDF9)
+	m_shadowDecals.clear();
+	m_shadowDecalCounts = W3DProjectedShadow::ShadowDecalCounts();
+	// (ShadowOverrideLODVisibility draws without UseShadowDecals: every drawable is looked at)
+	W3DProjectedShadow::BuildDrawableShadowDecals(m_config.game.drawables(), iconSnap.get(), m_iconSettings.shroudDrawn, m_shadowDecalLOD, m_shadowDecals,
+		m_shadowDecalCounts);
+	if (!m_shadowDecals.empty())
+	{
+		MarkRaisedSelectionDecals(m_shadowDecals, m_config.game.logic());
+	}
 	part(m_updateParts.decals);
 	updateRadarEvents();
 	// lane DEVPORT-8 (FALSEDEF-1): RW 0x6D9BF3's control bar blink (RW 0x71C7E4), which the radar asked for through InGameUI::requestAttackFlash
@@ -1535,7 +1546,13 @@ std::vector<std::string> InGameHud::stops() const
 	out.push_back(TerrainResourceFeedback::stopLine()); // lane OWNERFIX-2
 	out.push_back("[S-5032] placement ghost decal shadows (lane OWNERFIX-2): the ghost draws its model state's SHADOW_ALPHA_DECAL / SHADOW_ADDITIVE_DECAL "
 				  "(a well's / statue's area of effect) with the selection decals (lane PLACEDECAL-1) at ShadowOpacityPeak; an additive one is added (lane ECOCIRCLE-2); the "
-				  "_DYNAMIC types' opacity fade, addShadow's LOD gate and every other drawable's decal shadow are not ported (S-3304)");
+				  "_DYNAMIC types' opacity fade and addShadow's LOD gate are not ported for it (the game's drawables' decal shadows: W3DProjectedShadow.h, S-3304)");
+	// S-3304: the game's drawables' decal shadows that are not drawn (W3DProjectedShadow.h)
+	if (m_shadowDecalCounts.boundsSized > 0 || m_shadowDecalCounts.otherType > 0)
+	{
+		out.push_back("[S-3304] decal shadows: " + std::to_string(m_shadowDecalCounts.boundsSized) + " sized by the render object's bounds (RW 0x50C039, not ported) and " +
+			std::to_string(m_shadowDecalCounts.otherType) + " SHADOW_MERGE_DECAL / SHADOW_SUBTRACT_DECAL_DYNAMIC drawable shadows are not drawn this frame");
+	}
 	for (const std::string &l : m_cursorStops)
 	{
 		out.push_back(l);

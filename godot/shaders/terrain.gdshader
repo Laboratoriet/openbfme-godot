@@ -55,11 +55,13 @@ void fragment() {
 	// retail_output's inverse), then the merge decals over them (RotWK draws the merge list after the alpha list, RW 0x50DE6C after RW 0x50D9EB .. 0x50DA6A); the terrain's colour saturated first, as D3D9's
 	// frame buffer is before the decal blends. Lane ECOCIRCLE-2: an additive decal has a == 0 and only rgb (the surface keeps its colour), so either
 	// share draws the pair
-	vec4 sela = sel_alpha_at(vec3(v_sage_xy, 0.0), false);
-	if (sela.a > 0.0 || any(greaterThan(sela.rgb, vec3(0.0)))) {
+	// S-3304: a drawable's SHADOW_DECAL blob multiplies the ground (sela_keep below 1 per channel, no share of its own); the object shadows darken that
+	vec3 sela_keep;
+	vec3 sela = sel_alpha_at(vec3(v_sage_xy, 0.0), false, sela_keep);
+	if (any(lessThan(sela_keep, vec3(1.0))) || any(greaterThan(sela, vec3(0.0)))) {
 		vec3 gamma = clamp(output_gamma == 1.0 ? ALBEDO : shadow_to_gamma(ALBEDO), 0.0, 1.0);
-		shadow_gamma = gamma * (1.0 - sela.a);
-		shadow_over = sela.rgb;
+		shadow_gamma = gamma * sela_keep;
+		shadow_over = sela;
 		ALBEDO = retail_output(shadow_gamma + shadow_over);
 		ground = ALBEDO; // the ring's pixel is the ground the shadow split takes apart (light() puts the ring back over the shadowed share)
 	}

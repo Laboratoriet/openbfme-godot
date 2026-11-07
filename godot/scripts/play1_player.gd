@@ -45,6 +45,9 @@
 ##             The pointer is drawn into the shots from the HUD's own cursor image (a capture omits the OS pointer)
 ##   portraits (lane UI-4) a builder, a building, a hero and a horde of the local player, each selected with a left click: the Palantir's portrait
 ##             clip (CommandUI.Portrait) must draw the selection's SelectPortrait (PalantirCommandUI, RW 0x92FE33); play1-portrait-<kind>.png
+##   decalshadows (S-3304) the hill, snow, mountain and cave trolls and a few infantry of the retail data in a row beside the local units, at ShadowLOD
+##             Low's flags (UseShadowDecals, no shadow map; RW 0x601C62) and then with the decal shadows off: the SHADOW_DECAL units get their blob
+##             (W3DProjectedShadow.h) and the HUD's grid counts them; the frames' draw calls of both; play1-decalshadows-<on|off>.png
 extends "res://scripts/scenario_player.gd"
 
 var game: Node
@@ -1058,6 +1061,64 @@ func _scenario_portraits() -> String:
 
 # lane UI-4: the selection markers as the owner's retail shot shows them (owner-shots/ui4/3-retail-selection-indicators.png): two hordes and a hero selected
 # together by a drag box (one merged outline around both hordes' members, the hero's rune ring), then the hero alone, then a unit only hovered (no marker)
+# S-3304: the decal shadows of the drawables (the blobs) at ShadowLOD Low's flags, then off; the counts, the draw calls and a shot of each
+func _scenario_decalshadows() -> String:
+	if game._local_index < 0:
+		return "no local player index"
+	var spot := Vector2()
+	for o in world.get_player_objects(game._local_name):
+		if not o.structure:
+			spot = Vector2(o.x, o.y)
+			break
+	var centre := spot + Vector2(-60, -300) # in front of the fortress (the camera looks along +y), on open ground
+	var names := ["AngmarHillTroll", "AngmarSnowTroll", "MordorMountainTroll", "GoblinCaveTroll", "ElvenLorienArcher", "DwarvenGuardian",
+		"AngmarThrallMaster", "GondorFighterHorde"]
+	var made: Array = []
+	for i in names.size():
+		var at := centre + Vector2(-147 + 42 * i, 0)
+		var id: int = world.create_object(names[i], game._local_index, at.x, at.y, 0.0)
+		if id <= 0:
+			return "could not create %s" % names[i]
+		made.append(names[i])
+	print("PLAY1 decalshadows: made %s at %s" % [str(made), str(centre)])
+	game.set_shadow_lod(1) # ShadowLOD Low: no shadow map (object_shadows.gd), and the detail level's decal flags (overridden below for the comparison)
+	var view := centre + Vector2(-30, 15)
+	hud.camera_look_at(view)
+	hud.camera_set_height(240.0)
+	await game._step(150) # the arrivals' dust and the view's first frames settle
+	var result := {}
+	for mode in ["off", "on"]:
+		hud.set_shadow_decals(mode == "on", false) # Low's UseShadowDecals / UseShadowVolumes (RW 0x6019D1: ShadowLOD 1), or none
+		await game._step(20)
+		var t0 := Time.get_ticks_usec()
+		var hud_ms := 0.0
+		var decal_ms := 0.0
+		for f in 60:
+			await game._step(1)
+			var tm: Dictionary = hud.get_frame_timings()
+			hud_ms += float(tm.get("hud_update_ms", 0.0)) / 60.0
+			decal_ms += float(tm.get("hud_decals_ms", 0.0)) / 60.0
+		var ms := float(Time.get_ticks_usec() - t0) / 60000.0
+		print("PLAY1 decalshadows %s: the HUD's update %.3f ms a frame, its decals (lists, grid, upload) %.3f ms" % [mode, hud_ms, decal_ms])
+		var calls := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)
+		var st: Dictionary = hud.get_state()
+		var sh: Dictionary = st.get("drawable_shadow_decals", {})
+		var merge: Dictionary = st.get("selection_merge", {})
+		print("PLAY1 decalshadows %s: %s, draw calls %d, %.2f ms a frame; grid: alpha %s, cells %s, max per cell %s, uploads %s, errors %s" % [mode,
+			JSON.stringify(sh), calls, ms, str(merge.get("gpu_alpha_decals", -1)), str(merge.get("gpu_cells", -1)),
+			str(merge.get("gpu_max_alpha_per_cell", -1)), str(merge.get("gpu_uploads", -1)), str(merge.get("errors", []))])
+		result[mode] = sh
+		shot("decalshadows-" + mode)
+	for e in hud.get_report().get("errors", []):
+		if str(e).begins_with("draw: ") and (str(e).to_lower().contains("shadow") or str(e).contains("decal")):
+			print("PLAY1 decalshadows report: %s" % str(e))
+	if int(result.on.get("drawn", 0)) == 0:
+		return "no decal shadow drawn with UseShadowDecals: %s" % JSON.stringify(result.on)
+	if int(result.off.get("drawn", -1)) != 0:
+		return "decal shadows drawn without UseShadowDecals: %s" % JSON.stringify(result.off)
+	return ""
+
+
 func _scenario_selection() -> String:
 	if game._local_index < 0:
 		return "no local player index"

@@ -2865,6 +2865,7 @@ func _install_hud(rep: Dictionary) -> void:
 		return
 	_hud = hud
 	_hud_installed = true
+	_push_shadow_decals() # S-3304: the drawables' decal shadows follow the detail level
 	if _game_options != null:
 		_game_options.game_started(_world, hud) # lane OPTS-2: the detail's particle limits, the camera and interface options
 	_shell.set_tribute_world(_world) # lane PLAY-1: PlayerTribute.apt's rows and Send (the Palantir's flag)
@@ -3084,6 +3085,18 @@ func _apply_lighting(rep: Dictionary) -> void:
 func set_shadow_lod(lod: int) -> void:
 	if _sun != null:
 		load("res://scripts/object_shadows.gd").configure(_sun, _shadow_lighting, lod)
+	_push_shadow_decals()
+
+
+# S-3304: the drawables' decal shadows (the blob under an infantry unit or a hill troll) are made only with TheGlobalData's UseShadowDecals, and the
+# *_OR_DECAL types become decals without UseShadowVolumes (RW 0x50BF7B, RW 0x49A2EB): the static LOD level's flags (RW 0x601C62: ShadowLOD Low and
+# Medium draw decals; High and UltraHigh draw the shadow map instead). No level: none
+func _push_shadow_decals() -> void:
+	if _hud == null or not _hud.has_method("set_shadow_decals"):
+		return
+	var detail: Dictionary = _shell.get_detail_state() if _shell != null else {}
+	var ok: bool = detail.get("ok", false)
+	_hud.set_shadow_decals(ok and bool(detail.get("use_shadow_decals", false)), ok and bool(detail.get("use_shadow_volumes", false)))
 
 
 # ---- the scripted run (--auto) --------------------------------------------------------------------------------------------------------------
