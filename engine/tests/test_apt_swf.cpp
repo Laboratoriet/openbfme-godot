@@ -1,12 +1,14 @@
 // OpenBFME unit tests: the APT <-> SWF converter (docs/APT-SWF.md).  Synthetic movies only (AptTestUtil.h builds them
-// byte by byte); the retail corpus is converted by the tool's `export` command, with the user's own game files.  GPL-3.0.
+// byte by byte); the retail corpus round trip is the tool's `roundtrip` command, run with the user's own game files.  GPL-3.0.
 
 #include "doctest.h"
 #include "AptTestUtil.h"
 
+#include "Libraries/Source/Apt/AptSwfAssemble.h"
 #include "Libraries/Source/Apt/AptSwfAvm1.h"
 #include "Libraries/Source/Apt/AptSwfExport.h"
 #include "Libraries/Source/Apt/AptSwfFormat.h"
+#include "Libraries/Source/Apt/AptSwfImport.h"
 #include "Libraries/Source/Apt/AptSwfTags.h"
 
 #include <string>
@@ -93,6 +95,19 @@ std::vector<std::uint8_t> exportOf(const AptMovieFiles &files, ExportResult &r)
 	ExportOptions options;
 	REQUIRE_MESSAGE(exportSwf(files, options, swf, r, &error), error);
 	return swf;
+}
+
+
+const AptMovieFile *fileNamed(const ImportResult &r, const std::string &path)
+{
+	for (const AptMovieFile &f : r.files)
+	{
+		if (f.path == path)
+		{
+			return &f;
+		}
+	}
+	return nullptr;
 }
 
 } // namespace
@@ -390,4 +405,631 @@ TEST_CASE("apt-swf: a synthetic movie exports to the expected standard tags")
 	CHECK(inner.clipActions.size() == 20);
 	CHECK(r.stats.eaOpcodes == 4);
 	CHECK(r.stats.programs == 2);
+}
+
+
+TEST_CASE("apt-swf: SWF -> APT of an unedited export gives back every file byte for byte")
+{
+	SyntheticMovie movie;
+	ExportResult r;
+	const std::vector<std::uint8_t> swf = exportOf(movie.files, r);
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(importSwf(swf, back, &error), error);
+	CHECK(back.movieName == "Test");
+	CHECK(back.editedTags == 0);
+	REQUIRE(back.files.size() == movie.files.files.size());
+	for (std::size_t i = 0; i < back.files.size(); ++i)
+	{
+		CHECK(back.files[i].path == movie.files.files[i].path);
+		CHECK(back.files[i].bytes == movie.files.files[i].bytes);
+	}
+	// re-saving the SWF with its standard tags re-encoded (as an editor does) changes nothing either
+	SwfFile parsed;
+	REQUIRE(swfReadFile(swf, parsed, &error));
+	CHECK(swfWriteFile(parsed.header, parsed.tags) == swf);
+}
+
+TEST_CASE("apt-swf: a text and a placement edited in the SWF are re-encoded into the .apt records")
+{
+	SyntheticMovie movie;
+	ExportResult r;
+	const std::vector<std::uint8_t> swf = exportOf(movie.files, r);
+	SwfFile parsed;
+	std::string error;
+	REQUIRE(swfReadFile(swf, parsed, &error));
+	for (SwfTag *t : flattenTagsMutable(parsed.tags))
+	{
+		SwfEditText et;
+		if (t->code == SWF_TAG_DEFINEEDITTEXT && decodeEditText(t->body, et))
+		{
+			et.initialText = "Edited in SWF";
+			t->body = encodeEditText(et);
+		}
+		SwfPlaceObject2 po;
+		if (t->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(t->body, po) && po.name == "Clip")
+		{
+			po.matrix.translateY += 200; // 10 pixels down
+			t->body = encodePlaceObject2(po);
+		}
+	}
+	ImportResult back;
+	REQUIRE_MESSAGE(importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error), error);
+	CHECK(back.editedTags == 2);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[0] == "text field 3: text '$Hello' -> 'Edited in SWF'");
+	CHECK(back.edits[1] == "place object (depth 1, 'Clip'): y 50 -> 60");
+	// the other files are untouched; the .apt parses with the new values and keeps the unedited float bits
+	CHECK(fileNamed(back, "Test.const")->bytes == movie.files.files[1].bytes);
+	CHECK(fileNamed(back, "Test_geometry/7.ru")->bytes == movie.files.files[3].bytes);
+	AptConstFile consts;
+	REQUIRE(AptConstFile::parse(fileNamed(back, "Test.const")->bytes, consts, &error));
+	AptFile edited;
+	REQUIRE_MESSAGE(AptFile::parse("Test", std::make_shared<const std::vector<std::uint8_t>>(fileNamed(back, "Test.apt")->bytes), consts, edited, &error), error);
+	CHECK(edited.characters[movie.textId].text->initialText == "Edited in SWF");
+	const AptPlaceObject &clip = *edited.frames[0].items[1].place;
+	CHECK(clip.translation[1] == 60.0f);
+	CHECK(clip.translation[0] == 100.1f);  // unedited: the original float, not 2002 twips / 20
+	CHECK(clip.matrix[0] == 0.333333f);    // unedited: the original float, not its 16.16 value
+	// the edited .apt round-trips through the converter again
+	std::vector<std::uint8_t> swf2;
+	ExportResult r2;
+	AptMovieFiles again;
+	again.name = "Test";
+	again.files = back.files;
+	REQUIRE_MESSAGE(exportSwf(again, ExportOptions(), swf2, r2, &error), error);
+	ImportResult back2;
+	REQUIRE_MESSAGE(importSwf(swf2, back2, &error), error);
+	CHECK(fileNamed(back2, "Test.apt")->bytes == fileNamed(back, "Test.apt")->bytes);
+}
+
+TEST_CASE("apt-swf: edits the importer cannot write back are refused with the tag named")
+{
+	SyntheticMovie movie;
+	ExportResult r;
+	const std::vector<std::uint8_t> swf = exportOf(movie.files, r);
+	SwfFile parsed;
+	std::string error;
+	REQUIRE(swfReadFile(swf, parsed, &error));
+	SUBCASE("a clip event added to a placement's list")
+	{
+		for (SwfTag *t : flattenTagsMutable(parsed.tags))
+		{
+			SwfPlaceObject2 po;
+			if (t->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(t->body, po) && po.name == "Square")
+			{
+				// a second event (Load, 0x1) with `Play`, before the end word
+				const std::vector<std::uint8_t> more = { 0x01, 0, 0, 0, 0x02, 0, 0, 0, 0x06, 0x00 };
+				po.clipActions.insert(po.clipActions.end() - 4, more.begin(), more.end());
+				t->body = encodePlaceObject2(po);
+				break;
+			}
+		}
+		ImportResult back;
+		CHECK_FALSE(importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error));
+		CHECK(error.find("PlaceObject2 #") == 0);
+		CHECK(error.find("clip events were added or removed (not supported yet: edit the existing ones)") != std::string::npos);
+	}
+	SUBCASE("a removed tag")
+	{
+		parsed.tags.pop_back();
+		ImportResult back;
+		CHECK_FALSE(importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error));
+		CHECK(error.find("structural edit") != std::string::npos);
+	}
+	SUBCASE("a SWF without the private tags")
+	{
+		std::vector<SwfTag> standard;
+		for (SwfTag &t : parsed.tags)
+		{
+			if (t.code != SWF_TAG_OPENBFME_APT)
+			{
+				standard.push_back(t);
+			}
+		}
+		ImportResult back;
+		CHECK_FALSE(importSwf(swfWriteFile(parsed.header, standard), back, &error));
+		CHECK(error.find("has no OpenBFME APT data") != std::string::npos);
+	}
+}
+
+namespace
+{
+
+// The edited SWF: `parsed` with its tags written back.  The root timeline's one frame ends with the last top-level tag (ShowFrame).
+struct EditedSwf
+{
+	SwfFile parsed;
+	SyntheticMovie movie;
+
+	EditedSwf()
+	{
+		ExportResult r;
+		const std::vector<std::uint8_t> swf = exportOf(movie.files, r);
+		std::string error;
+		REQUIRE(swfReadFile(swf, parsed, &error));
+		REQUIRE(parsed.tags.back().code == SWF_TAG_SHOWFRAME);
+	}
+
+	// inserts a tag at the end of the root's frame 1 (before its ShowFrame)
+	void addToRoot(std::uint16_t code, std::vector<std::uint8_t> body)
+	{
+		SwfTag t;
+		t.code = code;
+		t.body = std::move(body);
+		parsed.tags.insert(parsed.tags.end() - 1, t);
+	}
+
+	SwfTag *sprite(std::uint32_t id)
+	{
+		for (SwfTag &t : parsed.tags)
+		{
+			if (t.code == SWF_TAG_DEFINESPRITE && t.body[0] == id)
+			{
+				return &t;
+			}
+		}
+		return nullptr;
+	}
+
+	bool import(ImportResult &back, std::string &error) { return importSwf(swfWriteFile(parsed.header, parsed.tags), back, &error); }
+};
+
+AptFile parsedApt(const ImportResult &back)
+{
+	std::string error;
+	AptConstFile consts;
+	REQUIRE(AptConstFile::parse(fileNamed(back, "Test.const")->bytes, consts, &error));
+	AptFile apt;
+	REQUIRE_MESSAGE(AptFile::parse("Test", std::make_shared<const std::vector<std::uint8_t>>(fileNamed(back, "Test.apt")->bytes), consts, apt, &error), error);
+	return apt;
+}
+
+// The edited movie exported again and imported unedited: the same files (the edit is a stable APT movie, not a one-off).
+void checkStableAfterEdit(const ImportResult &back)
+{
+	AptMovieFiles again;
+	again.name = "Test";
+	again.files = back.files;
+	std::vector<std::uint8_t> swf2;
+	ExportResult r2;
+	std::string error;
+	REQUIRE_MESSAGE(exportSwf(again, ExportOptions(), swf2, r2, &error), error);
+	ImportResult back2;
+	REQUIRE_MESSAGE(importSwf(swf2, back2, &error), error);
+	CHECK(back2.editedTags == 0);
+	CHECK(fileNamed(back2, "Test.apt")->bytes == fileNamed(back, "Test.apt")->bytes);
+}
+
+std::size_t firstTagIndex(const std::vector<SwfTag> &tags, std::uint16_t code)
+{
+	for (std::size_t i = 0; i < tags.size(); ++i)
+	{
+		if (tags[i].code == code)
+		{
+			return i;
+		}
+	}
+	return tags.size();
+}
+
+} // namespace
+
+TEST_CASE("apt-swf: a new PlaceObject2 of an existing character becomes a new APT place-object record")
+{
+	EditedSwf e;
+	SwfPlaceObject2 p;
+	p.flags = 0x02 | 0x04 | 0x08 | 0x20; // character, matrix, colour, name
+	p.depth = 7;
+	p.characterId = (std::uint16_t)e.movie.spriteId;
+	p.matrix = swfMatrixFromFloats(0.5f, 0, 0, 2.0f, 40.0f, -12.5f);
+	p.cxform.hasMult = true;
+	p.cxform.mult[3] = 128; // alpha 0.5
+	p.name = "Copy";
+	e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+	// and one inside the sprite, after its own placement (a second copy of the shape)
+	SwfPlaceObject2 q;
+	q.flags = 0x02 | 0x04;
+	q.depth = 2;
+	q.characterId = (std::uint16_t)e.movie.shapeId;
+	q.matrix = swfMatrixFromFloats(1, 0, 0, 1, 20.0f, 0);
+	SwfTag *sprite = e.sprite(e.movie.spriteId);
+	REQUIRE(sprite);
+	SwfTag t;
+	t.code = SWF_TAG_PLACEOBJECT2;
+	t.body = encodePlaceObject2(q);
+	sprite->children.insert(sprite->children.begin() + 1, t);
+
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[0] == "the root timeline frame 1: new place object (depth 7, character 5, 'Copy', at (40, -12.5))");
+	CHECK(back.edits[1] == "sprite 5 frame 1: new place object (depth 2, character 1, at (20, 0))");
+	CHECK(fileNamed(back, "Test.const")->bytes == e.movie.files.files[1].bytes);
+	CHECK(fileNamed(back, "Test_geometry/7.ru")->bytes == e.movie.files.files[3].bytes);
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.frames[0].items.size() == 6);
+	const AptPlaceObject &added = *apt.frames[0].items[5].place;
+	CHECK(added.flags == (APT_PLACE_HASCHARACTER | APT_PLACE_HASMATRIX | APT_PLACE_HASCOLORTRANSFORM | APT_PLACE_HASNAME));
+	CHECK(added.depth == 7);
+	CHECK(added.characterId == (std::int32_t)e.movie.spriteId);
+	CHECK(added.matrix[0] == 0.5f);
+	CHECK(added.matrix[3] == 2.0f);
+	CHECK(added.translation[0] == 40.0f);
+	CHECK(added.translation[1] == -12.5f);
+	CHECK(added.tint[3] == 128);
+	CHECK(added.tint[0] == 255);
+	CHECK(added.name == "Copy");
+	CHECK(added.clipDepth == -1);
+	// the frame's other items are the original records, in their order
+	CHECK(apt.frames[0].items[0].label == "start");
+	CHECK(apt.frames[0].items[1].place->name == "Clip");
+	CHECK(apt.frames[0].items[1].place->matrix[0] == 0.333333f);
+	const AptFrame &spriteFrame = apt.characters[e.movie.spriteId].frames[0];
+	REQUIRE(spriteFrame.items.size() == 3);
+	CHECK(spriteFrame.items[0].place->name == "Square");
+	CHECK(spriteFrame.items[1].place->characterId == (std::int32_t)e.movie.shapeId);
+	CHECK(spriteFrame.items[1].place->translation[0] == 20.0f);
+	CHECK(spriteFrame.items[2].type == APT_ITEM_ACTION);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: RemoveObject2 added and a placement taken out of a frame")
+{
+	EditedSwf e;
+	SwfWriter w;
+	w.u16(3);
+	e.addToRoot(SWF_TAG_REMOVEOBJECT2, w.bytes);
+	// take the text field's placement (depth 2) out of the root frame
+	for (auto it = e.parsed.tags.begin(); it != e.parsed.tags.end(); ++it)
+	{
+		SwfPlaceObject2 p;
+		if (it->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(it->body, p) && p.depth == 2)
+		{
+			e.parsed.tags.erase(it);
+			break;
+		}
+	}
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[0] == "the root timeline frame 1: new remove object (depth 3)");
+	CHECK(back.edits[1] == "the root timeline frame 1: removed place object (depth 2)");
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.frames[0].items.size() == 5);
+	CHECK(apt.frames[0].items[0].type == APT_ITEM_FRAMELABEL);
+	CHECK(apt.frames[0].items[1].place->depth == 1);
+	CHECK(apt.frames[0].items[2].place->depth == 3);
+	CHECK(apt.frames[0].items[3].type == APT_ITEM_ACTION);
+	CHECK(apt.frames[0].items[4].type == APT_ITEM_REMOVEOBJECT);
+	CHECK(apt.frames[0].items[4].removeDepth == 3);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: a new frame label gets the retail label fields")
+{
+	EditedSwf e;
+	SwfWriter w;
+	w.cstring("_open");
+	e.addToRoot(SWF_TAG_FRAMELABEL, w.bytes);
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 1);
+	CHECK(back.edits[0] == "the root timeline frame 1: new frame label '_open'");
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.frames[0].items.size() == 6);
+	CHECK(apt.frames[0].items[5].label == "_open");
+	CHECK(apt.frames[0].items[5].labelFlags == 0x70000);
+	CHECK(apt.frames[0].items[5].labelFrameId == 0);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: a new DefineEditText becomes a new APT text character, placed by its SWF id")
+{
+	EditedSwf e;
+	SwfEditText t;
+	t.id = 40; // an editor's new id, above the converter's own (the hit shape is 6)
+	t.bounds[0] = 0;
+	t.bounds[1] = 2000;
+	t.bounds[2] = 20;
+	t.bounds[3] = 400;
+	t.flags1 = 0x80 | 0x08 | 0x04 | 0x01; // text, read-only, colour, font
+	t.flags2 = 0x20;                       // layout
+	t.fontId = 2;
+	t.fontHeight = 240;
+	t.color[0] = 200;
+	t.color[1] = 100;
+	t.color[2] = 50;
+	t.color[3] = 255;
+	t.align = 1;
+	t.variableName = "FactionName_7";
+	t.initialText = "$Stats:FactionName_7";
+	SwfTag def;
+	def.code = SWF_TAG_DEFINEEDITTEXT;
+	def.body = encodeEditText(t);
+	e.parsed.tags.insert(e.parsed.tags.begin() + (std::ptrdiff_t)firstTagIndex(e.parsed.tags, SWF_TAG_EXPORTASSETS), def);
+	SwfPlaceObject2 p;
+	p.flags = 0x02 | 0x04 | 0x20;
+	p.depth = 9;
+	p.characterId = 40;
+	p.matrix = swfMatrixFromFloats(1, 0, 0, 1, 10, 20);
+	p.name = "Name7";
+	e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[0] == "new text field 40 -> APT character 6 ('$Stats:FactionName_7', variable 'FactionName_7')");
+	CHECK(back.edits[1] == "the root timeline frame 1: new place object (depth 9, character 6, 'Name7', at (10, 20))");
+	const AptFile apt = parsedApt(back);
+	REQUIRE(apt.characters.size() == 7);
+	REQUIRE(apt.characters[6].text);
+	const AptTextInfo &text = *apt.characters[6].text;
+	CHECK(text.initialText == "$Stats:FactionName_7");
+	CHECK(text.variableName == "FactionName_7");
+	CHECK(text.fontId == 2);
+	CHECK(text.fontHeight == 12.0f);
+	CHECK(text.alignment == 1);
+	CHECK(text.readOnly);
+	CHECK_FALSE(text.multiline);
+	CHECK(text.color[0] == 200);
+	CHECK(text.color[2] == 50);
+	CHECK(text.bounds[0] == 0.0f);
+	CHECK(text.bounds[1] == 1.0f);
+	CHECK(text.bounds[2] == 100.0f);
+	CHECK(text.bounds[3] == 20.0f);
+	CHECK(apt.frames[0].items[5].place->characterId == 6);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: structural edits still beyond the importer are refused, naming the tag")
+{
+	EditedSwf e;
+	std::string error;
+	ImportResult back;
+	SUBCASE("a GetURL2 into a sprite path (loadMovie with a path)")
+	{
+		// Push "a.swf", "_root.x"; GetURL2 load-target; End
+		e.addToRoot(SWF_TAG_DOACTION, { 0x96, 0x07, 0x00, 0x00, 'a', '.', 's', 'w', 'f', 0x00, 0x96, 0x09, 0x00, 0x00, '_', 'r', 'o', 'o', 't', '.', 'x',
+										  0x00, 0x9A, 0x01, 0x00, 0x40, 0x00 });
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("GetURL2 loading variables or into a sprite path") != std::string::npos);
+	}
+	SUBCASE("a new DoAction with an action the APT runtime does not have (With)")
+	{
+		e.addToRoot(SWF_TAG_DOACTION, { 0x94, 0x02, 0x00, 0x00, 0x00, 0x00 });
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("DoAction #") == 0);
+		CHECK(error.find("action 0x94 (#0) is not an action the APT runtime has") != std::string::npos);
+	}
+	SUBCASE("a new shape")
+	{
+		SwfTag shape = e.parsed.tags[firstTagIndex(e.parsed.tags, SWF_TAG_DEFINESHAPE3)];
+		shape.body[0] = 50;
+		e.parsed.tags.insert(e.parsed.tags.begin() + (std::ptrdiff_t)firstTagIndex(e.parsed.tags, SWF_TAG_EXPORTASSETS), shape);
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("a new character 50 (DefineShape3): only new text fields (DefineEditText) can be added") != std::string::npos);
+	}
+	SUBCASE("a new frame")
+	{
+		SwfTag show;
+		show.code = SWF_TAG_SHOWFRAME;
+		e.parsed.tags.push_back(show);
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error == "the root timeline has 2 frames where the movie has 1: frames were added or removed (a structural edit not supported: frame "
+					   "items can be added and removed, frames cannot)");
+	}
+	SUBCASE("a placement of a character the converter made")
+	{
+		SwfPlaceObject2 p;
+		p.flags = 0x02;
+		p.depth = 20;
+		p.characterId = 6; // the button's hit shape
+		e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("character 6 is not an APT character") != std::string::npos);
+	}
+	SUBCASE("a new placement whose clip event uses an action the runtime does not have")
+	{
+		SwfPlaceObject2 p;
+		p.flags = 0x80 | 0x02;
+		p.depth = 20;
+		p.characterId = (std::uint16_t)e.movie.spriteId;
+		// EnterFrame: `With` (0x94), End
+		p.clipActions = { 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 6, 0, 0, 0, 0x94, 0x02, 0x00, 0x00, 0x00, 0x00, 0, 0, 0, 0 };
+		e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+		CHECK_FALSE(e.import(back, error));
+		CHECK(error.find("clip event 0: action 0x94 (#0) is not an action the APT runtime has") != std::string::npos);
+	}
+}
+
+TEST_CASE("apt-swf: an edited DoAction is assembled back into APT and the frame item points at it")
+{
+	EditedSwf e;
+	std::uint32_t before = 0;
+	{
+		const AptFile original = [&] {
+			ImportResult unedited;
+			std::string error;
+			REQUIRE(e.import(unedited, error));
+			return parsedApt(unedited);
+		}();
+		before = original.frames[0].items[4].codeOffset;
+	}
+	// the root's frame action is `Stop`; make it `Play`
+	for (SwfTag &t : e.parsed.tags)
+	{
+		if (t.code == SWF_TAG_DOACTION)
+		{
+			REQUIRE(t.body == std::vector<std::uint8_t>({ 0x07, 0x00 }));
+			t.body = { 0x06, 0x00 };
+		}
+	}
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 1);
+	const AptFile apt = parsedApt(back);
+	const AptFrameItem &item = apt.frames[0].items[4];
+	CHECK(item.codeOffset != before);
+	CHECK(back.edits[0].find(": actions re-assembled at .apt offset " + std::to_string(item.codeOffset) + " (was " + std::to_string(before) + ")") !=
+		std::string::npos);
+	std::shared_ptr<const AptCodeBlock> block = apt.codeAt(item.codeOffset, &error);
+	REQUIRE_MESSAGE(block, error);
+	REQUIRE(block->instructions.size() == 2);
+	CHECK(block->instructions[0].opcode == APT_OP_PLAY);
+	CHECK(block->instructions[1].opcode == APT_OP_END);
+	// the sprite's frame action shared the same program and is untouched
+	CHECK(apt.characters[e.movie.spriteId].frames[0].items[1].codeOffset == before);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: AVM1 -> APT: pushes, a branch, a function and a register push assemble to the runtime's forms")
+{
+	// x = 7; if (!(x < 5)) { y = true; } f = function (a) { return a; }; push register 1, 2.5, -70000, null, undefined, false; Pop; End
+	const std::vector<std::uint8_t> program = {
+		0x96, 0x08, 0x00, 0x00, 'x', 0x00, 0x07, 0x07, 0x00, 0x00, 0x00, // Push "x", 7
+		0x1D,                                                             // SetVariable
+		0x96, 0x03, 0x00, 0x00, 'x', 0x00,                                // Push "x"
+		0x1C,                                                             // GetVariable
+		0x96, 0x05, 0x00, 0x07, 0x05, 0x00, 0x00, 0x00,                   // Push 5
+		0x48,                                                             // Less2
+		0x9D, 0x02, 0x00, 0x09, 0x00,                                     // If +9 (over `y = true`)
+		0x96, 0x05, 0x00, 0x00, 'y', 0x00, 0x05, 0x01,                    // Push "y", true
+		0x1D,                                                             // SetVariable
+		0x96, 0x03, 0x00, 0x00, 'f', 0x00,                                // Push "f"
+		0x9B, 0x07, 0x00, 0x00, 0x01, 0x00, 'a', 0x00, 0x08, 0x00,        // DefineFunction "" (a), 8 bytes of body:
+		0x96, 0x03, 0x00, 0x00, 'a', 0x00, 0x1C, 0x3E,                    //   Push "a", GetVariable, Return
+		0x1D,                                                             // SetVariable
+		0x96, 0x10, 0x00, 0x04, 0x01, 0x01, 0x00, 0x00, 0x20, 0x40,       // Push register1, 2.5 (float),
+		0x07, 0x90, 0xEE, 0xFE, 0xFF, 0x02, 0x03, 0x05, 0x00,             //   -70000, null, undefined, false
+		0x17,                                                             // Pop
+		0x00 };                                                           // End
+	EditedSwf e;
+	e.addToRoot(SWF_TAG_DOACTION, program);
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	REQUIRE(back.edits.size() == 2);
+	CHECK(back.edits[1] == "Test.const: 1 register entries added");
+	const AptFile apt = parsedApt(back);
+	AptConstFile originalConsts;
+	REQUIRE(AptConstFile::parse(e.movie.files.files[1].bytes, originalConsts, &error));
+	REQUIRE(apt.consts.entries.size() == originalConsts.entries.size() + 1);
+	CHECK(apt.consts.entries.back().type == APT_CONST_REGISTER);
+	CHECK(apt.consts.entries.back().raw == 1);
+	REQUIRE(apt.frames[0].items.size() == 6);
+	std::shared_ptr<const AptCodeBlock> block = apt.codeAt(apt.frames[0].items[5].codeOffset, &error);
+	REQUIRE_MESSAGE(block, error);
+	std::vector<std::uint8_t> ops;
+	for (const AptInstruction &i : block->instructions)
+	{
+		ops.push_back(i.opcode);
+	}
+	const std::vector<std::uint8_t> want = { APT_OP_EA_PUSHSTRING, APT_OP_EA_PUSHBYTE, APT_OP_SETVARIABLE, APT_OP_EA_PUSHSTRING, APT_OP_GETVARIABLE,
+		APT_OP_EA_PUSHBYTE, APT_OP_LESS2, APT_OP_BRANCHIFTRUE, APT_OP_EA_PUSHSTRING, APT_OP_EA_PUSHTRUE, APT_OP_SETVARIABLE, APT_OP_EA_PUSHSTRING,
+		APT_OP_DEFINEFUNCTION, APT_OP_SETVARIABLE, APT_OP_PUSHDATA, APT_OP_EA_PUSHFLOAT, APT_OP_EA_PUSHLONG, APT_OP_EA_PUSHNULL,
+		APT_OP_EA_PUSHUNDEFINED, APT_OP_EA_PUSHFALSE, APT_OP_POP, APT_OP_END };
+	CHECK(ops == want);
+	CHECK(block->instructions[1].intOperand == 7);
+	CHECK(block->instructions[7].branchTarget == 11); // over `y = true`, to Push "f"
+	CHECK(block->instructions[12].function->params.size() == 1);
+	CHECK(block->instructions[12].function->params[0].name == "a");
+	CHECK(block->instructions[12].function->body->instructions.size() == 3);
+	CHECK(block->instructions[14].constants[0].type == APT_CONST_REGISTER);
+	CHECK(block->instructions[15].floatOperand == 2.5f);
+	CHECK(block->instructions[16].intOperand == -70000);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: two encodings of the same AVM1 normalize to the same lines")
+{
+	// ConstantPool "a" + Push constant8 0 / Push "a" inline; one Push of two values / two Pushes; a double 2.0 / a float 2.0
+	const std::vector<std::uint8_t> pooled = { 0x88, 0x04, 0x00, 0x01, 0x00, 'a', 0x00, 0x96, 0x0B, 0x00, 0x08, 0x00, 0x06, 0x00, 0x00, 0x00, 0x40,
+		0x00, 0x00, 0x00, 0x00, 0x1D, 0x00 };
+	const std::vector<std::uint8_t> inlined = { 0x96, 0x03, 0x00, 0x00, 'a', 0x00, 0x96, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x40, 0x1D, 0x00 };
+	std::vector<std::string> a, b;
+	std::string error;
+	REQUIRE_MESSAGE(avm1Normalized(pooled, a, &error), error);
+	REQUIRE_MESSAGE(avm1Normalized(inlined, b, &error), error);
+	CHECK(a == b);
+	const std::vector<std::string> want = { "push string a", "push float 40000000", "op 0x1D", "op 0x00" };
+	CHECK(a == want);
+}
+
+TEST_CASE("apt-swf: clip and button actions edited in the SWF, and a new placement with a clip event, are assembled back")
+{
+	EditedSwf e;
+	for (SwfTag *t : flattenTagsMutable(e.parsed.tags))
+	{
+		SwfPlaceObject2 po;
+		if (t->code == SWF_TAG_PLACEOBJECT2 && decodePlaceObject2(t->body, po) && po.name == "Square")
+		{
+			REQUIRE(po.clipActions[14] == 0x07);
+			po.clipActions[14] = 0x06; // EnterFrame: Play instead of Stop
+			t->body = encodePlaceObject2(po);
+		}
+		SwfButton2 b;
+		if (t->code == SWF_TAG_DEFINEBUTTON2 && decodeButton2(t->body, b))
+		{
+			// the only action (OverDownToOverUp): `Stop`
+			b.condActions = { 0x00, 0x00, b.condActions[2], b.condActions[3], 0x07, 0x00 };
+			t->body = encodeButton2(b);
+		}
+	}
+	SwfPlaceObject2 p;
+	p.flags = 0x80 | 0x02 | 0x20;
+	p.depth = 20;
+	p.characterId = (std::uint16_t)e.movie.spriteId;
+	p.name = "Ticker";
+	// Load (0x1) and KeyPress (0x20000, key 13) events
+	p.clipActions = { 0, 0, 0x01, 0, 0x02, 0, 0x01, 0, 0, 0, 2, 0, 0, 0, 0x06, 0x00, 0, 0, 0x02, 0, 3, 0, 0, 0, 13, 0x07, 0x00, 0, 0, 0, 0 };
+	e.addToRoot(SWF_TAG_PLACEOBJECT2, encodePlaceObject2(p));
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	const AptFile apt = parsedApt(back);
+	auto firstOp = [&](std::uint32_t offset) {
+		std::string err;
+		std::shared_ptr<const AptCodeBlock> block = apt.codeAt(offset, &err);
+		REQUIRE_MESSAGE(block, err);
+		return block->instructions[0].opcode;
+	};
+	const AptPlaceObject &square = *apt.characters[e.movie.spriteId].frames[0].items[0].place;
+	REQUIRE(square.clipEvents.size() == 1);
+	CHECK(square.clipEvents[0].mask == APT_CLIP_ENTERFRAME);
+	CHECK(firstOp(square.clipEvents[0].codeOffset) == APT_OP_PLAY);
+	REQUIRE(apt.characters[e.movie.buttonId].button->actions.size() == 1);
+	CHECK(firstOp(apt.characters[e.movie.buttonId].button->actions[0].codeOffset) == APT_OP_STOP);
+	const AptPlaceObject &ticker = *apt.frames[0].items[5].place;
+	CHECK(ticker.name == "Ticker");
+	CHECK(ticker.flags == (APT_PLACE_HASCLIPACTION | APT_PLACE_HASCHARACTER | APT_PLACE_HASNAME));
+	REQUIRE(ticker.clipEvents.size() == 2);
+	CHECK(ticker.clipEvents[0].mask == APT_CLIP_LOAD);
+	CHECK(firstOp(ticker.clipEvents[0].codeOffset) == APT_OP_PLAY);
+	CHECK(ticker.clipEvents[1].mask == APT_CLIP_KEYPRESS);
+	CHECK(ticker.clipEvents[1].keyCode == 13);
+	CHECK(ticker.clipEvents[1].nextEventOffset == 0);
+	CHECK(firstOp(ticker.clipEvents[1].codeOffset) == APT_OP_STOP);
+	checkStableAfterEdit(back);
+}
+
+TEST_CASE("apt-swf: GetURL2's send method is dropped: the game sends no variables (fscommand as JPEXS compiles it)")
+{
+	EditedSwf e;
+	// Push "FSCommand:Quit", ""; GetURL2 with method 1 (GET); End
+	e.addToRoot(SWF_TAG_DOACTION, { 0x96, 0x10, 0x00, 0x00, 'F', 'S', 'C', 'o', 'm', 'm', 'a', 'n', 'd', ':', 'Q', 'u', 'i', 't', 0x00, 0x96, 0x02, 0x00, 0x00,
+									  0x00, 0x9A, 0x01, 0x00, 0x01, 0x00 });
+	ImportResult back;
+	std::string error;
+	REQUIRE_MESSAGE(e.import(back, error), error);
+	const AptFile apt = parsedApt(back);
+	std::shared_ptr<const AptCodeBlock> block = apt.codeAt(apt.frames[0].items[5].codeOffset, &error);
+	REQUIRE_MESSAGE(block, error);
+	REQUIRE(block->instructions.size() == 4);
+	CHECK(block->instructions[0].text == "FSCommand:Quit");
+	CHECK(block->instructions[2].opcode == APT_OP_GETURL2);
 }
