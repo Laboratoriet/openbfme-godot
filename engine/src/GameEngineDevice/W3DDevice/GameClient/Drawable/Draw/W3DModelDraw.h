@@ -144,7 +144,8 @@ struct LuaEventInfo
 struct ModelShadowInfo
 {
 	int type = 0;          ///< bits of RW 0xD99EB0 (parseBitString16)
-	float sizeX = 0.0f, sizeY = 0.0f, offsetX = 0.0f, offsetY = 0.0f, sunAngle = 0.0f, maxHeight = 0.0f;
+	// ShadowMaxHeight (+ 0x20) is 20 until the INI sets it: the record's constructor (ShadowTypeInfo, RW 0x478DC0; 20.0 at RW 0xBDBC6C)
+	float sizeX = 0.0f, sizeY = 0.0f, offsetX = 0.0f, offsetY = 0.0f, sunAngle = 0.0f, maxHeight = 20.0f;
 	bool overrideLODVisibility = false;
 	std::string texture;
 };

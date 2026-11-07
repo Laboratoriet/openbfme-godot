@@ -173,15 +173,16 @@ TEST_CASE("heroring1: the grid carries an alpha decal after the merge decals: it
 	broken.pop_back(); // the merge decal alone
 	CHECK_FALSE(BuildSelectionDecalGrid(broken, &Atlas::rect, twoPasses(), g, &err));
 	// the notes of the decals after the broken merge decal reach the report too (the first build stops at it): a missing ring texture, an
-	// unsupported style; each note once. Lane ECOCIRCLE-2: 0x40 is an alpha decal now, so the multiplicative 0x01 stands in for an unsupported style
+	// unsupported style; each note once. Lane ECOCIRCLE-2: 0x40 is an alpha decal now; S-3304: so is the multiplicative 0x01, so RotWK's subtractive
+	// 0x10000 stands in for an unsupported style
 	std::vector<SelectionDecal> later = { member(0, 0, 0), hero(60, 0, 0, 0xFFFFFFFFu, "ringgone"), hero(-60, 0, 0, 0xFFFFFFFFu) };
 	later[0].texture = "mergegone";
-	later[2].style = 0x01u; // SHADOW_MUL_DECAL handled otherwise: not drawn
+	later[2].style = 0x10000u; // SHADOW_SUBTRACT_DECAL_DYNAMIC: not drawn
 	REQUIRE(BuildSelectionDecalGrid(later, &Atlas::rect, twoPasses(), g, &err)); // nothing drawn (the grid is empty)
 	CHECK(SelectionDecalShaderMode(g) == 0);
 	CHECK(err.find("mergegone") != std::string::npos);
 	CHECK(err.find("ringgone") != std::string::npos);
-	CHECK(err.find("0x1") != std::string::npos);
+	CHECK(err.find("0x10000") != std::string::npos);
 	std::vector<SelectionDecal> before = { later[1], later[0] }; // the ring's note is already in the first build's: named once
 	REQUIRE(BuildSelectionDecalGrid(before, &Atlas::rect, twoPasses(), g, &err));
 	CHECK(err.find("ringgone") != std::string::npos);
@@ -364,14 +365,15 @@ TEST_CASE("heroring1: the wall shader blends the alpha decals over the surface's
 	sel.Tex[0] = true;
 	sel.SelectionDecals = true;
 	const std::string code = Generate_W3D_Shader_Code(sel);
-	CHECK(code.find("vec4 sela = sel_up ? sel_alpha_at(sel_at, true) : vec4(0.0);") != std::string::npos);
+	// S-3304: the per-channel share of the surface kept (a SHADOW_DECAL blob multiplies it)
+	CHECK(code.find("vec3 sela = sel_up ? sel_alpha_at(sel_at, true, sela_keep) : vec3(0.0);") != std::string::npos);
 	// review r2 (#208): the surface's shadowed share and the ring over it go to light() (one colour space), the shadow split keeps the merge share
 	CHECK(code.find("varying vec3 v_shadow_over;") != std::string::npos);
 	CHECK(code.find("vec3 sel_shadow = clamp(cur.rgb, 0.0, 1.0);") != std::string::npos);
-	CHECK(code.find("if (sela.a > 0.0 || any(greaterThan(sela.rgb, vec3(0.0)))) { sel_shadow *= 1.0 - sela.a; sel_over = sela.rgb; ALBEDO = w3d_to_linear(sel_shadow + sel_over); sel_ground = ALBEDO; }") !=
+	CHECK(code.find("if (any(lessThan(sela_keep, vec3(1.0))) || any(greaterThan(sela, vec3(0.0)))) { sel_shadow *= sela_keep; sel_over = sela; ALBEDO = w3d_to_linear(sel_shadow + sel_over); sel_ground = ALBEDO; }") !=
 		std::string::npos);
 	CHECK(code.find("float sel_keep = 1.0 - sel.a;") != std::string::npos);
-	CHECK(code.find("(1.0 - sela.a) * (1.0 - sel.a)") == std::string::npos);
+	CHECK(code.find("sela_keep * (1.0 - sel.a)") == std::string::npos);
 	CHECK(code.find("v_shadow_color = sel_shadow;") != std::string::npos);
 	CHECK(code.find("v_shadow_over = sel_over;") != std::string::npos);
 	CHECK(code.find("DIFFUSE_LIGHT += shadow_to_linear(v_shadow_color * mix(w3d_shadow.rgb, vec3(1.0), ATTENUATION) + v_shadow_over);") != std::string::npos);

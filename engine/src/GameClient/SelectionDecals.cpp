@@ -243,6 +243,10 @@ constexpr std::uint32_t kAlphaStyles = 0x20u | 0x400u;
 constexpr std::uint32_t kAdditiveStyles = 0x40u | 0x800u;
 // lane PLACEDECAL-1: SHADOW_DECAL_TERRAIN_CLAIM, drawn as an alpha decal when it carries its vertex mask (the placement claim decal)
 constexpr std::uint32_t kTerrainClaimStyle = 0x2000u;
+// S-3304: SHADOW_DECAL, the drawables' blob shadows (GameEngineDevice/W3DDevice/GameClient/Shadow/W3DProjectedShadow.h): flushDecals draws it with
+// ShaderClass 0x111853 (RW 0x509A1F, constant RW 0xD9B2F4), ZERO / SRC_COLOR: the surface multiplied by texel x diffuse (white); in the alpha list with
+// rec3.w -4 (terrain only) / -5 (a wall top too), sel_alpha_at multiplies
+constexpr std::uint32_t kMultiplyStyle = 0x1u;
 
 // bilinear RGBA at (u, v) in [0, 1], v = 0 the top row (the GPU filters before the alpha test)
 void sample(const DecalImage &img, float u, float v, float out[4])
@@ -519,7 +523,7 @@ bool BuildMergeDecalGrid(const std::vector<SelectionDecal> &decals, const std::f
 			}
 			merge.push_back(it);
 		}
-		else if ((d.style & (kAlphaStyles | kAdditiveStyles)) || ((d.style & kTerrainClaimStyle) && d.maskW > 0))
+		else if ((d.style & (kAlphaStyles | kAdditiveStyles | kMultiplyStyle)) || ((d.style & kTerrainClaimStyle) && d.maskW > 0))
 		{
 			// lane PLACEDECAL-1: a SHADOW_DECAL_TERRAIN_CLAIM decal with its vertex mask is drawn with the same shader (RW 0x509A1F: 0x2000 -> 0x1198B3), its
 			// alpha weighted per terrain vertex (RW 0x50D264); a mask (of any decal) holds one alpha a vertex. Lane ECOCIRCLE-2: an additive style has one
@@ -544,7 +548,7 @@ bool BuildMergeDecalGrid(const std::vector<SelectionDecal> &decals, const std::f
 		}
 		else
 		{
-			// lane HERORING-1: the additive (0x40 / 0x800), multiplicative (0x01) and RotWK's 0x10000 decals blend otherwise (RW 0x509A1F), and
+			// lane HERORING-1: RotWK's 0x10000 decals blend otherwise (RW 0x509A1F; the additive 0x40 / 0x800 and, S-3304, the multiplicative 0x01 are above), and
 			// SHADOW_DECAL_TERRAIN_CLAIM 0x2000 is placed and coloured otherwise (RW 0x50C48B / 0x50D264); RotWK's
 			// SelectionDecal blocks use only SHADOW_MERGE_DECAL and SHADOW_ALPHA_DECAL, so no other style is drawn
 			char buf[32];
@@ -663,10 +667,12 @@ bool BuildMergeDecalGrid(const std::vector<SelectionDecal> &decals, const std::f
 			// flag or vertex mask (written below). Lane ECOCIRCLE-2: a terrain-only additive decal is -2 and one that may also draw on a wall -3; the
 			// additive flag is the style's (kAdditiveStyles)
 			const bool additive = (items[i].d->style & kAdditiveStyles) != 0;
+			const bool multiply = items[i].d->style == kMultiplyStyle; // S-3304: a SHADOW_DECAL blob, -4 terrain only / -5 a wall top too
 			p[12] = std::cos(d.angle);
 			p[13] = std::sin(d.angle);
 			p[14] = d.sizeY > 0.0f ? d.sizeY : d.size;
-			p[15] = d.terrainOnly || d.maskW > 0 ? (additive ? -2.0f : -1.0f) : (additive ? -3.0f : 0.0f);
+			const bool terrain = d.terrainOnly || d.maskW > 0;
+			p[15] = multiply ? (terrain ? -4.0f : -5.0f) : terrain ? (additive ? -2.0f : -1.0f) : (additive ? -3.0f : 0.0f);
 		}
 		else
 		{
@@ -955,7 +961,9 @@ bool EvaluateSelectionDecals(const MergeDecalGrid &grid, const DecalImage &atlas
 				const float *d = t + (size_t)(e[3] < 0.0f ? -e[3] - 1.0f : e[3]) * 16;
 				// lane ECOCIRCLE-2: rec3.w -2 / -3 is an additive decal; -3 may draw on a wall too (terrain-only is every other nonzero value)
 				const bool additive = d[15] == -2.0f || d[15] == -3.0f;
-				if (receiver == DecalReceiver::Wall && ((d[15] != 0.0f && d[15] != -3.0f) || !(std::fabs(z - d[7]) <= kSelectionDecalMaxHeight)))
+				// S-3304: rec3.w -4 / -5 is a SHADOW_DECAL blob (ShaderClass 0x111853, ZERO / SRC_COLOR, RW 0x509A1F); -5 may draw on a wall too
+				const bool multiply = d[15] == -4.0f || d[15] == -5.0f;
+				if (receiver == DecalReceiver::Wall && ((d[15] != 0.0f && d[15] != -3.0f && d[15] != -5.0f) || !(std::fabs(z - d[7]) <= kSelectionDecalMaxHeight)))
 				{
 					continue; // lane PLACEDECAL-1: a terrain-only decal draws on no wall top
 				}
@@ -975,6 +983,16 @@ bool EvaluateSelectionDecals(const MergeDecalGrid &grid, const DecalImage &atlas
 				if (d[15] > 0.0f)
 				{
 					a *= maskAt(t, (size_t)d[15], x, y) / 255.0f; // lane PLACEDECAL-1: the vertex mask
+				}
+				if (multiply)
+				{
+					// ZERO / SRC_COLOR: the surface times texel x diffuse (the diffuse's alpha and the texel's take no part)
+					for (int ch = 0; ch < 3; ++ch)
+					{
+						c[ch] *= s[ch] * d[4 + ch] / 255.0f;
+					}
+					drawn = true;
+					continue;
 				}
 				for (int ch = 0; ch < 3; ++ch)
 				{
@@ -1045,7 +1063,7 @@ bool MergeDecalAtlas::update(const std::vector<SelectionDecal> &decals, const Se
 	for (const SelectionDecal &d : decals)
 	{
 		const bool merge = (d.style & kMergeStyle) != 0;
-		if (!merge && !(d.style & (kAlphaStyles | kAdditiveStyles)) && !((d.style & kTerrainClaimStyle) && d.maskW > 0))
+		if (!merge && !(d.style & (kAlphaStyles | kAdditiveStyles | kMultiplyStyle)) && !((d.style & kTerrainClaimStyle) && d.maskW > 0)) // S-3304: the blobs too
 		{
 			continue;
 		}

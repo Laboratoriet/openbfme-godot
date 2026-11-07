@@ -8,7 +8,8 @@ namespace ObjectShadow
 {
 // RW 0xD99EB0's shadow bits (W3DModelDrawNameLists.inc kShadowTypeNames): the volume geometries SHADOW_VOLUME, SHADOW_VOLUME_NEW
 // and the two *_OR_DECAL forms cast a Godot shadow map (S-3304). SHADOW_DECAL is a projected blob texture in retail, not a
-// silhouette, so it casts none here; it, the projections and the NON_SELF volumes remain S-3304.
+// silhouette, so it casts none here: GameEngineDevice/W3DDevice/GameClient/Shadow/W3DProjectedShadow.h draws it (ShadowLOD Low / Medium);
+// the projections and the NON_SELF volumes remain S-3304.
 constexpr int MapMask = (1 << 1) | (1 << 2) | (1 << 14) | (1 << 15);
 
 inline bool castsMap(const ThingTemplate *object, const W3DModelDrawModuleData *module, const ModelConditionInfo *state)

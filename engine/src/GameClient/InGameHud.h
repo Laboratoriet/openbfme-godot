@@ -35,6 +35,7 @@
 #include "GameClient/InGameChat.h"
 #include "GameClient/InGameUIMessages.h"
 #include "GameClient/SelectionDecals.h"
+#include "GameEngineDevice/W3DDevice/GameClient/Shadow/W3DProjectedShadow.h"
 #include "GameClient/Radar.h"
 #include "GameClient/RadiusCursor.h"
 #include "GameClient/TerrainResourceFeedback.h"
@@ -279,6 +280,13 @@ public:
 	const std::vector<SelectionDecal> &selectionDecals() const { return m_selectionDecals; }
 	unsigned long long selectionDecalsVersion() const { return m_decalVersion; } ///< lane SELPERF-1: changes whenever the list or a decal in it changes
 	const SelectionDecalSettings &selectionDecalSettings() const { return m_decalSettings; }
+	// S-3304: the drawables' projected decal shadows of this frame (W3DProjectedShadow.h), drawn by the device with the selection's decals (first: RotWK's
+	// renderShadows draws the drawables' shadow list + 4 before the addDecal list + 8, RW 0x50D92C); the device gives the static LOD's UseShadowDecals /
+	// UseShadowVolumes (TheGlobalData + 0x61 / + 0x60)
+	void setShadowDecalLOD(const W3DProjectedShadow::ShadowDecalLOD &lod) { m_shadowDecalLOD = lod; }
+	const W3DProjectedShadow::ShadowDecalLOD &shadowDecalLOD() const { return m_shadowDecalLOD; }
+	const std::vector<SelectionDecal> &shadowDecals() const { return m_shadowDecals; }
+	const W3DProjectedShadow::ShadowDecalCounts &shadowDecalCounts() const { return m_shadowDecalCounts; }
 	// lane UI-4: the Palantir's hero bar (InGameHeroSelect.h)
 	InGameHeroSelect *heroSelect() { return m_heroSelect.get(); }
 	// lane SELPERF-1: the wall time of update()'s parts in its last full run (milliseconds; the frame-cost report of tests/selperf and --perf)
@@ -417,6 +425,9 @@ private:
 	std::set<std::string> m_heroCommands;          // lane UI-4: the hero bar command prefixes registered
 	SelectionDecalSettings m_decalSettings;        // lane UI-4
 	std::vector<SelectionDecal> m_selectionDecals; // lane UI-4
+	W3DProjectedShadow::ShadowDecalLOD m_shadowDecalLOD;       // S-3304
+	std::vector<SelectionDecal> m_shadowDecals;                // S-3304
+	W3DProjectedShadow::ShadowDecalCounts m_shadowDecalCounts; // S-3304
 	UpdateParts m_updateParts;                     // lane SELPERF-1
 	// lane SELPERF-1: what m_selectionDecals was built for (rebuilt when any changes, else refreshed)
 	unsigned m_decalLogicFrame = ~0u;

@@ -119,6 +119,7 @@ public:
 	void set_free_camera(bool on);
 	void hold_input(bool on);        ///< lane BACKLOG3 (QA): queue _input's events as while the logic worker runs
 	void set_input_enabled(bool on); ///< lane BACKLOG3 (QA): InGameUI's input flag (the scripts' DISABLE_INPUT / ENABLE_INPUT)
+	void set_shadow_decals(bool use_shadow_decals, bool use_shadow_volumes); ///< S-3304: the static LOD's UseShadowDecals / UseShadowVolumes (GlobalData + 0x61 / + 0x60)
 	bool input_enabled() const; ///< lane BFME2CAMP1: InGameUI + 0x16 (setInputEnabled RW 0x69B5DA), the tutorial's objectives screen Return gate
 	void script_input(bool enable);  ///< lane OWNERFIX-1: a map script's DISABLE_INPUT / ENABLE_INPUT as retail runs them (InGameHud::scriptInput)
 	void set_broadcast_clean(bool on);

@@ -778,7 +778,9 @@ std::string Generate_W3D_Shader_Code(const W3DShaderKey &k, W3DSamplerPolicy sam
 		// only where the surface faces up (SEL_WALL_MIN_UP: the walkable top, a ramp, a stair's tread; not the wall's side faces)
 		line("\tbool sel_up = normalize(v_wnrm).y >= SEL_WALL_MIN_UP;");
 		line("\tvec3 sel_at = vec3(sel_world.x, -sel_world.z, sel_world.y);");
-		line("\tvec4 sela = sel_up ? sel_alpha_at(sel_at, true) : vec4(0.0);");
+		// S-3304: sel_alpha_at's `keep` per channel (a SHADOW_DECAL blob multiplies the surface)
+		line("\tvec3 sela_keep = vec3(1.0);");
+		line("\tvec3 sela = sel_up ? sel_alpha_at(sel_at, true, sela_keep) : vec3(0.0);");
 		line("\tvec4 sel = sel_up ? sel_merge_at(sel_at, true) : vec4(0.0);");
 		line("\tvec3 sel_ground = ALBEDO;");
 		// lane HERORING-1: the alpha decals (a hero's ring) first, blended over the surface's gamma colour, then the merge decals (as terrain.gdshader);
@@ -786,7 +788,7 @@ std::string Generate_W3D_Shader_Code(const W3DShaderKey &k, W3DSamplerPolicy sam
 		// Lane ECOCIRCLE-2: an additive decal has a == 0 and only rgb, so either share draws the pair
 		line("\tvec3 sel_shadow = clamp(cur.rgb, 0.0, 1.0);");
 		line("\tvec3 sel_over = vec3(0.0);");
-		line("\tif (sela.a > 0.0 || any(greaterThan(sela.rgb, vec3(0.0)))) { sel_shadow *= 1.0 - sela.a; sel_over = sela.rgb; ALBEDO = w3d_to_linear(sel_shadow + sel_over); sel_ground = ALBEDO; }");
+		line("\tif (any(lessThan(sela_keep, vec3(1.0))) || any(greaterThan(sela, vec3(0.0)))) { sel_shadow *= sela_keep; sel_over = sela; ALBEDO = w3d_to_linear(sel_shadow + sel_over); sel_ground = ALBEDO; }");
 		line("\tALBEDO = mix(ALBEDO, w3d_to_linear(clamp(sel.rgb, 0.0, 1.0)), sel.a);");
 		line("\tfloat sel_keep = 1.0 - sel.a;");
 	}

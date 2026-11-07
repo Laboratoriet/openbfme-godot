@@ -230,6 +230,7 @@ include(cmake/Ui6.cmake)        # UI-6: a tester's menu findings on v0.3.0-previ
 include(cmake/Ownerfix3.cmake)  # OWNERFIX-3: the map list's battle honors (client only; OPENBFME_OWNERFIX3_CLIENT_SOURCES / _TESTS)
 include(cmake/Anticheat.cmake)  # ANTICHEAT-1: detector D1 over a re-simulated replay (reads the logic only; OPENBFME_ANTICHEAT_SOURCES / _TESTS)
 include(cmake/Selperf1.cmake)   # SELPERF-1: the selection's frame cost (client only; OPENBFME_SELPERF1_TESTS)
+include(cmake/Shadow1.cmake)    # S-3304: the drawables' decal shadows (client only; OPENBFME_SHADOW1_CLIENT_SOURCES / _TESTS)
 include(cmake/Anim1.cmake)      # OPENBFME_ANIM1_TESTS (lane ANIM-1: combat animation)
 include(cmake/Win1.cmake)       # WIN-1: the MSVCR71 real parser (appends to OPENBFME_SIM_SOURCES; OPENBFME_WIN1_TESTS: cross-OS lockstep)
 include(cmake/Garrison3.cmake)  # GARRISON-3: the garrison exit (OPENBFME_GARRISON3_TESTS)
@@ -344,6 +345,7 @@ add_library(openbfme_core STATIC
     ${OPENBFME_RELEASE1_SOURCES}
     ${OPENBFME_UI2_CLIENT_SOURCES}
     ${OPENBFME_UI4_CLIENT_SOURCES}
+    ${OPENBFME_SHADOW1_CLIENT_SOURCES}
     ${OPENBFME_OWNERFIX2_CLIENT_SOURCES}
     ${OPENBFME_CHAT1_CLIENT_SOURCES}
     ${OPENBFME_UI6_CLIENT_SOURCES}
@@ -834,6 +836,7 @@ add_executable(openbfme_tests
     ${OPENBFME_OWNERFIX3_TESTS}
     ${OPENBFME_ANTICHEAT_TESTS}
     ${OPENBFME_SELPERF1_TESTS}
+    ${OPENBFME_SHADOW1_TESTS}
     ${OPENBFME_GARRISON3_TESTS}
     ${OPENBFME_BACKLOG1_TESTS}
     ${OPENBFME_COMBAT3_TESTS}
