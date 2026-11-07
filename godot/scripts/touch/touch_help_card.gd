@@ -167,7 +167,7 @@ func entries(sw: Dictionary) -> Array:
 		["tap", "Tap", "Select a unit or a building. With units selected, tap the ground to send them, or an enemy to attack."],
 		["double", "Double-tap", "Select every unit of that kind on the screen."],
 		["drag", "Drag", "Move the view. To draw a selection box, hold still for a moment, then drag." if drag_pan else "Draw a box around units to select them all."],
-		["tap2", "Tap a button twice", {"costs": "Build, recruit, upgrades and powers: the first tap shows what it is and what it costs, the second uses it.",
+		["tap2", "Tap a button twice", {"costs": "Build, recruit, upgrades, powers and Sell: the first tap shows what it is and what it costs, the second uses it.",
 			"all": "The first tap shows what a button does, the second uses it.", "act": "A tap uses a button at once."}.get(taps, "")],
 		["hold", "Hold a button", "See what it does, without using it." if hold_info else "Right-click it: on a recruit button, takes one off the queue."],
 		["hold_map", "Hold on the map", "Right-click: deselect, or cancel a building or a power that waits."],

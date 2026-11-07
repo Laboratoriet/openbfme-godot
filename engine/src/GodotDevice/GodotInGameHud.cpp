@@ -14,6 +14,7 @@
 #include <limits>
 #include "GameClient/GUI/AptScreens/AptImageMode.h"
 #include "GodotDevice/GodotPackedTexture.h"
+#include "GameLogic/PlayerCommands.h"
 #include "GameLogic/Module/HeroAbilityModules.h"
 #include "Common/SpecialPower.h"
 #include "GameClient/GameText.h"
@@ -1304,6 +1305,7 @@ void InGameHudNode::_bind_methods()
 	ClassDB::bind_method(D_METHOD("cancel_targeting"), &InGameHudNode::cancel_targeting); // lane IOS-43
 	ClassDB::bind_method(D_METHOD("deselect_builders"), &InGameHudNode::deselect_builders);            // lane IOS-36
 	ClassDB::bind_method(D_METHOD("deselect_all"), &InGameHudNode::deselect_all);                      // lane IOS-37
+	ClassDB::bind_method(D_METHOD("control_group_counts"), &InGameHudNode::control_group_counts);      // lane IOS-49
 	ClassDB::bind_method(D_METHOD("command_hotkey", "command"), &InGameHudNode::command_hotkey);        // lane IOS-37
 	ClassDB::bind_method(D_METHOD("set_placement_angle", "angle"), &InGameHudNode::set_placement_angle); // lane IOS-37
 	ClassDB::bind_method(D_METHOD("get_radar_square"), &InGameHudNode::get_radar_square);
@@ -4831,7 +4833,9 @@ Dictionary InGameHudNode::touch_button_at(const Vector2 &pixel)
 	r["command"] = b.button ? String(GUICommandName(b.button->m_command)) : String();
 	r["slot"] = b.radialSlot;
 	r["rect"] = b.hasRect ? Rect2(b.rect[0], b.rect[1], b.rect[2] - b.rect[0], b.rect[3] - b.rect[1]) : Rect2();
+	r["irreversible"] = b.irreversible; // lane IOS-49: Sell, previewed under "Preview what costs"
 	r["queued"] = b.queued; // lane IOS-37: the touch production cancel's ✕
+	r["researching"] = b.researching; // lane IOS-49: an upgrade in progress (its ✕ cancels it)
 	r["cancel"] = b.cancel;
 	r["away"] = Vector2(b.away[0], b.away[1]);
 	return r;
@@ -4853,6 +4857,29 @@ bool InGameHudNode::deselect_all()
 	}
 	ctx.ui.deselectAll(true);
 	return true;
+}
+
+// lane IOS-49 (GodotInGameHud.h): the toolbar's group counts, read from the logic's squads (a group made this frame shows from the next logic frame on)
+PackedInt32Array InGameHudNode::control_group_counts() const
+{
+	waitLogic(d.get());
+	PackedInt32Array out;
+	if (!d->ready || !d->world || !d->world->hud_game())
+	{
+		return out;
+	}
+	LiveGame *game = d->world->hud_game();
+	const Player *p = game->players().getLocalPlayer();
+	if (!p)
+	{
+		return out;
+	}
+	GameLogic &logic = game->logic();
+	for (int n = 0; n < Player::NUM_HOTKEY_SQUADS; ++n)
+	{
+		out.push_back(PlayerCommands::liveCount(logic, p->hotkeySquad(n)));
+	}
+	return out;
 }
 
 // lane IOS-37 (GodotInGameHud.h): the hotkey of the selection's command button for GUI command `command` (the arc, the side bar and the off-bar buttons:

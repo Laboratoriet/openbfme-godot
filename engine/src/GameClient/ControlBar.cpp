@@ -812,6 +812,7 @@ void ControlBar::update()
 						if (upgrade && e->type == PRODUCTION_UPGRADE && e->upgradeToResearch == upgrade)
 						{
 							cb.timer = e->percentComplete / 100.0f;
+							cb.researching = true; // lane IOS-49: the touch layer's ✕ (InGameHud::touchButtonAt's cancel)
 							break;
 						}
 					}

@@ -5,7 +5,8 @@
 ##    IOS-21's preview and presses nothing; a drag disarms;
 ##  * an autocast ability: a quick double tap toggles its autocast (the right press only), "tap, read, tap" uses it (the left press only); with
 ##    lane IOS-42's "Autocast tap" off (OpenBFMETouchAutocastTap = no) the quick double tap arms and uses it;
-##  * "all" previews the quick button too; "act" presses a costing button on the first tap.
+##  * "all" previews the quick button too; "act" presses a costing button on the first tap;
+##  * lane IOS-49: Sell (touch_button_at's "irreversible": it costs nothing) is previewed under "costs" too, and pressed at once under "act".
 ## The game's own check is the touch self-test (touch_selftest.gd _preview_check: the builder's real build button); the engine's the unit tests "ios40".
 ##
 ##   godot --headless --path godot --script res://tests/ios40_touch_test.gd
@@ -19,6 +20,7 @@ const COST := Rect2(100, 100, 50, 50)   # a build button (DOZER_CONSTRUCT)
 const COST2 := Rect2(200, 100, 50, 50)  # another (UNIT_BUILD)
 const AUTO := Rect2(300, 100, 50, 50)   # an ability with autocast (SPECIAL_POWER)
 const QUICK := Rect2(400, 100, 50, 50)  # stop
+const SELL := Rect2(500, 100, 50, 50)   # lane IOS-49: sell (irreversible, no cost)
 const WORLD := Vector2(600, 400)
 
 
@@ -31,10 +33,11 @@ class StubHud:
 
 	func touch_button_at(p: Vector2) -> Dictionary:
 		for r in [[COST, "cost", cost_name, true, false], [COST2, "cost2", "Command_Recruit", true, false], [AUTO, "auto", "Command_Blade", true, true],
-				[QUICK, "quick", "Command_Stop", false, false]]:
+				[QUICK, "quick", "Command_Stop", false, false], [SELL, "sell", "Command_Sell", false, false, true]]:
 			if Rect2(r[0]).has_point(p):
-				return {"kind": "movie", "target": r[1], "name": r[2], "costs": r[3], "autocast": r[4], "slot": -1, "rect": r[0], "command": ""}
-		return {"kind": "", "target": "", "autocast": false, "costs": false, "name": "", "slot": -1, "rect": Rect2(), "command": ""}
+				return {"kind": "movie", "target": r[1], "name": r[2], "costs": r[3], "autocast": r[4], "slot": -1, "rect": r[0], "command": "",
+					"irreversible": r.size() > 5 and r[5]}
+		return {"kind": "", "target": "", "autocast": false, "costs": false, "irreversible": false, "name": "", "slot": -1, "rect": Rect2(), "command": ""}
 
 	func nearest_button(p: Vector2, _radius: float) -> Dictionary:
 		return {"snapped": false, "position": p, "reason": "far", "target": ""}
@@ -217,6 +220,18 @@ func _run() -> int:
 	_check(_controls.autocast_double_tap, "IOS-42: the key absent is the default (on)")
 	_reset()
 
+	# 9b. lane IOS-49: Sell costs nothing but cannot be undone: "costs" previews it (first tap arms, second sells)
+	var sell := SELL.get_center()
+	await _tap(sell)
+	await _wait(0.25)
+	_check(_rec.presses.is_empty() and str(_controls.armed_state().key) == "movie:sell" and _hud.held == [true],
+		"IOS-49: the first tap on Sell arms it, sells nothing: %s %s" % [_rec.presses, _controls.armed_state()])
+	await _tap(sell)
+	await _wait(0.3)
+	_check(_presses() == [[MOUSE_BUTTON_LEFT, sell]], "IOS-49: the second tap on Sell sells: %s" % [_rec.presses])
+	_controls._disarm()
+	_reset()
+
 	# 10. "all": the quick button too; "act": the costing button at once
 	_controls.set_button_taps("all")
 	await _tap(QUICK.get_center())
@@ -228,6 +243,10 @@ func _run() -> int:
 	await _tap(c)
 	await _wait(0.2)
 	_check(_presses() == [[MOUSE_BUTTON_LEFT, c]] and _hud.held.is_empty(), "\"Act at once\" presses a costing button on the first tap: %s" % [_rec.presses])
+	_reset()
+	await _tap(SELL.get_center())
+	await _wait(0.2)
+	_check(_presses() == [[MOUSE_BUTTON_LEFT, SELL.get_center()]] and _hud.held.is_empty(), "IOS-49: \"Act at once\" sells on the first tap: %s" % [_rec.presses])
 	return 0 if _failures == 0 else 1
 
 

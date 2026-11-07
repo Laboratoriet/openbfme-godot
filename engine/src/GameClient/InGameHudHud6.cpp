@@ -628,6 +628,7 @@ InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
 		out.autocast = m_palantirRef && m_palantirRef->contentSlotAt(out.target, arc, slot) && m_bar->rightPressKind(slot, arc) == ControlBar::RightPress::AutoAbility;
 		out.button = touchCommandAt(out.target);
 		out.costs = out.button && ControlBar::pressCosts(*out.button);
+		out.irreversible = out.button && ControlBar::pressIrreversible(*out.button); // lane IOS-49
 		if (m_palantirRef && m_palantirRef->contentSlotAt(out.target, arc, slot))
 		{
 			for (const ControlBarButton &c : arc ? m_bar->palantirButtons() : m_bar->sideButtons())
@@ -635,7 +636,8 @@ InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
 				if (c.slot == slot)
 				{
 					out.queued = c.queued;
-					out.cancel = c.queued > 0 && m_bar->rightPressKind(slot, arc) == ControlBar::RightPress::Cancel;
+					out.researching = c.researching;
+					out.cancel = (c.queued > 0 || c.researching) && m_bar->rightPressKind(slot, arc) == ControlBar::RightPress::Cancel;
 				}
 			}
 		}
@@ -702,6 +704,7 @@ InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
 			{
 				out.button = rb.source.button;
 				out.costs = out.button && ControlBar::pressCosts(*out.button);
+				out.irreversible = out.button && ControlBar::pressIrreversible(*out.button); // lane IOS-49
 				out.rect[0] = (float)rb.rect.x;
 				out.rect[1] = (float)rb.rect.y;
 				out.rect[2] = (float)(rb.rect.x + rb.rect.w);
@@ -709,7 +712,8 @@ InGameHud::TouchButton InGameHud::touchButtonAt(int x, int y)
 				out.hasRect = true;
 				// lane IOS-37: the bubble's right press cancels a CANCELABLE button's queue (ControlBarRadialMenu::mouseButton -> cancelQueued)
 				out.queued = rb.source.queued;
-				out.cancel = rb.source.queued > 0 && out.button && out.button->hasOption(COMMAND_OPTION_CANCELABLE);
+				out.researching = rb.source.researching; // lane IOS-49: an upgrade in progress (its cancel: the same right press, RW 0x940E77 / 0x940FB3)
+				out.cancel = (rb.source.queued > 0 || rb.source.researching) && out.button && out.button->hasOption(COMMAND_OPTION_CANCELABLE);
 				const float dx = (float)rb.rect.x + (float)rb.rect.w * 0.5f - (float)m_radial.layout().centerX();
 				const float dy = (float)rb.rect.y + (float)rb.rect.h * 0.5f - (float)m_radial.layout().centerY();
 				const float len = std::sqrt(dx * dx + dy * dy);

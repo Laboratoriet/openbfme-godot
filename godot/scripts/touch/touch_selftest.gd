@@ -162,6 +162,9 @@ func _run() -> void:
 	# 8. lane IOS-37: the command toolbar, the ghost's twist, the production cancel
 	failures.append_array(await _toolbar_check(hud))
 	failures.append_array(await _cancel_check(hud))  # before the rotate step's farm spends the recruit's money
+	# lane IOS-49: an upgrade in progress gets the ✕ (retail's cancel); Sell arms on the first tap under "Preview what costs"
+	failures.append_array(await _upgrade_cancel_check(hud))
+	failures.append_array(await _sell_preview_check(hud))
 	failures.append_array(await _rotate_check(hud))
 	# 9. lane IOS-43: a spell book power and a hero ability aimed by finger
 	failures.append_array(await _targeting_check(hud))
@@ -753,6 +756,13 @@ func _toolbar_steps(hud: Node) -> PackedStringArray:
 	print("TOUCH SELFTEST IOS-37 group 3 selected: %d (the army had %d)" % [hud.get_selection().size(), army.size()])
 	if hud.get_selection().size() != army.size():
 		out.append("IOS-37: group 3 selected %d, the army it was made from %d" % [hud.get_selection().size(), army.size()])
+	# lane IOS-49: group 3's button shows its count (what that tap selected), the others none
+	await _wait(0.6)
+	var counts: Dictionary = t.state().buttons
+	print("TOUCH SELFTEST IOS-49 group counts: 3 shows %d, 1 shows %d" % [int(counts.group3.count), int(counts.group1.count)])
+	await _shot("toolbar-group-count-" + _orient())
+	if int(counts.group3.count) != hud.get_selection().size():
+		out.append("IOS-49: group 3's count %d, its recall selected %d" % [int(counts.group3.count), hud.get_selection().size()])
 	await _tb_tap(hud, "groups", "")
 	# the view keys
 	if not await _tb_tap(hud, "base", "VIEW_HOME_BASE"):
@@ -986,6 +996,147 @@ func _cancel_check(hud: Node) -> PackedStringArray:
 		await _tap(r.cancel_at)
 		await _wait(0.6)
 	_controls._disarm()
+	return out
+
+
+## lane IOS-49: the fortress's upgrades ring: an upgrade bought (two taps: armed, used), then armed again it shows ✕ (touch_button_at's "researching"),
+## and a tap on ✕ is retail's cancel (the research leaves the queue). Money from the test hook give_money (a real game earns it). Pictures:
+## touch-upgrade-cancel-badge-*, touch-upgrade-cancel-after-*
+func _upgrade_cancel_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	var local := str(game.get("_local_name")) if game != null else ""
+	var me := int(game.get("_local_index")) if game != null else -1
+	if world == null or me < 0:
+		print("TOUCH SELFTEST IOS-49 upgrade: SKIP (no world)")
+		return out
+	var fort := -1
+	for o in world.get_player_objects(local):
+		if o.commandcenter:
+			fort = int(o.id)
+			hud.camera_look_at(Vector2(float(o.x), float(o.y)))
+			break
+	if fort < 0:
+		print("TOUCH SELFTEST IOS-49 upgrade: SKIP (no fortress)")
+		return out
+	world.give_money(me, 6000)
+	print("TOUCH SELFTEST TEST HOOK: player %d given 6000" % me)
+	_controls._disarm()
+	await _wait(0.6)
+	hud.select_object_with_message(fort)
+	await _wait(1.5)
+	var radial := func() -> Array: return hud.get_hud6_state().get("radial", {}).get("buttons", [])
+	for b in radial.call():
+		if str(b.name).contains("SelectUpgrades"):
+			await _press(hud, Rect2(b.rect).get_center())  # opens the upgrades ring (a quick command: one tap)
+			await _wait(1.0)
+			break
+	var bubble := {}
+	for b in radial.call():
+		if str(b.command).ends_with("_UPGRADE") and int(b.get("state", 0)) == 1:
+			bubble = b
+			break
+	if bubble.is_empty():
+		print("TOUCH SELFTEST IOS-49 upgrade: SKIP (no upgrade to buy on the fortress's ring: %s)" % JSON.stringify(radial.call()))
+		return out
+	var at: Vector2 = Rect2(bubble.rect).get_center()
+	await _tap(at)  # armed
+	await _wait(0.5)
+	await _tap(at)  # used: the research is queued
+	await _wait(1.2)
+	var touched: Dictionary = hud.touch_button_at(at)
+	if not _controls.armed_state().armed:
+		await _tap(at)  # armed again (a use may have changed the button's command)
+		await _wait(0.6)
+		touched = hud.touch_button_at(at)
+	var ring: Dictionary = _controls.armed_state().get("ring", {})
+	await _shot("upgrade-cancel-badge-" + _orient())
+	print("TOUCH SELFTEST IOS-49 upgrade %s at %s: researching %s, cancel %s, the ring %s" % [bubble.name, at, touched.get("researching"),
+		touched.get("cancel"), JSON.stringify(ring)])
+	if not bool(touched.get("researching", false)):
+		out.append("IOS-49: %s is not researching after two taps" % bubble.name)
+		_controls._disarm()
+		return out
+	if not ring.get("cancel", false):
+		out.append("IOS-49: no ✕ beside the armed upgrade in progress (%s)" % bubble.name)
+		_controls._disarm()
+		return out
+	await _tap(ring.cancel_at)
+	await _wait(1.2)
+	var after: Dictionary = hud.touch_button_at(at)
+	await _shot("upgrade-cancel-after-" + _orient())
+	print("TOUCH SELFTEST IOS-49 upgrade ✕ tapped: researching %s, cancel %s" % [after.get("researching"), after.get("cancel")])
+	if bool(after.get("researching", true)):
+		out.append("IOS-49: ✕ did not cancel the upgrade %s" % bubble.name)
+	_controls._disarm()
+	hud.deselect_all()
+	await _wait(0.4)
+	return out
+
+
+## lane IOS-49: Sell under "Preview what costs": a barracks made for the local player (create_object), its Sell button's first tap arms it (the help, the
+## ring) and sells nothing; the second sells (the refund). Pictures: touch-sell-armed-*
+func _sell_preview_check(hud: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	var game: Node = get_tree().current_scene
+	var world = game.get("_world") if game != null else null
+	var me := int(game.get("_local_index")) if game != null else -1
+	if world == null or me < 0 or _controls.button_taps != "costs":
+		print("TOUCH SELFTEST IOS-49 sell: SKIP (no world, or Button taps is %s)" % _controls.button_taps)
+		return out
+	var size := get_viewport().get_visible_rect().size
+	var spot: Vector2 = hud.pixel_to_world(_open_ground(hud, size * Vector2(0.5, 0.4)))
+	var barracks := -1
+	for name in ["GondorBarracks", "MordorOrcPit", "IsengardUrukPit", "DwarfBarracks", "ElvenBarracks", "GoblinCave", "AngmarBarracks"]:
+		barracks = int(world.create_object(name, me, spot.x, spot.y, 0.0))
+		if barracks > 0:
+			break
+	if barracks <= 0:
+		print("TOUCH SELFTEST IOS-49 sell: SKIP (create_object refused a barracks)")
+		return out
+	await _wait(1.0)
+	hud.select_object_with_message(barracks)
+	await _wait(1.5)
+	var at := Vector2.INF
+	for b in hud.get_command_buttons():
+		if str(b.command) == "SELL":
+			var w: Dictionary = hud.find_button_window(str(b.frame))
+			if w.get("found", false):
+				at = Vector2(float(w.x), float(w.y))
+	if not at.is_finite():
+		for b in hud.get_hud6_state().get("radial", {}).get("buttons", []):
+			if str(b.command) == "SELL":
+				at = Rect2(b.rect).get_center()
+	if not at.is_finite():
+		print("TOUCH SELFTEST IOS-49 sell: SKIP (the barracks shows no Sell button)")
+		return out
+	var touched: Dictionary = hud.touch_button_at(at)
+	var money0 := int(hud.get_state().get("control_bar", {}).get("money", -1))
+	await _tap(at)
+	await _wait(0.6)
+	var armed: Dictionary = _controls.armed_state()
+	var money1 := int(hud.get_state().get("control_bar", {}).get("money", -1))
+	await _shot("sell-armed-" + _orient())
+	print("TOUCH SELFTEST IOS-49 sell at %s: irreversible %s, costs %s; first tap: armed %s, money %d -> %d" % [at, touched.get("irreversible"),
+		touched.get("costs"), armed.armed, money0, money1])
+	if not bool(touched.get("irreversible", false)):
+		out.append("IOS-49: the Sell button is not irreversible: %s" % JSON.stringify(touched))
+	if not armed.armed or money1 != money0:
+		out.append("IOS-49: the first tap on Sell did not just arm it (armed %s, money %d -> %d)" % [armed.armed, money0, money1])
+		_controls._disarm()
+		return out
+	var uses := int(_controls.stats.armed_uses)
+	await _tap(at)
+	await _wait(1.0)
+	# the sale: the building is deselected at once (retail's sell, test_hud7.cpp); a building the test hook made has no price paid, so no refund
+	var selected: Array = hud.get_selection()
+	print("TOUCH SELFTEST IOS-49 sell: second tap: a use %s, the barracks still selected %s" % [int(_controls.stats.armed_uses) == uses + 1,
+		selected.has(barracks)])
+	if int(_controls.stats.armed_uses) != uses + 1 or selected.has(barracks):
+		out.append("IOS-49: the second tap on Sell did not sell (uses %d -> %d, still selected %s)" % [uses, int(_controls.stats.armed_uses), selected.has(barracks)])
+	_controls._disarm()
+	await _wait(0.4)
 	return out
 
 

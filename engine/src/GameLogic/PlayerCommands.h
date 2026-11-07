@@ -23,4 +23,7 @@ public:
 	void registerHandlers(GameLogicDispatch &dispatcher);
 	// RotWK's Object::isSelectable (RW 0x68DE58), the filter of Squad::getLiveObjects (RW 0x8DB103): what a control group recalls (logic and HUD)
 	static bool isSelectable(const Object &object, bool specialPowerTarget = false);
+	// lane IOS-49 (OpenBFME presentation, touch only: the command toolbar's group counts): how many members of `squad` a recall would select now (the
+	// object exists and isSelectable: selectTeam's filter, Squad::getLiveObjects RW 0x8DB103). Reads only; the squad keeps its members
+	static int liveCount(GameLogic &logic, const std::vector<ObjectID> &squad);
 };

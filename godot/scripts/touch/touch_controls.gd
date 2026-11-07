@@ -103,7 +103,9 @@ extends Node
 ## preview, tap again to use. Options > Touch > "Button taps" (game_options.gd OpenBFMETouchButtonTaps, set_button_taps):
 ##   "costs" (the touch default) a HUD button whose press costs (touch_button_at's "costs": ControlBar::pressCosts, from the button's Command: build,
 ##                               recruit, upgrades, revive, castles, the spell book's purchases and powers, abilities) is previewed; every other button (stop,
-##                               guard, formations, stances, rally points, gates, the portrait, the hero bar, the Palantir's keys) acts at once
+##                               guard, formations, stances, rally points, gates, the portrait, the hero bar, the Palantir's keys) acts at once.
+##                               Lane IOS-49: Sell too (touch_button_at's "irreversible", ControlBar::pressIrreversible): it costs nothing, but a
+##                               building sold is gone, so one stray tap must not do it
 ##   "all" ..................... every HUD button (touch_button_at's kinds) is previewed
 ##   "act" ..................... every button acts at once: IOS-21's taps (the autocast wait below included)
 ## A previewed button:
@@ -129,7 +131,8 @@ extends Node
 ##                                screen direction turns by the twist, read back to the ground (any camera angle and pitch). Not for a wall span (its line
 ##                                is its direction). The camera's own twist is back once the placement ends
 ##   cancelling production ...... the armed button (IOS-40) whose right press would cancel something queued (touch_button_at's "cancel": a recruit bubble with
-##                                units in its queue, a reviving hero) shows a small ✕ beside its ring (armed_ring.gd); a tap on ✕ is the button's right press,
+##                                units in its queue, a reviving hero; lane IOS-49: an upgrade in progress, touch_button_at's "researching") shows a small
+##                                ✕ beside its ring (armed_ring.gd); a tap on ✕ is the button's right press (an upgrade: retail's cancel, refunded),
 ##                                retail's cancel of one (the button stays armed: tap it to queue one more, ✕ to take one off). The two-finger tap on the
 ##                                bubble (IOS-21) still cancels too, and is the way with "Act at once"
 ##
@@ -918,7 +921,7 @@ func _tap(at: Vector2, now: int) -> void:
 func _previews(b: Dictionary) -> bool:
 	if b.is_empty():
 		return false
-	return button_taps == TAPS_ALL or (button_taps == TAPS_COSTS and bool(b.get("costs", false)))
+	return button_taps == TAPS_ALL or (button_taps == TAPS_COSTS and (bool(b.get("costs", false)) or bool(b.get("irreversible", false))))
 
 
 ## lane IOS-40: a button's identity across taps: the Apt button's path, or the radial bubble's slot ("" none)

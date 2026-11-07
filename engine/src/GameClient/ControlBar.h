@@ -68,6 +68,7 @@ struct ControlBarButton
 	bool autoAbility = false;               ///< lane AUTOCAST-1: the glow (RW 0x9D2D0E -> SetAutoAbilityOverlayState): the source object's AutoAbilityBehavior auto casts this button
 	int productionCount = 0;                ///< lane OWNERFIX-3: the count the window shows (RW 0x729D9A; 0 none): ShowProductionCount buttons only
 	bool commandPointsShort = false;        ///< a CantAfford UNIT_BUILD / REVIVE button is RotWK's availability 7 (command points short, RW 0x942F47), not 6
+	bool researching = false;               ///< lane IOS-49: an upgrade button whose upgrade is in the producer's queue (its PRODUCTION_UPGRADE entry; timer is its progress)
 };
 
 struct ControlBarQueueEntry
@@ -164,6 +165,9 @@ public:
 	// second uses it); every other command (stop, guard, formations, stances, rally points, gates, evacuate, sell, the spell book's opening ...) acts at
 	// once. A pure function of the command, so the touch layer and the tests agree on it
 	static bool pressCosts(const CommandButton &b);
+	// lane IOS-49 (OpenBFME, not retail; touch only, the owner's list 2026-11-07): whether a press of `b` cannot be taken back: SELL (the building goes for
+	// part of its price). "Preview what costs" previews it too, so one stray tap never sells a building; the other two choices treat it as any button
+	static bool pressIrreversible(const CommandButton &b);
 	unsigned autoAbilityToggles() const { return m_autoToggles; }
 	const std::map<std::string, unsigned> &unportedPresses() const { return m_unported; }
 

@@ -164,13 +164,17 @@ public:
 		// the bubble's rectangle; hasRect false when neither could be measured): the touch layer draws its "armed" ring around it
 		const CommandButton *button = nullptr;
 		bool costs = false;
+		bool irreversible = false; ///< lane IOS-49: ControlBar::pressIrreversible (SELL): previewed under "Preview what costs" too
 		int radialSlot = -1;
 		bool hasRect = false;
 		float rect[4] = { 0, 0, 0, 0 };
 		// lane IOS-37 (the touch production cancel): the units of the button's template in its producer's queue (ControlBarButton::queued: a reviving hero
 		// counts 1), and whether a right press would cancel one now (an arc / side bar button whose rightPressKind is Cancel, a CANCELABLE bubble, with
 		// something queued); `away` the unit direction from the radial ring's centre to the bubble ((0, 0) for a movie button): the side its ✕ goes
+		// lane IOS-49: `researching` an upgrade button whose upgrade is in the producer's queue (ControlBarButton::researching): its right press cancels the
+		// upgrade (ControlBar::cancelQueued, retail's MSG_CANCEL_UPGRADE), so `cancel` holds for it too
 		int queued = 0;
+		bool researching = false;
 		bool cancel = false;
 		float away[2] = { 0, 0 };
 	};

@@ -587,6 +587,13 @@ bool ControlBar::pressCosts(const CommandButton &b)
 	}
 }
 
+// lane IOS-49 (ControlBar.h): by the Command alone, as pressCosts. INFERENCE (OpenBFME's own rule): SELL is the one press that undoes the player's own
+// work without a way back (the logic's sell, BuildAssistantSell.cpp); a cancel refunds, a pack can be unpacked
+bool ControlBar::pressIrreversible(const CommandButton &b)
+{
+	return b.m_command == GUI_COMMAND_SELL;
+}
+
 bool ControlBar::rightPressButton(int slot, bool inPalantir, bool shift)
 {
 	switch (rightPressKind(slot, inPalantir))

@@ -43,6 +43,8 @@
 #include <cmath>
 #include <map>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace hudtest;
@@ -847,6 +849,95 @@ TEST_CASE("fbsim1 retail: a right press on a CANCELABLE upgrade bubble cancels t
 	CHECK(pu->getProductionCount() == 0);
 	CHECK_FALSE(citadel->hasUpgrade(u));
 	CHECK(h.rig.local->getMoney()->countMoney() == before);
+}
+
+// lane IOS-49 (OpenBFME, not retail; touch only): an upgrade in progress shows the armed bubble's ✕ like a queued recruit (touchButtonAt: researching,
+// cancel), and the ✕'s press (the bubble's right press) is retail's upgrade cancel; Sell is the one irreversible press ("Preview what costs" arms it)
+TEST_CASE("ios49 retail: touchButtonAt tells an upgrade in progress (its ✕ cancels it, refunded) and Sell's irreversible press")
+{
+	if (!haveWorld("ios49 upgrade cancel"))
+	{
+		return;
+	}
+	CHECK(ControlBar::pressIrreversible([] { CommandButton b; b.m_command = GUI_COMMAND_SELL; return b; }()));
+	int irreversible = 0;
+	for (int c = 0; c < GUI_COMMAND_NUM_COMMANDS; ++c)
+	{
+		CommandButton b;
+		b.m_command = c;
+		irreversible += ControlBar::pressIrreversible(b) ? 1 : 0;
+		CHECK_FALSE_MESSAGE((ControlBar::pressIrreversible(b) && ControlBar::pressCosts(b)), GUICommandName(c)); // two separate reasons to preview
+	}
+	CHECK(irreversible == 1); // SELL alone
+	SharedWorld &s = shared();
+	Hud6Rig h(s, "FactionMordor");
+	h.frames(10);
+	h.rig.local->getMoney()->deposit(5000, false);
+	const Coord3D c = h.rig.freeSpot(2400, 1400, 300.0f);
+	Object *citadel = h.rig.make("MordorFortressCitadel", c.x, c.y);
+	h.rig.lookAt({ c.x, c.y, 0 });
+	h.frames(10);
+	h.clickSelect(citadel);
+	REQUIRE(h.hud->input().ui().selected() == std::vector<ObjectID>{ citadel->getID() });
+	h.frames(30);
+	const ControlBarRadialMenu &radial = h.hud->radialMenu();
+	auto find = [&](const char *name) {
+		for (const ControlBarRadialMenu::Button &b : radial.buttons())
+		{
+			if (b.source.button && b.source.button->m_name == name)
+			{
+				return b;
+			}
+		}
+		return ControlBarRadialMenu::Button{};
+	};
+	auto centre = [](const ControlBarRadialMenu::Button &b) { return std::pair<int, int>(b.rect.x + b.rect.w / 2, b.rect.y + b.rect.h / 2); };
+	auto press = [&](HudInput::Button which, const ControlBarRadialMenu::Button &b) {
+		const auto [x, y] = centre(b);
+		h.hud->mouseMove(x, y, 0);
+		h.hud->mouseButton(which, true, x, y, 0, 1000);
+		h.hud->mouseButton(which, false, x, y, 0, 1040);
+		h.frames(4);
+	};
+	press(HudInput::Button::Left, find("Command_SelectUpgradesMordorFortress"));
+	h.frames(10);
+	ControlBarRadialMenu::Button moat = find("Command_PurchaseUpgradeMordorFortressLavaMoat");
+	REQUIRE(moat.slot >= 0); // tolerance: found on the ring (-1 = absent)
+	const UpgradeTemplate *u = TheUpgradeCenter->findUpgrade(moat.source.button->m_upgradeName);
+	REQUIRE(u != nullptr);
+	ProductionUpdateInterface *pu = citadel->getProductionUpdate();
+	REQUIRE(pu != nullptr);
+	// not yet bought: it costs (previewed), nothing to cancel
+	auto [mx, my] = centre(moat);
+	InGameHud::TouchButton t = h.hud->touchButtonAt(mx, my);
+	REQUIRE(t.kind == InGameHud::TouchButton::Radial);
+	CHECK(t.button == moat.source.button);
+	CHECK(t.costs);
+	CHECK_FALSE(t.irreversible);
+	CHECK_FALSE(t.researching);
+	CHECK_FALSE(t.cancel);
+	const unsigned before = h.rig.local->getMoney()->countMoney();
+	press(HudInput::Button::Left, moat); // MSG_QUEUE_UPGRADE
+	h.frames(30);
+	REQUIRE(pu->isUpgradeInQueue(u));
+	// in progress: the ✕ shows (no unit is queued: researching is the reason)
+	moat = find("Command_PurchaseUpgradeMordorFortressLavaMoat");
+	std::tie(mx, my) = centre(moat);
+	t = h.hud->touchButtonAt(mx, my);
+	CHECK(t.button == moat.source.button);
+	CHECK(t.queued == 0);
+	CHECK(t.researching);
+	CHECK(t.cancel);
+	// the ✕ is the bubble's right press (touch_controls.gd _unqueue): retail's cancel, refunded
+	press(HudInput::Button::Right, moat);
+	h.frames(30);
+	CHECK_FALSE(pu->isUpgradeInQueue(u));
+	CHECK(h.rig.local->getMoney()->countMoney() == before);
+	moat = find("Command_PurchaseUpgradeMordorFortressLavaMoat");
+	std::tie(mx, my) = centre(moat);
+	t = h.hud->touchButtonAt(mx, my);
+	CHECK_FALSE(t.researching);
+	CHECK_FALSE(t.cancel);
 }
 
 TEST_CASE("hud6 retail: the help's upgrade warnings follow RW 0x807D8F .. 0x807EB0: only after a DescriptLabel, queue full first, the local player's money")

@@ -15,6 +15,7 @@
 #include "GameLogic/GameMessage.h"
 #include "GameLogic/Map/TerrainLogic.h"
 #include "GameLogic/ObjectTemplateInfo.h"
+#include "GameLogic/PlayerCommands.h"
 
 #include <algorithm>
 
@@ -287,6 +288,46 @@ TEST_CASE("hud input: control groups (ctrl+digit creates, the digit selects, shi
 	r.frame(1);
 	CHECK(r.local->selection().size() == 2);
 	CHECK(r.game->dispatch().unhandled().empty());
+}
+
+// lane IOS-49 (OpenBFME presentation, touch only): the command toolbar's group counts are what a recall would select (PlayerCommands::liveCount): the
+// members that exist and are selectable; the membership itself is unchanged by asking
+TEST_CASE("hud input: ios49 a control group's count is its live, selectable members (PlayerCommands::liveCount), read without changing the squad")
+{
+	if (!haveWorld("hud input group counts"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	Rig r(s);
+	const Coord3D c0 = r.freeSpot(center(r).x, center(r).y, 260.0f);
+	std::vector<Object *> us;
+	for (int i = 0; i < 3; ++i)
+	{
+		us.push_back(r.make(templates(s).infantry.front(), c0.x + 60.0f * (float)i, c0.y));
+	}
+	r.lookAt({ c0.x + 60.0f, c0.y, 0.0f }, 300.0f, 380.0f);
+	r.frame(2);
+	auto px = [&](Object *o) { return r.screenOf({ o->getPosition()->x, o->getPosition()->y, 6.0f }); };
+	CHECK(PlayerCommands::liveCount(r.logic(), r.local->hotkeySquad(4)) == 0); // never made
+	r.leftDrag(px(us[0]).x - 40, px(us[0]).y - 40, px(us[2]).x + 40, px(us[2]).y + 40);
+	REQUIRE(r.input->ui().selected().size() == 3);
+	r.pressKey(KEY_4, KEY_STATE_LCONTROL); // CREATE_TEAM4
+	r.frame(1);
+	REQUIRE(r.local->hotkeySquad(4).size() == 3);
+	CHECK(PlayerCommands::liveCount(r.logic(), r.local->hotkeySquad(4)) == 3);
+	// one unselectable (a garrison's rider), one effectively dead: one left to recall, all three still members
+	const int unselectable = ObjectTemplateInfoBuilder::objectStatusIndex("UNSELECTABLE");
+	REQUIRE(unselectable >= 0); // tolerance: a status index (-1 = unknown name), its value is the table's
+	us[0]->setStatus((unsigned)unselectable, true);
+	us[1]->friend_setEffectivelyDead(true);
+	CHECK(PlayerCommands::liveCount(r.logic(), r.local->hotkeySquad(4)) == 1);
+	CHECK(r.local->hotkeySquad(4).size() == 3);
+	us[0]->setStatus((unsigned)unselectable, false);
+	us[1]->friend_setEffectivelyDead(false);
+	CHECK(PlayerCommands::liveCount(r.logic(), r.local->hotkeySquad(4)) == 3);
+	// a squad naming an object that no longer exists counts it out
+	CHECK(PlayerCommands::liveCount(r.logic(), std::vector<ObjectID>{ us[2]->getID(), (ObjectID)0x7FFFFFF0 }) == 1);
 }
 
 TEST_CASE("hud input: a control group made and read again before the next logic frame selects the same units in the HUD and the logic (review r1 #2)")

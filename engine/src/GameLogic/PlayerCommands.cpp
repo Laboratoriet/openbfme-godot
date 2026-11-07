@@ -149,6 +149,11 @@ bool addTeam(GameLogic &logic, const GameMessage &m, int n)
 }
 } // namespace
 
+int PlayerCommands::liveCount(GameLogic &logic, const std::vector<ObjectID> &squad)
+{
+	return (int)std::count_if(squad.begin(), squad.end(), [&](ObjectID id) { return live(logic, id); });
+}
+
 bool PlayerCommands::isSelectable(const Object &o, bool specialPowerTarget)
 {
 	// RW 0x68DE58 (Object::isSelectable): KindOf ALWAYS_SELECTABLE (template + 0x10F bit 2) always; else not while the status UNSELECTABLE (3) is set,

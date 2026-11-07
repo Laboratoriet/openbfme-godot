@@ -13,13 +13,16 @@ extends CanvasLayer
 ##   Menu .......... Esc (game.gd's quit menu toggle)
 ##   a group, tap .. CommandMap SELECT_TEAMn (n): its units selected (the game's own second press of the key centres the view)
 ##   a group, hold . CommandMap CREATE_TEAMn (Ctrl+n): the group made from the selection; a gold ring fills while held (HOLD_MS) and flashes when made
+##   a group's count  lane IOS-49: how many of its units a tap would select now (InGameHudNode.control_group_counts, refreshed with the other states):
+##                  a gold badge at the disc's lower right (99+ past 99); an empty group shows its number dimmed and no badge
 ## Every key is read from the game's CommandMap (InGameHudNode.get_command_map) and pressed as InputEventKeys (with their modifier keys around them), the
 ## path a hardware keyboard's keys take, so a remapped key follows. A hold on any other button shows what it does and presses nothing (IOS-21).
 ##
 ## Look (IOS-12's tokens, as ✓ / ✕): DISC_PT round dark discs with a hairline gold ring and a light glyph drawn here (no game art), CELL_PT touch cells
 ## (the 44 pt minimum), grouped by meaning with GROUP_GAP_PT between the groups. States: normal; pressed (the disc lightens, the ring and the glyph turn
 ## gold, 0.94 scale at once, back in PRESS_S); disabled (glyph and ring at 30 %: Deselect and Stop with nothing selected, Attack move when the selection
-## has no Attack Move button); on (Groups while its row is open: the ring and the glyph gold).
+## has no Attack Move button); on (Groups while its row is open: the ring and the glyph gold). Lane IOS-49, a group: empty (its number at C_EMPTY, no
+## badge) or holding units (the number lit, a COUNT_PT gold badge with the count in the disc's dark ink at its lower right, inside the 44 pt cell).
 ## Place: the top edge inside the safe area, from its left; right of the frame-rate readout when that shows (its room, fps_overlay.gd), and within the left
 ## WIDTH_SHARE of the safe area's width, clear of the game's messages (right-aligned at the top right) and the side bar (right edge): a group that would
 ## reach past it starts a second row (a portrait screen: two rows; landscape: one), and the groups' row wraps the same way. The help line goes under the
@@ -52,6 +55,10 @@ const C_RING := Color(0.784, 0.635, 0.353, 0.45)
 const C_GLYPH := Color(1, 1, 1, 0.86)
 const C_DIM := 0.3              # a disabled button's alpha for the ring and the glyph
 const C_TIP_TEXT := Color(0.94, 0.91, 0.84)
+const C_EMPTY := 0.5            # lane IOS-49: an empty group's number alpha
+const COUNT_PT := 16.0          # lane IOS-49: the count badge's height (and least width)
+const COUNT_TEXT_PT := 11.0
+const C_COUNT_INK := Color(0.06, 0.06, 0.07)  # on C_ACCENT: about 8:1
 
 ## the strip: [id, label, help]; "|" a group break
 const STRIP := [
@@ -91,6 +98,7 @@ class Cell:
 	var progress := -1.0        # a group's hold, 0 .. 1 (-1 none)
 	var flash := 0.0            # a group just made: the ring's flash, 1 -> 0
 	var text := ""              # a group's number
+	var count := -1             # lane IOS-49: a group's units a tap would select (-1: not known, no badge, the number lit as before)
 
 	func _draw() -> void:
 		var c := size * 0.5
@@ -112,9 +120,33 @@ class Cell:
 			var font := ThemeDB.fallback_font
 			var fs := int(round(17.0 * px))
 			var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			if count == 0 and not gold:
+				ink.a *= C_EMPTY  # lane IOS-49: an empty group
 			draw_string(font, c + Vector2(-w * 0.5, font.get_ascent(fs) * 0.5 - 1.0 * px), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
+			if count > 0:
+				_badge(c + Vector2(r, r) * 0.62, "99+" if count > 99 else str(count), a)
 			return
 		_glyph(c, r * 0.46, ink, GLYPH_PT * px)
+
+	## lane IOS-49: the count badge: a gold pill centred at `at`, COUNT_PT high, the count in the disc's ink
+	func _badge(at: Vector2, label: String, alpha: float) -> void:
+		var font := ThemeDB.fallback_font
+		var fs := int(round(COUNT_TEXT_PT * px))
+		var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var h := COUNT_PT * px
+		var w := maxf(h, tw + 8.0 * px)
+		var box := StyleBoxFlat.new()
+		box.bg_color = Color(C_ACCENT, alpha)
+		box.set_corner_radius_all(int(ceil(h * 0.5)))
+		box.border_color = Color(C_SHADOW, 0.6 * alpha)
+		box.set_border_width_all(maxi(1, roundi(1.0 * px)))
+		box.anti_aliasing = true
+		# kept inside the cell: a wide count ("99+") moves left, never past the cell's edge
+		var left := minf(at.x - w * 0.5, size.x - w)
+		var top := minf(at.y - h * 0.5, size.y - h)
+		draw_style_box(box, Rect2(left, top, w, h))
+		draw_string(font, Vector2(left + (w - tw) * 0.5, top + (h + font.get_ascent(fs) - font.get_descent(fs)) * 0.5), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(C_COUNT_INK, alpha))
 
 	## the vector glyphs (`g`: the glyph's half size)
 	func _glyph(c: Vector2, g: float, ink: Color, w: float) -> void:
@@ -375,6 +407,22 @@ func refresh() -> void:
 	_set_enabled("deselect", selected)
 	_set_enabled("stop", selected)
 	_set_enabled("attack", bool(attack.get("found", false)) and bool(attack.get("enabled", false)) and str(attack.get("key", "")) != "")
+	# lane IOS-49: the groups' counts (an extension without the call: no badges, the numbers as before)
+	var counts: PackedInt32Array = hud.control_group_counts() if hud.has_method("control_group_counts") else PackedInt32Array()
+	for i in GROUPS.size():
+		var n := int(GROUPS[i])
+		_set_count("group" + GROUPS[i], counts[n] if n < counts.size() else -1)
+
+
+## lane IOS-49: a group's count, its accessible name with it
+func _set_count(id: String, n: int) -> void:
+	var c: Cell = _cells[id]
+	if c.count == n:
+		return
+	c.count = n
+	var g := id.trim_prefix("group")
+	c.accessibility_name = "Control group %s" % g + ("" if n < 0 else (", empty" if n == 0 else ", %d selected by a tap" % n))
+	c.queue_redraw()
 
 
 func _set_enabled(id: String, on: bool) -> void:
@@ -496,7 +544,9 @@ func hide_tip(after := 0.0) -> void:
 func _help_of(id: String) -> String:
 	if is_group(id):
 		var n := id.trim_prefix("group")
-		return "Group %s: tap to select its units, hold to make it from your selection%s." % [n, _key_text("SELECT_TEAM" + n)]
+		var count: int = (_cells[id] as Cell).count
+		var has := "" if count < 0 else (" (empty)" if count == 0 else " (%d)" % count)  # lane IOS-49
+		return "Group %s%s: tap to select its units, hold to make it from your selection%s." % [n, has, _key_text("SELECT_TEAM" + n)]
 	for item in STRIP:
 		if item is Array and item[0] == id:
 			var key := ""
@@ -600,5 +650,6 @@ func state() -> Dictionary:
 	var buttons := {}
 	for id in _cells:
 		var c: Cell = _cells[id]
-		buttons[id] = {"rect": Rect2(c.position, c.size), "visible": c.is_visible_in_tree(), "enabled": c.enabled, "pressed": c.pressed, "on": c.on}
+		buttons[id] = {"rect": Rect2(c.position, c.size), "visible": c.is_visible_in_tree(), "enabled": c.enabled, "pressed": c.pressed, "on": c.on,
+			"count": c.count}
 	return {"shown": _shown, "drawer": _drawer, "rect": rect(), "buttons": buttons, "tip": _tip_label.text if _tip.visible else "", "sent": sent.duplicate()}

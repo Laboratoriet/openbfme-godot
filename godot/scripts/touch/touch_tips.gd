@@ -45,7 +45,7 @@ const TIPS := {
 	"hold": {"text": "Hold any button to see what it does.", "glyph": "hold"},
 	"preview": {"text": "Tap once to see what it is, again to use it.", "glyph": "tap2"},
 	"autocast": {"text": "Double-tap an ability like this to turn its autocast on or off.", "glyph": "double"},
-	"unqueue": {"text": "Tap ✕ beside the button to take one off the queue.", "glyph": "unqueue"},
+	"unqueue": {"text": "Tap ✕ beside the button to cancel: one off the queue, or the upgrade.", "glyph": "unqueue"},  # IOS-49: upgrades too
 	"place": {"text": "Drag to move it, then tap ✓ to build it here.", "glyph": "confirm"},
 	"twist": {"text": "Twist two fingers to turn the building.", "glyph": "twist"},
 	"aim": {"text": "The spot shows above your finger: lift, then tap ✓.", "glyph": "aim"},

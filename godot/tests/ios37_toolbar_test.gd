@@ -6,7 +6,8 @@
 ##    Escape, Attack move the selection's Attack Move hotkey, Deselect the HUD's deselect_all; no mouse event reaches the game;
 ##  * a hold shows the help line and presses nothing; sliding off and lifting does nothing; a second finger cancels;
 ##  * Groups opens the groups' row; a hold on a group presses Ctrl+digit (Ctrl down first, up last) once, with nothing selected nothing;
-##  * Deselect and Stop are disabled with nothing selected (a tap on them does nothing), Attack move without the selection's button.
+##  * Deselect and Stop are disabled with nothing selected (a tap on them does nothing), Attack move without the selection's button;
+##  * lane IOS-49: each group shows the HUD's count (control_group_counts): 3 holds 4, the others are empty, an unknown count (no call) is -1.
 ## The game's own check is the touch self-test (touch_selftest.gd _toolbar_check: the metas the game made).
 ##
 ##   godot --headless --path godot --script res://tests/ios37_toolbar_test.gd
@@ -24,6 +25,7 @@ class StubHud:
 	var selection: Array = [7]
 	var deselects := 0
 	var attack := {"found": true, "key": "a", "enabled": true}
+	var counts := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # lane IOS-49: groups 0 .. 9
 
 	func touch_button_at(_p: Vector2) -> Dictionary:
 		return {"kind": "", "target": "", "autocast": false, "costs": false, "name": "", "slot": -1, "rect": Rect2(), "command": ""}
@@ -53,6 +55,9 @@ class StubHud:
 
 	func command_hotkey(_command: String) -> Dictionary:
 		return attack
+
+	func control_group_counts() -> PackedInt32Array:
+		return counts
 
 	func hold_help(_on: bool) -> void:
 		pass
@@ -178,6 +183,17 @@ func _run() -> int:
 	_check(int(_controls.stats.groups_made) == 1, "counted as a group made")
 	await _tap_button("group3")
 	_check(_rec.keys == [["3", true, false], ["3", false, false]], "a tap on 3 presses 3: %s" % [_rec.keys])
+	# lane IOS-49: the counts follow the HUD's (a TOOLBAR_POLL_MS later): 3 holds 4, 0 (the last button) is empty; the help line says it
+	_hud.counts[3] = 4
+	_hud.counts[0] = 0
+	await _wait(0.4)
+	_check(int(t.state().buttons.group3.count) == 4 and int(t.state().buttons.group0.count) == 0 and int(t.state().buttons.group9.count) == 0,
+		"IOS-49: group 3 shows 4, the empty ones 0: %s / %s" % [t.state().buttons.group3.count, t.state().buttons.group0.count])
+	_check(t._help_of("group3").begins_with("Group 3 (4):") and t._help_of("group0").begins_with("Group 0 (empty):"),
+		"IOS-49: the help names the count: %s" % t._help_of("group3"))
+	_hud.counts[3] = 120
+	await _wait(0.4)
+	_check(int(t.state().buttons.group3.count) == 120, "IOS-49: a large count is kept (drawn 99+)")
 
 	# Deselect: the HUD's deselect_all; then Deselect and Stop are disabled and do nothing, nor does a group's hold
 	await _tap_button("deselect")

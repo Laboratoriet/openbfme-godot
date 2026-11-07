@@ -179,7 +179,8 @@ public:
 	// `pixel` is on: { kind: "movie" (a Palantir / side bar / spell book / hero bar button) | "radial" (a bubble) | "" , target, autocast }; lane IOS-40:
 	// + { costs (InGameHud::TouchButton: its press spends, ControlBar::pressCosts), name (the CommandButton's, "" none), command (its GUI command's name),
 	// slot (a bubble's, -1 else), rect (the button's window rectangle, Rect2() unmeasured) }; lane IOS-37: + { queued (the units of its template in the
-	// queue), cancel (a right press would cancel one now), away (a bubble's direction from the ring's centre) }
+	// queue), cancel (a right press would cancel one now), away (a bubble's direction from the ring's centre) }; lane IOS-49: + { irreversible (Sell:
+	// ControlBar::pressIrreversible), researching (an upgrade in progress: its cancel is the ✕ too) }
 	void set_touch_help(bool on);
 	void hold_help(bool on);
 	// lane IOS-29 (OpenBFME presentation, not retail): the round-HUD audit (InGameHud::hudScaleAudit): [{ level, path, sx, sy, fix_x, fix_y, unit,
@@ -201,6 +202,9 @@ public:
 	// ✓ / ✕ (a two-finger twist; false when no unanchored, non-line placement has a ghost). command_hotkey's key is the HotKeyTranslator's character for the
 	// button's window ("" none), enabled its availability
 	bool deselect_all();
+	// lane IOS-49 (OpenBFME, not retail; touch only: the command toolbar's group buttons): the local player's control groups 0 .. 9, each the number of
+	// members a recall would select now (PlayerCommands::liveCount over Player::hotkeySquad); empty without a game
+	PackedInt32Array control_group_counts() const;
 	Dictionary command_hotkey(const String &command) const;
 	bool set_placement_angle(double angle);
 	// lane IOS-43 (OpenBFME, not retail; touch only: scripts/touch/touch_targeting.gd): the power or ability waiting for its target and what a left click at
