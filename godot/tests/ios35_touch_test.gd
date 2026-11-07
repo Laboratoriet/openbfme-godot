@@ -7,7 +7,7 @@
 ##    drag the right click (at the lift, not while held), a hold that drifts within the slop too; two fingers still pan;
 ##  * "pan" leaves alone: a drag or a hold that starts on the HUD (a drag there is the left drag, a hold on a button its help), a placement's ghost drag
 ##    (IOS-23: the ghost moves, not the camera; the lift waits for ✓ / ✕), a drag with no game (the menus), an Apple Pencil's drag (the box: the
-##    IOS-14 bridge's claim_pencil says it is the Pencil's).
+##    IOS-45 input bridge makes it a mouse's left button, device PENCIL_DEVICE: no touch reaches the touch layer).
 ## Lane IOS-42: Options > Touch > "Two-finger twist": while ✓ / ✕ wait, a twist turns the building's ghost (Turns building, IOS-37's default) and not the
 ## camera; with Turns camera (OpenBFMETouchPlaceTwist = camera) the camera and not the ghost.
 ## The game's own check is the touch self-test with OpenBFMETouchDrag = pan (touch_selftest.gd: the camera follows a finger, a hold-drag counts a box).
@@ -103,24 +103,12 @@ class Recorder:
 			pointer = m.position
 
 
-## the IOS-14 bridge's IOSPointer with no mouse: its next touch-down is an Apple Pencil's (claim_pencil, IOS-35)
-class StubPencil:
+## the extension's IOSInputDevices (IOS-45) with no mouse
+class StubDevices:
 	extends RefCounted
-	var pencil := true
 
 	func status() -> Dictionary:
-		return {"pointer_seen": false}
-
-	func poll() -> Array:
-		return []
-
-	func claim_touch(_at: Vector2) -> bool:
-		return false
-
-	func claim_pencil(_at: Vector2) -> bool:
-		var was := pencil
-		pencil = false
-		return was
+		return {"mice": 0, "keyboard": false, "on_mac": false}
 
 
 var _failures := 0
@@ -274,13 +262,15 @@ func _run() -> int:
 	_controls._hud = _hud
 	await _wait(0.4)
 
-	# an Apple Pencil (the bridge's claim_pencil): its drag is the box, as in select mode
-	_controls._pointer = StubPencil.new()
+	# an Apple Pencil (IOS-45: the input bridge makes it left-button mouse events, device PENCIL_DEVICE, never a touch): its drag is the box
+	# (the left drag reaches the game as it is), the camera stays, and it is no mouse in use
+	_controls._devices = StubDevices.new()
 	_rec.buttons.clear()
-	await _finger_drag(f, f + Vector2(120, -60))
-	_controls._pointer = null
-	_check(_presses() == [[MOUSE_BUTTON_LEFT, f]] and _hud.cam == cam0 and int(_controls.stats.pencil_touches) == 1,
+	await _pencil_drag(f, f + Vector2(120, -60))
+	_check(_presses() == [[MOUSE_BUTTON_LEFT, f]] and _hud.cam == cam0 and int(_controls.stats.pencil_presses) == 1,
 		"pan: an Apple Pencil's drag is the box, the camera stays: %s" % [_rec.buttons])
+	_check(not _controls.mouse_connected() and not _controls._mouse, "pan: an Apple Pencil is no mouse in use")
+	_controls._devices = null
 	await _wait(0.4)
 	# the next finger pans again
 	await _finger_drag(f, f + Vector2(50, 0))
@@ -373,6 +363,38 @@ func _tap(at: Vector2) -> void:
 
 
 ## one finger down at `from`, dragged to `to` and lifted there
+## an Apple Pencil's stroke as the input bridge hands it to Godot (GodotIOSTouch.mm emit_pencil): a left press, motion, a left release; the
+## touch layer sees each as its _input would on an iOS build
+func _pencil_drag(from: Vector2, to: Vector2) -> void:
+	var press := InputEventMouseButton.new()
+	press.device = TouchControls.PENCIL_DEVICE
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.button_mask = MOUSE_BUTTON_MASK_LEFT
+	press.position = from
+	press.global_position = from
+	Input.parse_input_event(press)  # the game's copy (the Recorder)
+	_controls._bridge_event(press)  # and the touch layer's look (its stage takes no input of the root's)
+	await process_frame
+	for i in range(1, 9):
+		var m := InputEventMouseMotion.new()
+		m.device = TouchControls.PENCIL_DEVICE
+		m.button_mask = MOUSE_BUTTON_MASK_LEFT
+		m.position = from.lerp(to, i / 8.0)
+		m.global_position = m.position
+		Input.parse_input_event(m)
+		_controls._bridge_event(m)
+		await process_frame
+	var release := InputEventMouseButton.new()
+	release.device = TouchControls.PENCIL_DEVICE
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.position = to
+	release.global_position = to
+	Input.parse_input_event(release)
+	_controls._bridge_event(release)
+	await process_frame
+
+
 func _finger_drag(from: Vector2, to: Vector2) -> void:
 	_down(from)
 	await _drag_to(from, to)

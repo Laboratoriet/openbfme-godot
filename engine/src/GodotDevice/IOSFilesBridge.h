@@ -11,7 +11,7 @@
 // each); and a coordinated read after the pick, which makes a file provider (iCloud Drive, a cloud app) bring a file that is not on the device
 // yet down before it is opened (the state says "downloading" meanwhile).
 //
-// Plain C++ on purpose, as IOSPointerBridge.h: IOSFilesBridge.mm includes no godot-cpp header. The pick and its delegate run on the
+// Plain C++ on purpose, as IOSAudioSessionBridge.h: IOSFilesBridge.mm includes no godot-cpp header. The pick and its delegate run on the
 // main thread (Godot's iOS main loop runs there; a call from another thread is sent to the main queue); the coordinated read runs on a background
 // queue and only changes the state under a lock.
 

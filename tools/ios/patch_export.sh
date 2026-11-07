@@ -37,8 +37,8 @@ fi
 echo "IOS $PLIST: shareddocuments queryable (Open in Files)"
 
 # IOS-14: a mouse or trackpad click reaches the app as a touch of type indirect pointer (UIEvent.buttonMask tells its button) instead of
-# UIKit's compatibility mode, where it looks like a finger. The mouse bridge (engine/src/GodotDevice/IOSPointerBridge.mm) tells the pointer's
-# touches from the fingers' by that type; without the key it falls back to the touch's place (where the pointer hovered).
+# UIKit's compatibility mode, where it looks like a finger. The input bridge (engine/src/GodotDevice/GodotIOSTouch.mm, IOS-45) tells the
+# pointer's touches from the fingers' by that type only: without the key a click would be a finger's touch.
 plutil -replace UIApplicationSupportsIndirectInputEvents -bool YES "$PLIST"
 echo "IOS $PLIST: indirect input events (a click is a pointer touch, not a finger's)"
 

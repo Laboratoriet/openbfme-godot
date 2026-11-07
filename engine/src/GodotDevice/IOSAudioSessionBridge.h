@@ -13,7 +13,7 @@
 // keeps its category through an interruption, so nothing is re-applied there. A media services reset (AVAudioSessionMediaServicesWereResetNotification)
 // does discard the session's configuration: the bridge sets the last choice again then (Godot itself does not handle that notification).
 //
-// Plain C++ on purpose, as IOSPointerBridge.h: IOSAudioSessionBridge.mm includes no godot-cpp header. Every call runs on the main thread (Godot's iOS
+// Plain C++ on purpose, as IOSFilesBridge.h: IOSAudioSessionBridge.mm includes no godot-cpp header. Every call runs on the main thread (Godot's iOS
 // main loop runs there; the reset observer is on the main queue).
 
 #pragma once

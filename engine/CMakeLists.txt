@@ -709,10 +709,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # per-file property lists: tools/weapon/test_weapon_no_libm.py).
     enable_language(OBJCXX)
     target_compile_options(openbfme PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
-    # IOS-14: the mouse, trackpad and hardware keyboard bridge (UIKit recognizers on Godot's view, GameController's GCMouse / GCKeyboard), the
-    # IOSPointer class (registered under OPENBFME_IOS_POINTER only).
-    target_sources(openbfme PRIVATE src/GodotDevice/IOSPointerBridge.mm src/GodotDevice/GodotIOSPointer.cpp)
-    target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_POINTER=1)
+    # IOS-45: the input bridge (GodotIOSTouch.mm, after daisyhasacat/openbfme-godot): an Apple Pencil, a mouse or trackpad and a hardware
+    # keyboard on Godot's view, installed when the extension initializes; and the IOSInputDevices class (the connected mice and keyboards,
+    # for scripts/touch/touch_controls.gd). Both registered under OPENBFME_IOS_INPUT only.
+    target_sources(openbfme PRIVATE src/GodotDevice/GodotIOSTouch.mm src/GodotDevice/IOSInputDevicesBridge.mm src/GodotDevice/GodotIOSInputDevices.cpp)
+    target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_INPUT=1)
     target_link_libraries(openbfme PRIVATE "-framework GameController" "-framework UIKit" "-framework CoreGraphics" "-framework Foundation")
     # IOS-20: the audio session's category set live (Play sound in silent mode), the IOSAudioSession class (registered under
     # OPENBFME_IOS_AUDIO_SESSION only).
@@ -890,6 +891,7 @@ add_executable(openbfme_tests
     tests/test_any_language.cpp
     tests/test_mods1_mount.cpp
     tests/test_ios28_mods.cpp
+    tests/test_ios_pointer.cpp
     tests/test_ios31_install_mods.cpp
     tests/test_ios44_mod_save.cpp
     tests/test_md5cache_portable.cpp

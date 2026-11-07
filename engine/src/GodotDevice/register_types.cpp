@@ -22,8 +22,11 @@
 #include "GodotDevice/GodotVideoStream.h"
 #include "GodotDevice/GodotW3DModelBuilder.h"
 #include "GodotDevice/GodotLivingWorld.h" // WOTR-1
-#if defined(OPENBFME_IOS_POINTER)
-#include "GodotDevice/GodotIOSPointer.h" // IOS-14: iOS builds only (engine/CMakeLists.txt)
+#if defined(OPENBFME_IOS_INPUT)
+// IOS-45: the iOS input bridge (Pencil, mouse / trackpad, keyboard; after daisyhasacat/openbfme-godot) and the IOSInputDevices class
+// (IOS-14 / IOS-17: which mice and keyboards are connected). iOS builds only (engine/CMakeLists.txt)
+#include "GodotDevice/GodotIOSTouch.h"
+#include "GodotDevice/GodotIOSInputDevices.h"
 #endif
 #if defined(OPENBFME_IOS_AUDIO_SESSION)
 #include "GodotDevice/GodotIOSAudioSession.h" // IOS-20: iOS builds only (engine/CMakeLists.txt)
@@ -68,8 +71,9 @@ static void initialize_openbfme(ModuleInitializationLevel p_level)
 	GDREGISTER_CLASS(InstallSetup);
 	GDREGISTER_CLASS(VP6MovieStream); // CAMP-2
 	GDREGISTER_CLASS(LivingWorldGame); // WOTR-1
-#if defined(OPENBFME_IOS_POINTER)
-	GDREGISTER_CLASS(IOSPointer); // IOS-14: the mouse, trackpad and hardware keyboard of the iOS build
+#if defined(OPENBFME_IOS_INPUT)
+	GDREGISTER_CLASS(IOSInputDevices); // IOS-45: the connected mice and keyboards (scripts/touch/touch_controls.gd)
+	OpenBFMEIOSTouch::install(); // splits the touches of Godot's view (GodotIOSTouch.mm)
 #endif
 #if defined(OPENBFME_IOS_AUDIO_SESSION)
 	GDREGISTER_CLASS(IOSAudioSession); // IOS-20: the audio session's category (Play sound in silent mode)
@@ -83,6 +87,9 @@ static void uninitialize_openbfme(ModuleInitializationLevel p_level)
 {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE)
 	{
+#if defined(OPENBFME_IOS_INPUT)
+		OpenBFMEIOSTouch::uninstall();
+#endif
 		WindowsCrashDump::uninstall();
 		ConsoleFilter::uninstall(); // RELEASE-1: the original stdout / stderr back before the extension's code goes
 		GammaComposite::shutdown();

@@ -124,18 +124,12 @@ class Recorder:
 			pointer = m.position
 
 
-## the IOS-14 bridge's IOSPointer: a mouse that has shown itself and has one motion to report
-class StubPointer:
+## the extension's IOSInputDevices (IOS-45): a mouse is connected
+class StubDevices:
 	extends RefCounted
-	var events: Array = []
 
 	func status() -> Dictionary:
-		return {"pointer_seen": true}
-
-	func poll() -> Array:
-		var out := events
-		events = []
-		return out
+		return {"mice": 1, "keyboard": false, "on_mac": false}
 
 
 var _failures := 0
@@ -427,15 +421,18 @@ func _run() -> int:
 		"a still hold while the ghost waits is the right click; the wait ends: %s" % [_rec.buttons])
 	await _wait(0.4)
 
-	# a mouse (IOS-14 bridge): its motion ends the wait; a mouse click passes the touch layer untouched (retail's click placement)
+	# a mouse (IOS-14; IOS-45: the input bridge's motion, which reaches the game as it is): its motion ends the wait; a mouse click passes the
+	# touch layer untouched (retail's click placement)
 	_hud.placing = true
 	await _tap(t)
 	await _wait(0.25)
-	var pointer := StubPointer.new()
-	pointer.events = [{"type": "motion", "position": t + Vector2(100, 0), "buttons": 0}]
-	_controls._pointer = pointer
-	_controls._pump_bridge()
-	_controls._pointer = null
+	var hover := InputEventMouseMotion.new()
+	hover.position = t + Vector2(100, 0)
+	hover.global_position = hover.position
+	Input.parse_input_event(hover)  # the game's copy (the bridge hands Godot the event) ...
+	_controls._devices = StubDevices.new()
+	_controls._bridge_event(hover)  # ... and the touch layer's look at it (on an iOS build, where IOSInputDevices exists)
+	_controls._devices = null
 	await _wait(0.05)
 	_check(not _controls._confirming and not _state().shown and _rec.pointer == t + Vector2(100, 0), "a mouse's motion ends the wait; the mouse has the pointer")
 	_rec.buttons.clear()
@@ -453,6 +450,7 @@ func _run() -> int:
 
 	# ---- lane IOS-42: the Placing switches ---------------------------------------------------------------------------------------------------------
 	_controls._mouse = false
+	_controls._pointer_seen = false
 	_hud.legal = 0
 	_hud.line = false
 	# Above the finger off: the ghost under the finger

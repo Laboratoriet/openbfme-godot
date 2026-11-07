@@ -92,8 +92,9 @@ extends Node
 ##   one finger, tap ............ unchanged (the left click: select, or with Alternate Mouse Setup's touch default the contextual order). Daisy's e732ac15
 ##                                ("Prefer object selection for touch taps") makes a tap on any selectable object select it; not taken: the retail left
 ##                                click already selects a unit or building, and keeps the contextual orders of a tap on one (garrison, enter, repair)
-##   an Apple Pencil ............ the select mode's gestures (a drag is a selection box), as in Daisy's scheme. The Pencil is told from a finger by
-##                                IOSPointerBridge.mm (UITouchTypePencil, claim_pencil), on iOS builds whose extension has it
+##   an Apple Pencil ............ a mouse's left button (lane IOS-45: the input bridge, GodotIOSTouch.mm after daisyhasacat/openbfme-godot, makes
+##                                its touches left-button mouse events, device PENCIL_DEVICE, before Godot sees them): a drag is a selection box,
+##                                a tap the left click, in either mode. They never reach this layer as touches
 ## Unchanged in either mode: a placement's ghost drag (IOS-23 / IOS-26), the menus' list scrolling (IOS-10), a drag that starts on the HUD or the radar,
 ## a hold on a HUD button (its help, IOS-21), the two-finger gestures. The drag threshold stays SLOP_PT (10 pt: about Daisy's 12 px at a 720 px height on
 ## a 1x screen, and the same physical size on every screen).
@@ -150,7 +151,7 @@ extends Node
 ##   OpenBFMETouchTargeting ...... "tap": a power or ability waiting for its target is used by the next tap on the map, as before IOS-43 (no aim, no
 ##                                  ✓ / ✕); the banner still says what it waits for and its ✕ still cancels
 ## Not switches (no row): the thresholds (TAP_MAX_MS, LONG_PRESS_MS, SLOP_PT, DOUBLE_TAP_MS, TWIST_START_DEG, ARM_MS), the two-finger camera gestures,
-## the vibrations, an Apple Pencil's box (IOS-35) and the mouse / keyboard bridge (IOS-14): a number to tune or a device's own behaviour, not a choice
+## the vibrations, an Apple Pencil's box (IOS-35) and the mouse / keyboard bridge (IOS-14, IOS-45): a number to tune or a device's own behaviour, not a choice
 ## between two ways to play.
 ##
 ## Lane IOS-43 (the owner, 2026-11-05: "I don't remember how they work, and after clicking it seems like you have to place them on the map. Maybe
@@ -183,21 +184,20 @@ extends Node
 ## none of this.
 ##
 ## Lane IOS-14, a mouse, a trackpad and a hardware keyboard (an iPad's, the simulator's with the Mac's pointer captured, the iPhone build on an
-## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch (left only: a tap on release, a hold a right click),
-## with no hover, no right button and no wheel. The extension's IOSPointer (engine/src/GodotDevice/IOSPointerBridge.mm, iOS builds only; on a
-## desktop ClassDB has no such class and nothing below runs) reads them from UIKit and GameController; _pump_bridge makes them mouse events:
-##   the pointer ................ mouse motion as it hovers: the game's hover, tooltips and edge scrolling (kept on while a mouse is there)
-##   a click .................... the left button pressed and released when the button is (no tap delay, no hold), drags with the button held
-##   right / middle button ...... GCMouse's (or UIKit's secondary click)
-##   wheel, two-finger scroll ... wheel notches, one per WHEEL_STEP_PT of scrolling (a shorter scroll still one notch)
-## The de-duplication: UIKit hands Godot each click as a screen touch too. The bridge's touch observer on Godot's view sees that touch before
-## the view does and records where it began when it is the pointer's: a touch of type indirect pointer, or (UIKit's compatibility mode, without
-## UIApplicationSupportsIndirectInputEvents) a direct touch beginning within 6 pt of the last hover or within 150 ms of GCMouse's left button.
-## A screen touch here that begins within 2 px of such a record (at most 1 s old; each record matches once) is the mouse's: that index's whole
-## sequence (its drags and its release) is dropped, the bridge's own button events stand for it. Every other touch is a finger and keeps the
-## controls above, with a mouse connected too; a release of an index this node never saw pressed (Godot sends stray ones) is dropped as well.
-## The pointer: fingers move it as before (a tap is a click where the finger is); bridge motion is not applied while a finger is down, and the
-## next hover puts it back under the mouse.
+## Apple Silicon Mac). Godot's iOS layer knows no mouse: a click reaches it as a screen touch, with no hover, no right button and no wheel.
+## Lane IOS-45: the extension's input bridge (engine/src/GodotDevice/GodotIOSTouch.mm, iOS builds only; the shared design of
+## daisyhasacat/openbfme-godot with this port's GCMouse buttons and key releases) splits the touches of Godot's view by UITouch.type before
+## Godot sees them, so this layer only ever gets the fingers' touches:
+##   the pointer ................ mouse motion as it hovers (the game's hover, tooltips and edge scrolling: kept on while a mouse is in use)
+##   a click .................... mouse buttons as on a Mac (UIEvent.buttonMask, Control-click a right click), right / middle from GCMouse too
+##   wheel, two-finger scroll ... InputEventPanGesture (the bridge's, as Godot's macOS layer scales it): made wheel notches here, one per
+##                                WHEEL_STEP_PT of scrolling, a shorter scroll still one notch (the HUD and the menus know the wheel only)
+##   a trackpad's pinch ......... InputEventMagnifyGesture: nothing reads it (as before IOS-45)
+##   an Apple Pencil ............ left-button mouse events of device PENCIL_DEVICE: not "a mouse in use"; its click places and casts as a mouse's
+##   keys ....................... Godot's own; a release Godot misses (the Mac host) comes from the bridge (GCKeyboard), a right modifier's fixed here
+## "A mouse in use" (IOS-17, mouse_connected): a bridge pointer event (hover, click, scroll, pinch) since the last GCMouse went, never a mouse
+## GameController merely lists (the iPhone Duo lists one with nothing paired). IOSInputDevices (iOS builds only) says when the last mouse goes.
+## The pointer: fingers move it as before (a tap is a click where the finger is), and so does the mouse, whichever moved last.
 ## Keys: on the Mac host Godot's iOS layer delivers a hardware key's press but never its release (the game then holds an arrow key forever).
 ## Godot's presses stay as they are (they carry the layout's character); GCKeyboard's release of a key whose press Godot delivered and whose
 ## release Godot did not is sent as that press's release (_repair_key_releases). Where Godot's own release does come, nothing is added.
@@ -212,10 +212,11 @@ const TWIST_START_DEG := 8.0     # lane IOS-15: the fingers must turn this much 
 const ASSIST_PT := 9.0           # lane IOS-10: the tap assist's reach from a button's edge (points)
 const ASSIST_TIE_PT := 3.0       # lane IOS-10: a second button within this much of the nearest one's distance makes the tap ambiguous: no assist
 const WHEEL_STEP_PT := 12.0      # lane IOS-14: a wheel notch per this much scrolling (UIKit points); to tune from the "TOUCH IOS-14 scroll" lines
-const KEY_UP_GRACE_MS := 30      # lane IOS-14: a keyboard release waits this long for Godot's own (a host that delivers it gets no second one) ...
-const KEY_UP_WAIT_MS := 250      # ... and this long for a press Godot delivers late
+const SCROLL_END_MS := 150       # lane IOS-45: a scroll with no pan event for this long has ended (its short remainder is one notch)
+const PAN_PER_PT := 0.03         # lane IOS-45: the bridge's InputEventPanGesture delta per UIKit point of scrolling (Godot macOS's scale)
 const BRIDGE_DEVICE := 0x14      # lane IOS-14: the device id of the key releases made here (Godot's own keys are device 0)
-const LEAVE_INSET_PX := 8.0      # lane IOS-14: on the Mac host a pointer that left the window over an edge is put this far inside it
+const TOUCH_DEVICE := 0x15       # lane IOS-45: the device id of this layer's own mouse events (the input bridge's are device 0)
+const PENCIL_DEVICE := 1001      # lane IOS-45: the device id of an Apple Pencil's mouse events (GodotIOSTouch.h PencilDevice)
 const GHOST_OFFSET_PT := 60.0    # lane IOS-23 (the owner's decision): a placement's ghost sits this far above the fingertip (points)
 const GHOST_INSET_PX := 2.0      # lane IOS-23: an offset point above the view's top edge is put this far inside it
 const CONFIRM_POLL_MS := 100     # lane IOS-26: while ✓ / ✕ wait, the placement, the ghost's legality and its pixel are read this often ...
@@ -272,9 +273,9 @@ var _scroll_at := Vector2.ZERO   # lane IOS-10: where the list drag began (the w
 var _scroll_anchor := 0.0        # the finger's stage y at the last notch
 var _scroll_row := 0.0           # stage pixels of finger travel per notch (the list's row height)
 var stats := {"taps": 0, "double_taps": 0, "drags": 0, "holds": 0, "pans": 0, "zoom_notches": 0, "two_finger_taps": 0, "twists": 0, "assisted_taps": 0,
-	"list_scrolls": 0, "pointer_touches": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
+	"list_scrolls": 0, "pointer_events": 0, "mouse_buttons": 0, "wheel_notches": 0, "repaired_key_releases": 0, "infos": 0, "autocast_taps": 0,
 	"waited_taps": 0, "place_drags": 0, "place_lifts": 0, "place_lifts_on_hud": 0, "place_taps": 0, "place_confirms": 0, "place_cancels": 0,
-	"finger_pans": 0, "box_arms": 0, "pencil_touches": 0, "place_accepted": 0, "builder_deselects": 0, "arms": 0, "armed_uses": 0, "disarms": 0,
+	"finger_pans": 0, "box_arms": 0, "pencil_presses": 0, "place_accepted": 0, "builder_deselects": 0, "arms": 0, "armed_uses": 0, "disarms": 0,
 	"toolbar_taps": 0, "toolbar_helps": 0, "groups_made": 0, "ghost_turns": 0, "queue_cancels": 0,
 	"aim_starts": 0, "aim_drags": 0, "aim_lifts": 0, "aim_taps": 0, "aim_lifts_on_hud": 0, "aim_fires": 0, "aim_cancels": 0, "aim_refused": 0}
 var drag_mode := DRAG_SELECT     # lane IOS-35: OpenBFMETouchDrag (set_drag_mode)
@@ -289,7 +290,6 @@ var _toolbar_poll_ms := 0
 var _cancel_poll_ms := 0         # lane IOS-37: the armed button's ✕ is checked this often (its queue changes as units come out)
 var _pan_world := false          # lane IOS-35: in pan mode the one-finger gesture began on the battlefield (a drag pans, a hold arms the box)
 var _pan_last := Vector2.ZERO    # lane IOS-35: the finger's pixel at the last camera step
-var _pencil_touches := {}        # lane IOS-35: Godot's touch index -> true: an Apple Pencil's (IOSPointer.claim_pencil)
 var _placing := false            # lane IOS-23: the one-finger gesture began on the world while a placement waited for its site (the ghost is offset)
 var _confirm: CanvasLayer = null # lane IOS-26: placement_confirm.gd, made the first time it is needed
 var _confirming := false         # lane IOS-26: a placement's ghost waits for ✓ / ✕ at _ghost_px
@@ -330,15 +330,16 @@ var _aim_pressed := ""           # the button an AIM_CONFIRM gesture's finger pr
 var _waiting := {}               # lane IOS-21: a tap on an autocast ability waiting for a second one: {"at": the press point, "due": msec, "second":
                                  # a finger came down on it in time (its tap is the second, however long it stays)}
 var _touch_help := -1            # lane IOS-21: the touch help the HUD was last given (-1: none yet)
-var _pointer: RefCounted = null  # lane IOS-14: the extension's IOSPointer (iOS builds only)
-var _mouse := false              # lane IOS-14: a mouse or trackpad is there (the bridge says)
-var _on_mac := false             # lane IOS-14: the iPhone / iPad build on an Apple Silicon Mac (its pointer can leave the window)
-var _pointer_touches := {}       # lane IOS-14: Godot's touch index -> true: a click of the mouse (the bridge reports its buttons itself)
+var _devices: RefCounted = null  # lane IOS-45: the extension's IOSInputDevices (iOS builds only): the input bridge is on, and which mice are there
+var _mouse := false              # lane IOS-14: a mouse or trackpad is in use (mouse_connected, read four times a second)
+var _pointer_seen := false       # lane IOS-45: a bridge pointer event came since the last mouse went (IOS-17)
+var _mice := 0                   # lane IOS-45: GCMouse's count at the last look
 var _wheel_acc := 0.0           # lane IOS-14: scrolling not yet a whole notch (points)
 var _wheel_notches := 0         # notches of the scroll gesture in progress
 var _wheel_logged := 0
+var _scroll_ms := 0              # lane IOS-45: the last pan event (a scroll's end is a pause: the pan gesture says no end)
+var _scroll_pos := Vector2.ZERO  # ... and where it was
 var _keys_down := {}             # lane IOS-14: physical keycode -> Godot's press of it whose release Godot has not delivered
-var _key_ups := {}               # physical keycode -> when the keyboard (GCKeyboard) released it, not yet matched to a Godot press
 
 
 func _ready() -> void:
@@ -358,12 +359,11 @@ func _ready() -> void:
 	print("TOUCH controls on (%s), %.1f px per point" % ["mobile" if OS.has_feature("mobile") else "--touch", _scale])
 	print("TOUCH arguments: engine %s, game %s" % [OS.get_cmdline_args(), OS.get_cmdline_user_args()])
 	print("TOUCH tap assist %s (%.0f pt), list scrolling %s, twist turns the camera (IOS-15)" % ["on" if tap_assist else "off", ASSIST_PT, "on" if list_scroll else "off"])
-	if ClassDB.class_exists("IOSPointer"):
-		_pointer = ClassDB.instantiate("IOSPointer")
-		var started: bool = _pointer.start()
-		var status: Dictionary = _pointer.status()
-		_on_mac = bool(status.get("on_mac", false))
-		print("TOUCH IOS-14 mouse and keyboard bridge %s: %s" % ["on" if started else "NOT STARTED (no view)", status])
+	if ClassDB.class_exists("IOSInputDevices"):
+		_devices = ClassDB.instantiate("IOSInputDevices")
+		var status: Dictionary = _devices.status()
+		_mice = int(status.get("mice", 0))
+		print("TOUCH IOS-45 input bridge on (the extension's GodotIOSTouch.mm): %s" % status)
 		get_tree().root.window_input.connect(_on_window_input)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--touch-selftest="):
@@ -443,7 +443,7 @@ func switches() -> Dictionary:
 ## lane IOS-15: a mouse or trackpad is in use (a Mac running the iPhone build has one). IOS-17: only once its pointer showed itself (hovered,
 ## clicked): the iPhone Duo lists a GameController mouse with nothing paired, which switched touch play to the desktop's right-click orders
 func mouse_connected() -> bool:
-	return _pointer != null and bool(_pointer.status().get("pointer_seen", false))
+	return _devices != null and _pointer_seen
 
 
 ## lane IOS-17: the edge scrolling a game gets from the player's option (game_options.gd view_options, and here when a mouse comes or goes). The
@@ -470,13 +470,13 @@ func _input(event: InputEvent) -> void:
 			OS.get_keycode_string((event as InputEventKey).keycode), OS.get_keycode_string((event as InputEventKey).physical_keycode),
 			(event as InputEventKey).pressed, (event as InputEventKey).echo]])
 	if event is InputEventScreenTouch:
-		if not _pointer_touch(event):
-			_touch(event)
+		_touch(event)
 		get_viewport().set_input_as_handled()
 	elif event is InputEventScreenDrag:
-		if not _pointer_touches.has(event.index):
-			_drag(event)
+		_drag(event)
 		get_viewport().set_input_as_handled()
+	elif _devices != null:
+		_bridge_event(event)
 
 
 var _status_ms := 0           # lane IOS-14: the bridge's counters are logged when they change (at most every 10 s)
@@ -484,14 +484,14 @@ var _status_last := ""
 
 
 func _process(_delta: float) -> void:
-	if _pointer != null:
-		_pump_bridge()
+	if _devices != null:
+		_poll_devices()
 		if Time.get_ticks_msec() - _status_ms > 10000:
 			_status_ms = Time.get_ticks_msec()
-			var now := JSON.stringify(_pointer.status())
+			var now := JSON.stringify(_bridge_status())
 			if now != _status_last:
 				_status_last = now
-				print("TOUCH IOS-14 status: ", now)
+				print("TOUCH IOS-45 status: ", now)
 	if not _waiting.is_empty() and Time.get_ticks_msec() >= int(_waiting.due) and not _waiting.get("second", false):
 		_press_waiting()  # lane IOS-21: no second tap came: the first one's press
 	if not _armed.is_empty() and Time.get_ticks_msec() >= int(_armed.until) and _gesture == Gesture.NONE:
@@ -541,9 +541,6 @@ func _touch(e: InputEventScreenTouch) -> void:
 	var now := Time.get_ticks_msec()
 	if e.pressed:
 		_fingers[e.index] = {"start": e.position, "pos": e.position, "at": now}
-		if _pointer != null and _pointer.has_method("claim_pencil") and _pointer.claim_pencil(e.position):
-			_pencil_touches[e.index] = true  # lane IOS-35: an Apple Pencil keeps the select mode's gestures
-			stats.pencil_touches += 1
 		if not _waiting.is_empty() and (_fingers.size() > 1 or e.position.distance_to(_waiting.at) > DOUBLE_TAP_PT * _scale):
 			_press_waiting()  # lane IOS-21: a finger elsewhere is no second tap: the waiting press goes first
 		elif not _waiting.is_empty() and now <= int(_waiting.due):
@@ -589,7 +586,7 @@ func _touch(e: InputEventScreenTouch) -> void:
 				_placing = _placement_drag_at(e.position)
 				_tap_placing = _tap_placement_at(e.position)  # lane IOS-42: "Place on tap": this finger's click (or drag) places
 				_aiming = not _placing and not _tap_placing and _aim_drag_at(e.position)  # lane IOS-43
-				_pan_world = drag_mode == DRAG_PAN and not _placing and not _tap_placing and not _aiming and not _pencil_touches.has(e.index) \
+				_pan_world = drag_mode == DRAG_PAN and not _placing and not _tap_placing and not _aiming \
 					and _on_battlefield(e.position)  # IOS-35
 				if _confirming:
 					if _placing:
@@ -722,7 +719,6 @@ func _touch(e: InputEventScreenTouch) -> void:
 				_end_confirm()  # lane IOS-26: the two-finger tap cancelled the placement
 				_end_aim_wait()  # lane IOS-43: and a power's aim
 	_fingers.erase(e.index)
-	_pencil_touches.erase(e.index)
 	if _fingers.is_empty():
 		_gesture = Gesture.NONE
 		_first = -1
@@ -1514,7 +1510,7 @@ func _game_hud() -> Node:
 	_hud = found[0] if not found.is_empty() else null
 	_touch_help = -1  # a new game's HUD starts with the desktop's hover help
 	if _hud != null:
-		# a finger near the edge is not a wish to scroll; a mouse's pointer is (lane IOS-14: on while a mouse is there, _pump_bridge follows it).
+		# a finger near the edge is not a wish to scroll; a mouse's pointer is (lane IOS-14: on while a mouse is in use, _poll_devices follows it).
 		# set_edge_scroll replaces the HUD's retail rule (scroll in a full-screen window, which Godot's iOS window always is) and edge_scroll_mode
 		# maps the option's "retail" the same way (IOS-17)
 		_apply_edge_scroll()
@@ -1604,6 +1600,7 @@ func _wheel(button: MouseButton, at: Vector2) -> void:
 		b.factor = 1.0
 		b.position = at
 		b.global_position = at
+		b.device = TOUCH_DEVICE
 		Input.parse_input_event(b)
 
 
@@ -1612,6 +1609,7 @@ func _move(at: Vector2) -> void:
 	m.position = at
 	m.global_position = at
 	m.button_mask = MOUSE_BUTTON_MASK_LEFT if _gesture == Gesture.DRAG else 0
+	m.device = TOUCH_DEVICE
 	Input.parse_input_event(m)
 
 
@@ -1624,6 +1622,7 @@ func _button(button: MouseButton, down: bool, at: Vector2, double := false) -> v
 	b.global_position = at
 	b.double_click = double and down
 	b.button_mask = (MOUSE_BUTTON_MASK_LEFT if button == MOUSE_BUTTON_LEFT else MOUSE_BUTTON_MASK_RIGHT) if down else 0
+	b.device = TOUCH_DEVICE
 	Input.parse_input_event(b)
 
 
@@ -1956,95 +1955,77 @@ func aim_state() -> Dictionary:
 		"ui": _aim_ui.state() if _aim_ui != null else {}, "confirm": _aim_confirm.state() if _aim_confirm != null else {}}
 
 
-# ---- lane IOS-14: the mouse, trackpad and hardware keyboard (IOSPointer) ------------------------------------------------------------------------
+# ---- lane IOS-14 / IOS-45: the mouse, trackpad, Apple Pencil and hardware keyboard (the extension's input bridge) -------------------------------
 
-## A screen touch that is the mouse's click (the bridge recorded it): true, and its sequence is dropped (the bridge sent its buttons).
-func _pointer_touch(e: InputEventScreenTouch) -> bool:
-	if _pointer == null:
-		return false
-	if e.pressed:
-		if _pointer.claim_touch(e.position):
-			_pointer_touches[e.index] = true
-			stats.pointer_touches += 1
-			return true
-		return false
-	return _pointer_touches.erase(e.index)
-
-
-func _pump_bridge() -> void:
-	var now := Time.get_ticks_msec()
-	if now - _mouse_check_ms >= 250:
-		_mouse_check_ms = now
-		var mouse := mouse_connected()
-		if mouse != _mouse:
-			_mouse = mouse
-			_disarm("mouse")  # lane IOS-40: a mouse acts at once
-			print("TOUCH IOS-14 mouse %s: %s" % ["in use" if mouse else "gone", _pointer.status()])
-			if is_instance_valid(_hud) and _hud.is_inside_tree():
-				_apply_edge_scroll()
-	for item in _pointer.poll():
-		var e: Dictionary = item
-		match str(e.type):
-			"motion":
-				if _fingers.is_empty():  # while a finger is down the finger has the pointer
-					_end_confirm()  # lane IOS-26: the mouse takes the pointer, and with it the ghost; its click places as retail's
-					_end_aim_wait()  # lane IOS-43: and a power's aim; its click casts as retail's
-					_mouse_motion(e.position, int(e.buttons))
-			"button":
+## An input event that is not a finger's on an iOS build: the input bridge's (GodotIOSTouch.mm) mouse, Pencil and scroll events, which reached
+## the game as they are. Here: whether a mouse is in use (IOS-17), the touch layer's waits a mouse ends, and the scroll made wheel notches
+func _bridge_event(event: InputEvent) -> void:
+	if event is InputEventMouse:
+		if event.device == TOUCH_DEVICE:
+			return  # this layer's own
+		var button := event as InputEventMouseButton
+		if event.device == PENCIL_DEVICE:
+			# an Apple Pencil is a mouse's left button, not a mouse in use: its click places and casts as a mouse's does
+			if button != null and button.pressed:
+				stats.pencil_presses += 1
 				_end_confirm()
 				_end_aim_wait()
-				_mouse_button(int(e.button) as MouseButton, bool(e.pressed), e.position, int(e.buttons), bool(e.double_click))
-			"scroll":
-				_mouse_scroll(e.delta, e.position, bool(e.ended))
-			"key":
-				_keyboard_key(int(e.physical), bool(e.pressed))
-			"leave":
-				_pointer_left(e.position)
-	_repair_key_releases()
+			return
+		_saw_pointer()
+		if button != null:
+			_end_confirm()
+			_end_aim_wait()
+			stats.mouse_buttons += 1
+		elif _fingers.is_empty():  # while a finger is down the finger's gesture keeps its waits
+			_end_confirm()  # lane IOS-26: the mouse takes the pointer, and with it the ghost; its click places as retail's
+			_end_aim_wait()  # lane IOS-43: and a power's aim; its click casts as retail's
+	elif event is InputEventPanGesture:
+		# a wheel or a trackpad's two-finger scroll (the bridge's recognizer takes no finger): back to UIKit points, then wheel notches
+		_saw_pointer()
+		var pan := event as InputEventPanGesture
+		_scroll_ms = Time.get_ticks_msec()
+		_scroll_pos = pan.position
+		_mouse_scroll(-pan.delta / PAN_PER_PT, pan.position, false)
+		get_viewport().set_input_as_handled()  # the notches stand for it (a Godot list would scroll twice)
+	elif event is InputEventMagnifyGesture:
+		_saw_pointer()  # a trackpad's pinch: a pointer in use; nothing reads the gesture
 
 
-func _mouse_motion(at: Vector2, mask: int) -> void:
-	var m := InputEventMouseMotion.new()
-	m.position = at
-	m.global_position = at
-	m.button_mask = mask
-	Input.parse_input_event(m)
+func _saw_pointer() -> void:
+	stats.pointer_events += 1
+	if not _pointer_seen:
+		_pointer_seen = true
+		_mouse_check_ms = 0  # in use from the next frame
 
 
-func _mouse_button(button: MouseButton, down: bool, at: Vector2, mask: int, double: bool) -> void:
-	_mouse_motion(at, mask if not down else mask & ~_mask_of(button))  # the pointer there first, the button not yet held
-	var b := InputEventMouseButton.new()
-	b.button_index = button
-	b.pressed = down
-	b.position = at
-	b.global_position = at
-	b.double_click = double and down
-	b.button_mask = mask
-	Input.parse_input_event(b)
-	stats.mouse_buttons += 1
+## the bridge's counters and the devices, for the log
+func _bridge_status() -> Dictionary:
+	var status: Dictionary = _devices.status()
+	status["pointer_seen"] = _pointer_seen
+	for key in ["pointer_events", "mouse_buttons", "pencil_presses", "wheel_notches", "repaired_key_releases"]:
+		status[key] = stats[key]
+	return status
 
 
-func _mask_of(button: MouseButton) -> int:
-	match button:
-		MOUSE_BUTTON_LEFT:
-			return MOUSE_BUTTON_MASK_LEFT
-		MOUSE_BUTTON_RIGHT:
-			return MOUSE_BUTTON_MASK_RIGHT
-		MOUSE_BUTTON_MIDDLE:
-			return MOUSE_BUTTON_MASK_MIDDLE
-	return 0
-
-
-## The pointer stopped hovering. On the Mac host it left the window: Godot's iOS window counts as full screen, so the HUD's edge scrolling is on,
-## and a pointer last seen in the edge band would scroll the camera until it came back; it is put LEAVE_INSET_PX inside instead. On an iPad the
-## pointer cannot leave the screen and a hover also ends when the pointer fades: nothing is done there (a pointer parked at the edge scrolls on).
-func _pointer_left(at: Vector2) -> void:
-	if not _on_mac or not _fingers.is_empty():
+func _poll_devices() -> void:
+	var now := Time.get_ticks_msec()
+	if _wheel_acc != 0.0 or _wheel_notches != 0:
+		if now - _scroll_ms >= SCROLL_END_MS:
+			_mouse_scroll(Vector2.ZERO, _scroll_pos, true)  # the scroll paused: it ended
+	if now - _mouse_check_ms < 250:
 		return
-	var size := get_viewport().get_visible_rect().size
-	var inside := at.clamp(Vector2(LEAVE_INSET_PX, LEAVE_INSET_PX), size - Vector2(LEAVE_INSET_PX, LEAVE_INSET_PX))
-	if inside != at:
-		_mouse_motion(inside, 0)
+	_mouse_check_ms = now
+	var mice := int(_devices.status().get("mice", 0))
+	if mice == 0 and _mice > 0:
+		_pointer_seen = false  # the last mouse went: touch play again until a pointer shows itself (IOS-17)
+	_mice = mice
+	var mouse := mouse_connected()
+	if mouse != _mouse:
+		_mouse = mouse
+		_disarm("mouse")  # lane IOS-40: a mouse acts at once
+		print("TOUCH IOS-14 mouse %s: %s" % ["in use" if mouse else "gone", _bridge_status()])
+		if is_instance_valid(_hud) and _hud.is_inside_tree():
+			_apply_edge_scroll()
 
 
 ## UIKit's scrolling (+y: the content moves down, the wheel turned up, as a desktop's natural scrolling gives it) in whole notches
@@ -2070,7 +2051,9 @@ func _mouse_scroll(delta: Vector2, at: Vector2, ended: bool) -> void:
 		_wheel_notches = 0
 
 
-## every key event Godot delivers (the root window's, before any node's _input marks it handled): which presses still wait for a release
+## every key event Godot delivers (the root window's, before any node's _input marks it handled): which presses still wait for a release (released
+## here when the app loses the focus). The bridge's release of a key Godot missed (GCKeyboard, on the Mac host) names no side: a right modifier's
+## (Godot's press had KEY_LOCATION_RIGHT, the HUD's own scan code) is released again as the press had it
 func _on_window_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
 	if k == null or k.device == BRIDGE_DEVICE or k.echo or k.physical_keycode == KEY_NONE:
@@ -2078,32 +2061,12 @@ func _on_window_input(event: InputEvent) -> void:
 	var code := int(k.physical_keycode)
 	if k.pressed:
 		_keys_down[code] = k
-	else:
-		_keys_down.erase(code)  # Godot's own release came: nothing to repair
-		_key_ups.erase(code)
-
-
-func _keyboard_key(physical: int, pressed: bool) -> void:
-	if physical == KEY_NONE:
-		return
-	if pressed:
-		_key_ups.erase(physical)  # pressed again: an older release is spent
-	else:
-		_key_ups[physical] = Time.get_ticks_msec()
-
-
-func _repair_key_releases() -> void:
-	if _key_ups.is_empty():
-		return
-	var now := Time.get_ticks_msec()
-	for code in _key_ups.keys():
-		var age: int = now - int(_key_ups[code])
-		if _keys_down.has(code):
-			if age >= KEY_UP_GRACE_MS:
-				_release_key(code)
-				_key_ups.erase(code)
-		elif age > KEY_UP_WAIT_MS:
-			_key_ups.erase(code)
+	elif _keys_down.has(code):
+		var press: InputEventKey = _keys_down[code]
+		if press.location == KEY_LOCATION_RIGHT and k.location == KEY_LOCATION_UNSPECIFIED:
+			_release_key(code)
+		else:
+			_keys_down.erase(code)  # Godot's own release came: nothing to repair
 
 
 func _release_key(code: int) -> void:
@@ -2120,7 +2083,6 @@ func _release_key(code: int) -> void:
 
 func _notification(what: int) -> void:
 	# lane IOS-14: keys held as the app loses the focus (Cmd-Tab on the Mac, the home gesture) are released: no release would ever come
-	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and _pointer != null:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and _devices != null:
 		for code in _keys_down.keys():
 			_release_key(code)
-		_key_ups.clear()

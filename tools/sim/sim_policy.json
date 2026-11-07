@@ -877,8 +877,8 @@
    "reason": "lane RELEASE-1: the Godot view of the install finder, the version and the session log file; client only, never simulation state"
   },
   {
-   "glob": "src/GodotDevice/GodotIOSPointer.cpp",
-   "reason": "lane IOS-14: the iOS mouse, trackpad and hardware keyboard bridge (IOSPointerBridge.mm) as the IOSPointer class; client input device, never simulation state"
+   "glob": "src/GodotDevice/GodotIOSInputDevices.cpp",
+   "reason": "lane IOS-45: the connected iOS mice and keyboards (IOSInputDevicesBridge.mm, beside the input bridge GodotIOSTouch.mm) as the IOSInputDevices class; client input device, never simulation state"
   },
   {
    "glob": "src/GodotDevice/GodotIOSAudioSession.cpp",
