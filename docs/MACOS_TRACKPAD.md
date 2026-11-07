@@ -36,3 +36,13 @@ twist both directions, and pinch/spread. Repeat over the radar and command bar,
 with the pause/options menu open, after switching focus to another application,
 and after leaving and restarting the game. Verify ordinary mouse-wheel zoom still
 works. Synthetic event checks cannot prove physical trackpad delivery or feel.
+
+## iPad and iPhone (ios-port, lane IOS-48)
+
+The iOS input bridge (`engine/src/GodotDevice/GodotIOSTouch.mm`) gives the same events: a trackpad's (or Magic Mouse's) two-finger
+scroll is an `InputEventPanGesture` of device 0 and pans the camera over the game world, a trackpad pinch an
+`InputEventMagnifyGesture` that zooms, as on a Mac. A mouse wheel's scrolling reaches UIKit as scrolling too, so the bridge sends it as a
+pan gesture of device `WheelDevice` (1002, `GodotIOSTouch.h`), which the HUD does not take: the touch layer
+(`godot/scripts/touch/touch_controls.gd`) makes it wheel notches, the zoom, as a wheel is on a Mac. A trackpad scroll the HUD does not
+take (over the HUD, in the menus) is wheel notches too, as before. Rotation needs a native rotation recognizer the bridge does not add
+yet; finger touches keep the touch layer's own two-finger pan, pinch and twist (they are screen touches, never these gestures).

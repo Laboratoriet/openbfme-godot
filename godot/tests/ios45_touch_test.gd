@@ -5,7 +5,8 @@
 ##    mouse events (TOUCH_DEVICE) and an Apple Pencil's (PENCIL_DEVICE) are no mouse; a trackpad's scroll or pinch is; when the last mouse goes (the
 ##    count drops to 0) touch play is back until a pointer shows itself again; on a desktop (no IOSInputDevices) no mouse event counts;
 ##  * IOS-14: the bridge's scroll (InputEventPanGesture, the macOS scale) becomes wheel notches, one per WHEEL_STEP_PT (up for a scroll that moves the
-##    content down), a shorter scroll one notch once it pauses; the gesture itself is handled (no Godot list scrolls twice);
+##    content down), a shorter scroll one notch once it pauses; the gesture itself is handled (no Godot list scrolls twice); IOS-48: a wheel's pans
+##    (WHEEL_DEVICE) alike;
 ##  * IOS-14: the bridge's release of a key Godot missed names no side: a right modifier's press is released as it was pressed (KEY_LOCATION_RIGHT);
 ##    Godot's own release adds nothing; the keys still held are released when the app loses the focus.
 ## The click logic of the bridge itself is the engine's unit test (engine/tests/test_ios_pointer.cpp); the device behaviour wants an iPad.
@@ -117,6 +118,12 @@ func _run() -> int:
 	await _wait(0.3)
 	_check(_wheels() == [MOUSE_BUTTON_WHEEL_DOWN], "... one wheel-down notch once it paused: %s" % [_wheels()])
 	_check(_controls.mouse_connected(), "a scroll shows a pointer")
+	# lane IOS-48: a mouse wheel's pan gestures (WHEEL_DEVICE; the HUD leaves them alone, a trackpad's it takes over the battlefield) are notches too
+	_rec.buttons.clear()
+	_scroll(-30.0, TouchControls.WHEEL_DEVICE)
+	await _wait(0.05)
+	_check(_wheels() == [MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_DOWN], "a wheel's 30 pt scroll is two wheel-down notches: %s" % [_wheels()])
+	await _wait(0.3)
 
 	# ---- IOS-14: a missed key release ----------------------------------------------------------------------------------------------------------------
 	_rec.keys.clear()
@@ -160,9 +167,10 @@ func _button(at: Vector2, down: bool, device: int) -> InputEventMouseButton:
 
 
 ## `points` of UIKit scrolling (+: the content moves down) as the bridge reports it: pan gestures of the macOS scale, in three steps
-func _scroll(points: float) -> void:
+func _scroll(points: float, device := 0) -> void:
 	for i in 3:
 		var pan := InputEventPanGesture.new()
+		pan.device = device
 		pan.position = Vector2(300, 200)
 		pan.delta = Vector2(0, -points / 3.0 * TouchControls.PAN_PER_PT)
 		_controls._bridge_event(pan)

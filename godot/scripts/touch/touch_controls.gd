@@ -191,8 +191,12 @@ extends Node
 ##   the pointer ................ mouse motion as it hovers (the game's hover, tooltips and edge scrolling: kept on while a mouse is in use)
 ##   a click .................... mouse buttons as on a Mac (UIEvent.buttonMask, Control-click a right click), right / middle from GCMouse too
 ##   wheel, two-finger scroll ... InputEventPanGesture (the bridge's, as Godot's macOS layer scales it): made wheel notches here, one per
-##                                WHEEL_STEP_PT of scrolling, a shorter scroll still one notch (the HUD and the menus know the wheel only)
-##   a trackpad's pinch ......... InputEventMagnifyGesture: nothing reads it (as before IOS-45)
+##                                WHEEL_STEP_PT of scrolling, a shorter scroll still one notch (the HUD and the menus know the wheel only).
+##                                Lane IOS-48 (upstream's Mac trackpad camera, docs/MACOS_TRACKPAD.md): a trackpad's scroll (device 0) over
+##                                the battlefield pans the camera in the HUD, as on a Mac, and never comes here (the HUD's _input runs before
+##                                this autoload's and marks it handled); over the HUD, in the menus or with input off it still comes here and is
+##                                notches. A mouse wheel's (device WHEEL_DEVICE) the HUD leaves alone: always notches, so a wheel zooms
+##   a trackpad's pinch ......... InputEventMagnifyGesture: the HUD's zoom over the battlefield (IOS-48, upstream's); here only "a pointer in use"
 ##   an Apple Pencil ............ left-button mouse events of device PENCIL_DEVICE: not "a mouse in use"; its click places and casts as a mouse's
 ##   keys ....................... Godot's own; a release Godot misses (the Mac host) comes from the bridge (GCKeyboard), a right modifier's fixed here
 ## "A mouse in use" (IOS-17, mouse_connected): a bridge pointer event (hover, click, scroll, pinch) since the last GCMouse went, never a mouse
@@ -217,6 +221,7 @@ const PAN_PER_PT := 0.03         # lane IOS-45: the bridge's InputEventPanGestur
 const BRIDGE_DEVICE := 0x14      # lane IOS-14: the device id of the key releases made here (Godot's own keys are device 0)
 const TOUCH_DEVICE := 0x15       # lane IOS-45: the device id of this layer's own mouse events (the input bridge's are device 0)
 const PENCIL_DEVICE := 1001      # lane IOS-45: the device id of an Apple Pencil's mouse events (GodotIOSTouch.h PencilDevice)
+const WHEEL_DEVICE := 1002       # lane IOS-48: the device id of a mouse wheel's pan gestures (GodotIOSTouch.h WheelDevice; a trackpad's are 0)
 const GHOST_OFFSET_PT := 60.0    # lane IOS-23 (the owner's decision): a placement's ghost sits this far above the fingertip (points)
 const GHOST_INSET_PX := 2.0      # lane IOS-23: an offset point above the view's top edge is put this far inside it
 const CONFIRM_POLL_MS := 100     # lane IOS-26: while ✓ / ✕ wait, the placement, the ghost's legality and its pixel are read this often ...
@@ -1980,7 +1985,8 @@ func _bridge_event(event: InputEvent) -> void:
 			_end_confirm()  # lane IOS-26: the mouse takes the pointer, and with it the ghost; its click places as retail's
 			_end_aim_wait()  # lane IOS-43: and a power's aim; its click casts as retail's
 	elif event is InputEventPanGesture:
-		# a wheel or a trackpad's two-finger scroll (the bridge's recognizer takes no finger): back to UIKit points, then wheel notches
+		# a wheel (WHEEL_DEVICE) or a trackpad's two-finger scroll the HUD's camera did not take (lane IOS-48; the bridge's recognizers take no
+		# finger): back to UIKit points, then wheel notches
 		_saw_pointer()
 		var pan := event as InputEventPanGesture
 		_scroll_ms = Time.get_ticks_msec()
@@ -1988,7 +1994,7 @@ func _bridge_event(event: InputEvent) -> void:
 		_mouse_scroll(-pan.delta / PAN_PER_PT, pan.position, false)
 		get_viewport().set_input_as_handled()  # the notches stand for it (a Godot list would scroll twice)
 	elif event is InputEventMagnifyGesture:
-		_saw_pointer()  # a trackpad's pinch: a pointer in use; nothing reads the gesture
+		_saw_pointer()  # a trackpad's pinch the HUD's zoom did not take (IOS-48): a pointer in use; nothing here reads the gesture
 
 
 func _saw_pointer() -> void:

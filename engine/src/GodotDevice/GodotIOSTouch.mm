@@ -5,7 +5,9 @@
 //   a finger ................ stays a Godot screen touch (Godot's own handling, unchanged);
 //   an Apple Pencil ......... becomes mouse events (left button, pressure, tilt) with device id PencilDevice;
 //   a mouse or trackpad ..... becomes mouse events with macOS click semantics (UIEvent.buttonMask; Control-click is a right click), never a
-//                             touch. Hover, scroll and the trackpad's pinch come from gesture recognizers on the view.
+//                             touch. Hover, scroll and the trackpad's pinch come from gesture recognizers on the view. Lane IOS-48: as on
+//                             Godot macOS a trackpad's (continuous) scroll is a pan gesture of device 0 and a wheel's (discrete) is not
+//                             one: it is a pan gesture of device WheelDevice, which the HUD leaves alone (the touch layer makes it notches).
 // Only the public UIResponder touch methods of Godot's view class are wrapped (Apple WWDC20, "Handle trackpad and mouse input").
 //
 // From the other iOS port, through GameController:
@@ -47,6 +49,8 @@
 @property(nonatomic, strong) NSMutableArray<UIGestureRecognizer *> *recognizers;
 - (void)hover:(UIHoverGestureRecognizer *)gesture;
 - (void)scroll:(UIPanGestureRecognizer *)gesture;
+- (void)wheel:(UIPanGestureRecognizer *)gesture;
+- (void)emitPan:(UIPanGestureRecognizer *)gesture device:(int)device;
 - (void)pinch:(UIPinchGestureRecognizer *)gesture;
 @end
 
@@ -102,11 +106,18 @@ static void emitButtons(UIView *view, OpenBFMETrackpad *bridge, NSUInteger next,
     self.hasLast = gesture.state != UIGestureRecognizerStateEnded && gesture.state != UIGestureRecognizerStateCancelled;
 }
 - (void)scroll:(UIPanGestureRecognizer *)gesture {
+    [self emitPan:gesture device:0]; // a trackpad's or Magic Mouse's scrolling: the HUD's camera pan (docs/MACOS_TRACKPAD.md)
+}
+- (void)wheel:(UIPanGestureRecognizer *)gesture {
+    [self emitPan:gesture device:OpenBFMEIOSTouch::WheelDevice]; // lane IOS-48: a wheel's detents, zoom notches in the touch layer
+}
+- (void)emitPan:(UIPanGestureRecognizer *)gesture device:(int)device {
     const CGPoint delta = [gesture translationInView:self.view];
     [gesture setTranslation:CGPointMake(0, 0) inView:self.view];
     if (!godot::Input::get_singleton() || (delta.x == 0 && delta.y == 0)) return;
     godot::Ref<godot::InputEventPanGesture> event;
     event.instantiate();
+    event->set_device(device);
     pointerModifiers(event.ptr(), gesture.modifierFlags);
     event->set_position(pointerPoint(self.view, [gesture locationInView:self.view]));
     // Match Godot macOS scrollWheel/processPanEvent: precise point deltas * 0.03, opposite content movement.
@@ -149,11 +160,15 @@ void install_pointer(UIView *view) {
     hover.allowedTouchTypes = @[@(UITouchTypeIndirectPointer)];
     UIPanGestureRecognizer *scroll = [[UIPanGestureRecognizer alloc] initWithTarget:bridge action:@selector(scroll:)];
     scroll.allowedTouchTypes = @[]; // Scroll events only; fingers keep the existing touch controls.
-    // A trackpad's scrolling (continuous) and a mouse wheel's (discrete): with the continuous mask alone a mouse wheel scrolled nothing.
-    scroll.allowedScrollTypesMask = UIScrollTypeMaskAll;
+    scroll.allowedScrollTypesMask = UIScrollTypeMaskContinuous; // a trackpad's (and a Magic Mouse's) scrolling
+    // A mouse wheel's (discrete) scrolling, in a recognizer of its own (with the continuous mask alone a wheel scrolled nothing): lane IOS-48,
+    // so the wheel stays the zoom where a trackpad's two-finger scroll pans, as Godot macOS tells them apart (hasPreciseScrollingDeltas / phase).
+    UIPanGestureRecognizer *wheel = [[UIPanGestureRecognizer alloc] initWithTarget:bridge action:@selector(wheel:)];
+    wheel.allowedTouchTypes = @[];
+    wheel.allowedScrollTypesMask = UIScrollTypeMaskDiscrete;
     UIPinchGestureRecognizer *pinch = [[UIPinchGestureRecognizer alloc] initWithTarget:bridge action:@selector(pinch:)];
     pinch.allowedTouchTypes = @[@(UITouchTypeIndirectPointer)];
-    bridge.recognizers = [NSMutableArray arrayWithArray:@[hover, scroll, pinch]];
+    bridge.recognizers = [NSMutableArray arrayWithArray:@[hover, scroll, wheel, pinch]];
     for (UIGestureRecognizer *gesture in bridge.recognizers) {
         gesture.cancelsTouchesInView = NO;
         gesture.delaysTouchesBegan = NO;

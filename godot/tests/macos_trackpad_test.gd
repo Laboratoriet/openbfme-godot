@@ -52,6 +52,13 @@ func _run() -> void:
 	check(after.position != before.position, "two-finger pan moves the camera")
 	check(after.height_above_ground == before.height_above_ground, "pan preserves zoom")
 	check(after.angle == before.angle, "pan preserves angle")
+	# lane IOS-48 (ios-port): the iOS input bridge's mouse wheel is a pan gesture of device WheelDevice (GodotIOSTouch.h): the HUD leaves it to the
+	# touch layer (wheel notches, the zoom), only a trackpad's scroll (device 0) pans
+	var wheel := pan.duplicate() as InputEventPanGesture
+	wheel.device = 1002
+	root.push_input(wheel, true)
+	await process_frame
+	check(hud.get_camera().position == after.position and hud.get_camera().height_above_ground == after.height_above_ground, "an iOS wheel's pan gesture leaves the camera to the touch layer")
 	var pinch := InputEventMagnifyGesture.new()
 	pinch.position = POINT
 	pinch.factor = 1.25

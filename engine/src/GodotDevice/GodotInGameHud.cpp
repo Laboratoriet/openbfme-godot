@@ -7,6 +7,7 @@
 #include "GodotDevice/GodotInGameHud.h"
 #include "GodotDevice/GodotShaderBudget.h"
 #include "GodotDevice/MacOSTrackpad.h"
+#include "GodotDevice/GodotIOSTouch.h" // lane IOS-48: WheelDevice (no UIKit in the header)
 #include <godot_cpp/classes/input_event_pan_gesture.hpp>
 #include <godot_cpp/classes/input_event_magnify_gesture.hpp>
 #include <godot_cpp/classes/window.hpp>
@@ -3783,6 +3784,11 @@ void InGameHudNode::_input(const Ref<InputEvent> &event)
 	// These gestures only move the client camera: do not defer them behind a busy logic worker.
 	if (const auto *pan = Object::cast_to<InputEventPanGesture>(event.ptr()))
 	{
+		// lane IOS-48 (ios-port): on iOS / iPadOS the input bridge (GodotIOSTouch.mm) sends a trackpad's two-finger scroll as a pan gesture
+		// of device 0, as Godot macOS does, and the camera pans with it here, as on a Mac. A mouse wheel's scrolling is a pan gesture too
+		// (UIKit has no wheel buttons), of device WheelDevice: it is not taken here, so it reaches the touch layer
+		// (scripts/touch/touch_controls.gd), which makes it wheel notches, the zoom, as a wheel is on a Mac. No desktop event has that device.
+		if (pan->get_device() == OpenBFMEIOSTouch::WheelDevice) return;
 		if (trackpad_pan(pan->get_delta(), pan->get_position())) get_viewport()->set_input_as_handled();
 		return;
 	}

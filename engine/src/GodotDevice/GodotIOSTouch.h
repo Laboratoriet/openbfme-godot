@@ -10,6 +10,10 @@
 namespace OpenBFMEIOSTouch {
 // The device id of the Pencil's mouse events; ordinary fingers remain Godot screen touches.
 inline constexpr int PencilDevice = 1001;
+// lane IOS-48: the device id of a mouse wheel's InputEventPanGesture (UIKit's discrete scrolling). A trackpad's or Magic Mouse's
+// continuous scrolling stays device 0, as Godot macOS sends it, and the HUD pans the camera with it (docs/MACOS_TRACKPAD.md); a wheel's
+// pan is left to the touch layer, which makes it wheel notches (zoom), as a wheel is on a Mac (InGameHudNode::_input).
+inline constexpr int WheelDevice = 1002;
 // UIKit indirect-pointer touches describe a click lifetime. A zero buttonMask
 // must not erase its press or release a drag before touchesEnded. Preserve an
 // explicit secondary/middle mask; infer primary only for an unlabelled press.
