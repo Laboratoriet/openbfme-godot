@@ -15,8 +15,14 @@
 // window the stage is stretched (x: width / 1024, y: height / 768 window pixels per unit), so a group drawn at factor k takes a = k across and
 // d = k * (width / 1024) / (height / 768) down, which is round on the screen; the round-HUD rule (AptUniformHud) then has nothing to correct. The hit
 // tests read the same matrices (AptCharacterInst::globalMatrix), the radar's square its clip's (InGameHud::radarSquare), so a press lands on what is drawn.
+//
+// Lane IOS-49 (IOS-39 x IOS-38): a widescreen build of the movie (Edain's ___edain_apt_widescreen.big: each top-level clip squeezed to x 0.75 about
+// its edge, AptUniformHud::builtStretch) is drawn back at its 4:3 proportions under every placement here, about its group's stage anchor, exactly as
+// the landscape layout does it (AptPalantir::setViewportSize's unstretch): each root child's own matrix is measured through that correction (own()),
+// and each placement is written over it (setPlaced()). The identity for RotWK's movies.
 
 #include "GameClient/GUI/AptScreens/AptPalantir.h"
+#include "GameClient/GUI/AptUniformHud.h"
 #include "GameClient/GUI/PortraitLayout.h"
 #include "Libraries/Source/Apt/Apt.h"
 #include "Libraries/Source/Apt/AptCharacterInst.h"
@@ -176,16 +182,36 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 	const float safeW = safeRight - safeLeft;
 	const float gapX = 8.0f * ppt / unitX, gapY = 8.0f * ppt / unitY; // an 8 pt margin
 	auto px = [&](float stageUnits) { return stageUnits * unitX; };    // a horizontal stage extent in window pixels at factor 1
+	// lane IOS-49: a widescreen build's stretch, undone about the clip's group anchor (the Palantir's clips x 0, the side bar the stage's right edge,
+	// the planning indicator its middle); the identity for a clip the build left alone, a nested clip and RotWK's movies
+	const float build = AptUniformHud::widescreenBuild(*root);
+	auto fixOf = [&](AptCharacterInst *c) {
+		AptMatrix f;
+		const float r = c && c->parent() == root ? AptUniformHud::builtStretch(build, *c) : 1.0f;
+		if (r != 1.0f)
+		{
+			const HudGroup g = hudGroupOf(*c, stageW, stageH);
+			const float anchor = g == HudGroup::BottomRight ? stageW : (g == HudGroup::TopCentre ? stageW * 0.5f : 0.0f);
+			f.a = 1.0f / r;
+			f.tx = anchor * (1.0f - f.a);
+		}
+		return f;
+	};
+	auto own = [&](AptCharacterInst *c) { return c ? fixOf(c).concat(c->matrix) : AptMatrix(); }; // the clip's matrix as RotWK's movie has it
+	auto setPlaced = [&](AptCharacterInst *c, const AptMatrix &m) { c->viewportTransform = m.concat(fixOf(c)); };
 	m_portraitReport["layout"] = (float)spec.id;
 	m_portraitReport["point_px"] = ppt;
 	m_portraitReport["strip_bottom"] = strip * unitY;
 
 	// ---- what the movie measures (its own matrices: every viewportTransform is ours) ----
-	auto movieBox = [&](const std::string &name) { return boxThrough(apt.resolvePath(root, name), apt.resolvePath(root, name) ? apt.resolvePath(root, name)->matrix : AptMatrix()); };
+	auto movieBox = [&](const std::string &name) {
+		AptCharacterInst *c = apt.resolvePath(root, name);
+		return boxThrough(c, own(c));
+	};
 	Box arcGlass; // one arc button's glass (the drawn circle a finger aims at)
 	if (AptCharacterInst *glass = apt.resolvePath(root, "CommandButtons.glass0"))
 	{
-		arcGlass = boxThrough(glass, glass->matrix).through(glass->parent()->matrix); // in the root's units (CommandButtons is a root child)
+		arcGlass = boxThrough(glass, glass->matrix).through(own(glass->parent())); // in the root's units (CommandButtons is a root child)
 	}
 	// 4 % over 44 pt: the button's hit shape is a little inside its glass
 	const float arcK = arcGlass.ok() ? PortraitLayout::factorFor(PortraitLayout::kTargetPt * 1.04f, std::max(arcGlass.w(), arcGlass.h()), unitX, ppt) : 1.0f;
@@ -243,7 +269,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 		if (AptCharacterInst *c = apt.resolvePath(root, name))
 		{
 			c->visible = false;
-			c->viewportTransform = AptMatrix();
+			c->viewportTransform = fixOf(c); // in its 4:3 place, unscaled (lane IOS-49: a build's stretch undone, as for every clip)
 			moved.push_back(kHiddenMark + name);
 		}
 	}
@@ -253,7 +279,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 		{
 			if (AptCharacterInst *c = apt.resolvePath(root, name))
 			{
-				c->viewportTransform = m;
+				setPlaced(c, m);
 			}
 		}
 	};
@@ -314,7 +340,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 		{
 			// A, C: under the toolbar strip at the top-left (the status where a phone's games keep it)
 			const float kr = std::max(textK, 1.0f);
-			bar->viewportTransform = PortraitLayout::place(rb.x0, rb.y0, kr, vs * kr, safeLeft + gapX * 1.5f, strip + gapY * 1.5f);
+			setPlaced(bar, PortraitLayout::place(rb.x0, rb.y0, kr, vs * kr, safeLeft + gapX * 1.5f, strip + gapY * 1.5f));
 			m_portraitReport["resources"] = kr;
 			// its frame was PalantirFrame's bottom band: the device draws a plate under it (InGameHudNode, the game's dark and gold)
 			const Box at = rb.through(bar->viewportTransform);
@@ -332,7 +358,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 			const float cx = (rb.x0 + rb.x1) * 0.5f, cy = (rb.y0 + rb.y1) * 0.5f;
 			float wx, wy;
 			palantir.apply(cx, cy, wx, wy);
-			bar->viewportTransform = PortraitLayout::place(cx, cy, kr, vs * kr, std::max(wx, safeLeft + rb.w() * 0.5f * kr), wy);
+			setPlaced(bar, PortraitLayout::place(cx, cy, kr, vs * kr, std::max(wx, safeLeft + rb.w() * 0.5f * kr), wy));
 			m_portraitReport["resources"] = kr;
 		}
 		// the digits' drawn height in points, and the type size whose capitals are that tall
@@ -363,7 +389,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 			if (AptCharacterInst *buttons = apt.resolvePath(root, "PalantirButtons"))
 			{
 				const Box bb = movieBox("PalantirButtons");
-				buttons->viewportTransform = AptMatrix();
+				buttons->viewportTransform = fixOf(buttons); // measured as placed at factor 1 (lane IOS-49: its build's stretch undone)
 				AptCharacterInst *options = apt.resolvePath(root, "PalantirButtons.Buttons.Options");
 				const Box ob = options ? boxThrough(options, chainToRoot(options, root)) : Box();
 				float kb = arcK;
@@ -371,7 +397,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 				{
 					kb = std::max(kb, PortraitLayout::factorFor(PortraitLayout::kTargetPt, std::min(ob.w(), ob.h() / vs), unitX, ppt));
 				}
-				buttons->viewportTransform = PortraitLayout::place(ob.ok() ? ob.x0 : bb.x0, bb.y0, kb, vs * kb, safeLeft + gapX * 1.5f, statusBottom + gapY); // the key's rim in line with the plate's edge
+				setPlaced(buttons, PortraitLayout::place(ob.ok() ? ob.x0 : bb.x0, bb.y0, kb, vs * kb, safeLeft + gapX * 1.5f, statusBottom + gapY)); // the key's rim in line with the plate's edge
 				m_portraitReport["globe_buttons"] = kb;
 			}
 		}
@@ -379,7 +405,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 		{
 			const Box hb = movieBox("HeroSelectUI");
 			const float kh = k;
-			heroes->viewportTransform = PortraitLayout::place(hb.x0, hb.y1, kh, vs * kh, safeLeft + gapX, safeBottom);
+			setPlaced(heroes, PortraitLayout::place(hb.x0, hb.y1, kh, vs * kh, safeLeft + gapX, safeBottom));
 		}
 	}
 	m_portraitReport["messages_top"] = messagesTop * unitY;
@@ -424,7 +450,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 		Box sb;
 		if (side)
 		{
-			side->viewportTransform = PortraitLayout::place(stageW, stageH, k, vs * k, m_sideShown ? safeRight : stageW, bottom);
+			setPlaced(side, PortraitLayout::place(stageW, stageH, k, vs * k, m_sideShown ? safeRight : stageW, bottom));
 			for (int i = 0; i < std::min(m_sideCount, 16); ++i)
 			{
 				if (AptCharacterInst *f = m_sideFramePath[i].empty() ? nullptr : apt.resolvePath(root, m_sideFramePath[i].substr(0, m_sideFramePath[i].rfind('.'))))
@@ -457,7 +483,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 	// ---- the planning mode's bar: below the toolbar strip, centred ----
 	if (AptCharacterInst *plan = apt.resolvePath(root, "planningModeUI"))
 	{
-		plan->viewportTransform = PortraitLayout::place(stageW * 0.5f, 0.0f, 1.0f, vs, (safeLeft + safeRight) * 0.5f, strip);
+		setPlaced(plan, PortraitLayout::place(stageW * 0.5f, 0.0f, 1.0f, vs, (safeLeft + safeRight) * 0.5f, strip));
 	}
 
 	float bookRight = safeLeft; // the spell book's right edge (root units): the help box keeps right of it
@@ -466,14 +492,15 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 	{
 		const AptMatrix from = spec.radarApart ? PortraitLayout::place(0.0f, stageH, k, vs * k, safeLeft, safeBottom) : palantir;
 		const float kb = k;
-		book->viewportTransform = from;
+		setPlaced(book, from);
 		m_spellBookScale = kb;
 		float x0, y0, x1, y1;
 		if (book->contentBounds(x0, y0, x1, y1))
 		{
 			float topX, topY, bottomX, bottomY;
-			book->matrix.apply(x0, y0, topX, topY);
-			book->matrix.apply(x1, y1, bottomX, bottomY);
+			const AptMatrix bookOwn = own(book);
+			bookOwn.apply(x0, y0, topX, topY);
+			bookOwn.apply(x1, y1, bottomX, bottomY);
 			const float footX = 0.0f, footY = std::max(topY, bottomY);
 			float placedX, placedY;
 			from.apply(footX, footY, placedX, placedY);
@@ -488,11 +515,12 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 				ks = std::max(0.0f, (placedY - strip) / (vs * up));
 			}
 			m_spellBookScale = ks;
-			book->viewportTransform = PortraitLayout::place(footX, footY, ks, vs * ks, placedX, placedY);
+			const AptMatrix hang = PortraitLayout::place(footX, footY, ks, vs * ks, placedX, placedY);
+			setPlaced(book, hang);
 			const float top = placedY - vs * ks * up;
 			hudTop = std::min(hudTop, top);
 			m_portraitReport["spellbook"] = ks;
-			bookRight = book->viewportTransform.a * std::max(topX, bottomX) + book->viewportTransform.tx;
+			bookRight = hang.a * std::max(topX, bottomX) + hang.tx;
 			m_portraitReport["spellbook_top"] = top * unitY;
 		}
 	}
@@ -511,7 +539,7 @@ bool AptPalantir::layoutPortraitPrototype(AptSpriteInst *root, int width, int he
 			const float x = std::min(left, safeRight - hb.w() * kh);
 			m = PortraitLayout::place(hb.x0, hb.y1, kh, vs * kh, std::max(safeLeft, x), placed.y0 - gapY);
 		}
-		help->viewportTransform = m;
+		setPlaced(help, m);
 	}
 	m_portraitReport["hud_top"] = hudTop * unitY;
 	return true;

@@ -1664,6 +1664,7 @@ TEST_CASE("hud2 palantir: the round-HUD rule keeps every in-game movie and HUD d
 // top-level clips placed at x 0.75 about their screen edge, for retail's stretch of the 4:3 stage to a 16:9 window) is drawn as the RotWK movie is:
 // round, in the same place, landscape, portrait and 4:3, at 100 % and 125 %. Synthetic: RotWK's own movie with that squeeze put on its top-level
 // clips' matrices (no mod bytes). Before IOS-39 the layout's widescreen correction narrowed such a build a second time (the Duo's oval Palantir)
+// lane IOS-49: the portrait layout prototypes (IOS-38's A / B / C, PortraitLayout) too: Edain's build in each is drawn as RotWK's movie is
 TEST_CASE("hud2 palantir: a widescreen build of the movie (top-level clips squeezed in x about their edge) is drawn round and in place (IOS-39 guard)")
 {
 	if (!haveWorld("hud2 widescreen build"))
@@ -1686,13 +1687,16 @@ TEST_CASE("hud2 palantir: a widescreen build of the movie (top-level clips squee
 	{
 		int w, h;
 		float scale;
+		int portraitLayout = 0; // lane IOS-49: PortraitLayout::Id (0 today's)
 	};
-	const Size sizes[] = { { 1335, 939, 1.0f }, { 1335, 939, 1.25f }, { 939, 1335, 1.0f }, { 939, 1335, 1.25f }, { 1024, 768, 1.25f } };
+	const Size sizes[] = { { 1335, 939, 1.0f }, { 1335, 939, 1.25f }, { 939, 1335, 1.0f }, { 939, 1335, 1.25f }, { 1024, 768, 1.25f },
+		{ 939, 1335, 1.0f, 1 }, { 939, 1335, 1.5f, 1 }, { 939, 1335, 1.0f, 2 }, { 939, 1335, 1.0f, 3 } };
 	// laid out without advancing the movie (its matrices stay the ones squeezed below)
 	auto layOut = [&](const Size &s) {
 		AptPalantir::HudLayout layout;
 		layout.scale = s.scale;
 		layout.roundHud = true;
+		layout.portraitLayout = s.portraitLayout;
 		hud.hud->setWindowSize(s.w, s.h);
 		hud.hud->setHudLayout(layout);
 	};
@@ -1748,7 +1752,7 @@ TEST_CASE("hud2 palantir: a widescreen build of the movie (top-level clips squee
 	for (size_t i = 0; i < std::size(sizes); ++i)
 	{
 		const Size &s = sizes[i];
-		INFO(s.w, "x", s.h, " at ", s.scale);
+		INFO(s.w, "x", s.h, " at ", s.scale, " portrait layout ", s.portraitLayout);
 		layOut(s);
 		std::vector<AptUniformHud::Entry> audit;
 		hud.hud->hudScaleAudit(audit);
@@ -1757,7 +1761,7 @@ TEST_CASE("hud2 palantir: a widescreen build of the movie (top-level clips squee
 			INFO(e.path, " sx ", e.sx, " sy ", e.sy);
 			CHECK_FALSE(e.squashes());
 		}
-		CHECK(auditEntry(audit, palantir + ".PalantirFrame") != nullptr);
+		CHECK((auditEntry(audit, palantir + ".PalantirFrame") != nullptr || s.portraitLayout == 3)); // C (Split) hides the frame around the globes
 		std::vector<std::array<float, 4>> now;
 		boxes(s, now);
 		for (size_t k = 0; k < std::size(kClips); ++k)
