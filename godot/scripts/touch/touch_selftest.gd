@@ -35,6 +35,8 @@ var _controls: Node
 func start(controls: Node, out_dir: String) -> void:
 	_controls = controls
 	_out = out_dir
+	if controls.tips != null:
+		controls.tips.suppressed = true  # lane IOS-46: no tip over the steps' fingers (the tips have their own test, tests/ios46_tips_test.gd)
 	DirAccess.make_dir_recursive_absolute(_out)
 	_run()
 

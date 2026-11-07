@@ -110,6 +110,7 @@ ALLOWLIST = {
     "ios35_touch_test.gd": "touch: the One finger drag option's pan mode (pan, hold-drag box, hold-lift right click, HUD / placement / menus unchanged, the Pencil's mouse drag a box), against a stand-in HUD (IOS-35)",
     "ios37_toolbar_test.gd": "touch: the command toolbar's taps press the CommandMap's keys, hold shows help, groups (hold = Ctrl+n, tap = n), disabled states, against a stand-in HUD (IOS-37)",
     "ios43_touch_test.gd": "touch: aiming powers and hero abilities: banner, aim above the finger, lift / tap wait for ✓ / ✕, cancel, refusal, target pick, On tap, against a stand-in HUD (IOS-43)",
+    "ios46_tips_test.gd": "touch help: each tip shows once and is remembered, Show tips off / Card only show none, Reset tips, learned tips skipped, the guide's steps and Skip, the help card is modal, against a stand-in HUD (IOS-46)",
     "ios45_touch_test.gd": "touch: the iOS input bridge's events: a mouse in use only once its pointer shows (not a listed GCMouse, the touch layer's own events or a Pencil), the last mouse going, scroll as wheel notches, a missed right-modifier release (IOS-45)",
     "ios40_touch_test.gd": "touch: Button taps, tap to preview (help + gold ring) and tap again to use a costing button; disarms; autocast double tap; Preview all / Act at once, against a stand-in HUD (IOS-40)",
     "online_list_test.gd": "online list parsing and paging against synthetic responses",

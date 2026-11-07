@@ -98,6 +98,14 @@ const HELP := {
 	"OpenBFMEPortraitLayout": "How the screen is arranged when you hold the phone upright. A: the most map; its bottom panel grows with the HUD size. B: every button in reach of one thumb. C: the map and the panels split. Classic: the first upright layout.",
 	"OpenBFMETouchSideBar": "With the phone on its side. One column: the original column of buttons on the right edge, sized with the HUD size. Two columns: above 100 % the buttons are larger, in a block of one or two columns.",
 	"note:Touch": "Every switch applies at once, in a game too. Tap a row's name for what it does.",
+	# lane IOS-46: Touch > Help (a page of the Touch tab)
+	"Touch.help": "Tips while you play, a first-game guide, and a card of every gesture.",
+	"OpenBFMETouchHelp": "Tips as you play: a short tip the first time something new can be done. First-game guide: five steps in your first game. Card only: no tips; the card stays here and on the pause menu. (A prototype: try each.)",
+	"OpenBFMETouchTips": "Shows the tips or the guide in a game. Off: no tips at all; the Touch controls card stays.",
+	"Touch.card": "Every touch gesture on one card, with a picture of each. Also on the pause menu.",
+	"Touch.reset": "Every tip and the guide show again, from your next tap. Applies at once.",
+	"Touch.back": "The touch settings.",
+	"note:Touch.help": "Each tip shows once. The card is also on the pause menu (Touch controls, bottom right).",
 	"OpenBFMEIOSSilentSound": "Play the game's sound even when the phone is in silent mode. Music from other apps keeps playing either way.", # lane IOS-20
 	"note:Display": "Renderer: %s (%s). Point at a setting for what it does.",
 	"note:Graphics": "Left: the original game's detail settings (a level, or Custom). Right: OpenBFME's own.",
@@ -173,6 +181,7 @@ var _retail := {}                  # lane OPTS-5: the shell's rows of the origin
 var _menu := false                 # lane OPTS-5: the page is the Options screen (the shell's kOpenBFMEMenu)
 var _prepare := PrepareMobileTab.new() # lane IOS-24: the "iPhone / iPad" tab (desktop only): the game file for the phone or tablet
 var _mods := ModsTab.new()             # lane IOS-28: the "Mods" tab: the Mods folder's mods on / off (Options.ini OpenBFMEMods, on ACCEPT)
+var _touch_help_page := false          # lane IOS-46: the Touch tab shows its Help page (Touch > Help)
 
 
 func _ready() -> void:
@@ -238,6 +247,8 @@ func _process(_delta: float) -> void:
 				elif _tab == ModsTab.TAB: # lane IOS-28: OPEN, LOOK AGAIN
 					_mods.press(String(e.key))
 					_show_tab(_tab)
+				elif _tab == TOUCH_TAB: # lane IOS-46: HELP, SHOW, RESET TIPS, BACK
+					touch_press(String(e.key))
 			"cancel":
 				close(false)
 			"reset":
@@ -453,6 +464,8 @@ func _apply_pending() -> void:
 # the page's rows
 # ---------------------------------------------------------------------------------------------------------------------------------
 func _show_tab(name: String) -> void:
+	if name != _tab:
+		_touch_help_page = false # lane IOS-46: another tab, then Touch again: its settings, not its Help page
 	_tab = name
 	if not _open:
 		return
@@ -508,6 +521,8 @@ func _spec() -> Dictionary:
 			rows = _interface_rows()
 		TOUCH_TAB:
 			rows = _touch_rows()
+			if _touch_help_page:
+				note = HELP["note:Touch.help"]
 		"Audio":
 			rows = _audio_rows()
 		"Online":
@@ -528,7 +543,7 @@ func _spec() -> Dictionary:
 		"tabs_header": "OpenBFME",
 		"tabs": tabs(),
 		"tab": tabs().find(_tab),
-		"panel_header": _tab,
+		"panel_header": "Touch › Help" if _tab == TOUCH_TAB and _touch_help_page else _tab,
 		"rows": rows,
 		"note": note,
 	}
@@ -695,20 +710,23 @@ func _interface_rows() -> Array:
 
 
 ## lane IOS-42 (the owner, 2026-11-05: "toggle on/off and check what works best"): the Touch tab, where the touch controls are on (tabs()). Every touch
-## behaviour with a switch, each default today's, grouped Gestures, Buttons, Powers (lane IOS-43) (left), Placing, Layout (right): twenty rows with the
-## headings, more than one column holds above the footer (ten), so two columns as Graphics'
+## behaviour with a switch, each default today's, grouped Gestures, Buttons and powers (left), Placing, Layout (right): ten rows a column, all one column
+## holds above the footer, so two columns as Graphics'. Lane IOS-46: a column holds ten rows, so the left one's Powers heading went (Aim powers is a
+## button's power: under "BUTTONS AND POWERS") for the Help row, which opens the tab's Help page (_touch_help_rows)
 func _touch_rows() -> Array:
+	if _touch_help_page:
+		return _touch_help_rows()
 	var left := [
 		_section("GESTURES"),
 		_extra_choice("OpenBFMETouchDrag", "One finger drag", TOUCH_DRAG_ITEMS, HELP.OpenBFMETouchDrag), # lane IOS-35
 		_extra_check("OpenBFMETouchListScroll", "Scroll lists", HELP.OpenBFMETouchListScroll), # lane IOS-10
-		_section("BUTTONS"),
+		_extra_check("OpenBFMETouchTapAssist", "Tap assist", HELP.OpenBFMETouchTapAssist), # lane IOS-10
+		_section("BUTTONS AND POWERS"),
 		_extra_choice("OpenBFMETouchButtonTaps", "Button taps", BUTTON_TAPS_ITEMS, HELP.OpenBFMETouchButtonTaps), # lane IOS-40
 		_extra_choice("OpenBFMETouchHoldButton", "Hold a button", HOLD_ITEMS, HELP.OpenBFMETouchHoldButton), # lane IOS-21
 		_extra_check("OpenBFMETouchAutocastTap", "Autocast tap", HELP.OpenBFMETouchAutocastTap), # lanes IOS-21, IOS-40
-		_extra_check("OpenBFMETouchTapAssist", "Tap assist", HELP.OpenBFMETouchTapAssist), # lane IOS-10
-		_section("POWERS"),
 		_extra_choice("OpenBFMETouchTargeting", "Aim powers", TARGETING_ITEMS, HELP.OpenBFMETouchTargeting), # lane IOS-43
+		{"kind": "button", "key": "Touch.help", "label": "Tips and help", "value_text": "HELP", "help": HELP["Touch.help"]}, # lane IOS-46
 	]
 	var right := [
 		_section("PLACING"),
@@ -725,6 +743,50 @@ func _touch_rows() -> Array:
 	for r in right:
 		r["column"] = 1
 	return left + right
+
+
+## lane IOS-46 (PROTOTYPES for the owner's choice): Touch > Help: the help style (touch_tips.gd), Show tips, the Touch controls card
+## (touch_help_card.gd), Reset tips (at once: the tips seen are the player's data, user://touch_tips.cfg, not a setting ACCEPT / CANCEL hold) and BACK
+const HELP_STYLE_ITEMS := [["tips", "Tips as you play"], ["guide", "First-game guide"], ["card", "Card only"]]
+func _touch_help_rows() -> Array:
+	var touch := get_node_or_null("/root/TouchControls")
+	var known := "Seen: none yet"
+	if touch != null and touch.get("tips") != null:
+		var p: Dictionary = touch.tips.progress()
+		known = "Seen %d of %d tips%s" % [p.tips_known, p.tips, ", guide done" if p.guide_finished else (", guide %d of %d" % [p.guide_done, p.guide])]
+	return [
+		_section("HELP"),
+		_extra_choice("OpenBFMETouchHelp", "Help style", HELP_STYLE_ITEMS, HELP.OpenBFMETouchHelp),
+		_extra_check("OpenBFMETouchTips", "Show tips", HELP.OpenBFMETouchTips),
+		{"kind": "button", "key": "Touch.card", "label": "Touch controls", "value_text": "SHOW", "help": HELP["Touch.card"]},
+		{"kind": "button", "key": "Touch.reset", "label": known, "value_text": "RESET TIPS", "help": HELP["Touch.reset"]},
+		{"kind": "button", "key": "Touch.back", "label": "Touch settings", "value_text": "BACK", "help": HELP["Touch.back"]},
+	]
+
+
+## lane IOS-46: a button of the Touch tab: HELP opens its Help page, BACK leaves it, SHOW the Touch controls card, RESET TIPS the tips seen
+func touch_press(key: String) -> void:
+	var touch := get_node_or_null("/root/TouchControls")
+	match key:
+		"Touch.help":
+			_touch_help_page = true
+			_show_tab(_tab)
+		"Touch.back":
+			_touch_help_page = false
+			_show_tab(_tab)
+		"Touch.card":
+			if touch != null and touch.has_method("open_help_card"):
+				touch.open_help_card("options")
+		"Touch.reset":
+			if touch != null and touch.get("tips") != null:
+				touch.tips.reset()
+			_show_tab(_tab) # the row's count
+		_:
+			printerr("GAME OPTIONS the Touch tab has no button '%s'" % key)
+
+
+func touch_help_page() -> bool:
+	return _touch_help_page
 
 
 ## lane IOS-42: a heading inside the panel (OpenBFMEOptionsPage's Section row: its label only, no key, no gadget)

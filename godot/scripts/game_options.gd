@@ -98,11 +98,16 @@ const EXTRAS := {
 	# the landscape side bar: "two" IOS-27's block of one or two columns above 100 %; "one" the retail column at the HUD size (the owner's choice for a
 	# phone, MOBILE_DEFAULTS). Reaches the HUD (view_options side_bar_one_column), live
 	"OpenBFMETouchSideBar": {"default": "two", "choices": ["one", "two"]},
+	# lane IOS-46 (PROTOTYPES for the owner's choice, 2026-11-07): Options > Touch > Help. The touch help's style: "tips" contextual one-time tips (the
+	# default until the owner chooses), "guide" a short first-game guide, "card" the "Touch controls" card only (every style has the card); and "Show
+	# tips": "no" turns the in-game prompts of either off. scripts/touch/touch_tips.gd, touch_help_card.gd
+	"OpenBFMETouchHelp": {"default": "tips", "choices": ["tips", "guide", "card"]},
+	"OpenBFMETouchTips": {"default": "yes", "choices": ["yes", "no"]},
 }
 ## lane IOS-42: the Touch tab's keys that touch_controls.gd apply_options reads (the HUD size and the portrait layout reach the HUD, view_options)
 const TOUCH_KEYS := ["OpenBFMETouchDrag", "OpenBFMETouchListScroll", "OpenBFMETouchTapAssist", "OpenBFMETouchButtonTaps", "OpenBFMETouchHoldButton",
 	"OpenBFMETouchAutocastTap", "OpenBFMETouchPlacement", "OpenBFMETouchGhostAbove", "OpenBFMETouchPlaceTwist", "OpenBFMETouchDeselectBuilders",
-	"OpenBFMETouchToolbar", "OpenBFMETouchTargeting"]
+	"OpenBFMETouchToolbar", "OpenBFMETouchTargeting", "OpenBFMETouchHelp", "OpenBFMETouchTips"]
 ## the retail keys the OpenBFME screen also shows (their own text and meaning; Options.apt shows them too)
 const RETAIL_KEYS := {
 	# the Scroll Speed slider: any text (RW 0x6E59A9: atoi, below 0 -> 1, above 100 -> 100, * 0.02); "" = no entry, GlobalData + 0xAFC's default (the
