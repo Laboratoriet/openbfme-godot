@@ -149,7 +149,8 @@ void install_pointer(UIView *view) {
     hover.allowedTouchTypes = @[@(UITouchTypeIndirectPointer)];
     UIPanGestureRecognizer *scroll = [[UIPanGestureRecognizer alloc] initWithTarget:bridge action:@selector(scroll:)];
     scroll.allowedTouchTypes = @[]; // Scroll events only; fingers keep the existing touch controls.
-    scroll.allowedScrollTypesMask = UIScrollTypeMaskContinuous;
+    // A trackpad's scrolling (continuous) and a mouse wheel's (discrete): with the continuous mask alone a mouse wheel scrolled nothing.
+    scroll.allowedScrollTypesMask = UIScrollTypeMaskAll;
     UIPinchGestureRecognizer *pinch = [[UIPinchGestureRecognizer alloc] initWithTarget:bridge action:@selector(pinch:)];
     pinch.allowedTouchTypes = @[@(UITouchTypeIndirectPointer)];
     bridge.recognizers = [NSMutableArray arrayWithArray:@[hover, scroll, pinch]];
