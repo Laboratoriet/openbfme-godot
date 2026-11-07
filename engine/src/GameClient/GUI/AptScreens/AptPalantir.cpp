@@ -180,23 +180,12 @@ AptPalantir::AptPalantir(WindowManager &windows, Shell &shell) : AptScreen(windo
 	}
 	// the movie reads extern.PalantirMinLOD at start (Palantir.apt InitialSetup). TARGET FACT (lane HUD-4): the provider RW 0x6D3F99 answers "1" when
 	// [0xDE3B84] + 0x1778 <= 1 (the static LOD), else "0"; the extern value is an Apt string (RW 0x4A8C36 -> 0xAEB240), so even "0" is true and the movie goes on
-	// to write extern.MinLOD (QA-1 U18)
+	// to set _global.MinLOD (InitialSetup's flag word 0x016A preloads _root and _global, RW 0xB1E1F0), which InGameHeroSelect.apt and libInGameUI.apt's
+	// ButtonFlashClip read (QA-1 U18)
 	registerProvider("PalantirMinLOD", [](const std::string &, std::string &value, bool setting) {
 		if (!setting)
 		{
 			value = "0";
-		}
-		return true;
-	});
-	// lane HUD-4 (QA-1 U18): InitialSetup (flags 0x16A00: register 2 is `extern`) then writes extern.MinLOD = true and traces extern.MinLOD. RotWK registers no
-	// handler under "MinLOD" (the binary has no such string; the only extern registration of the Palantir is PalantirMinLOD, RW 0x6D693E), and its host answers
-	// an unknown name as RW 0x623B47 / 0x623AD3 do: a read is the empty string (the buffer is cleared first), a write is dropped. That is the answer here; it
-	// is noted ("extern-retail-unhandled"), never silent: once per read / write (lane HUDREDRAW-1: the Palantir traces it every frame)
-	registerProvider("MinLOD", [this](const std::string &, std::string &value, bool setting) {
-		this->windows().noteOnce("extern-retail-unhandled", std::string("MinLOD ") + (setting ? "write dropped" : "read: \"\"") + " (no RotWK handler: RW 0x623B47 / 0x623AD3)");
-		if (!setting)
-		{
-			value.clear();
 		}
 		return true;
 	});

@@ -818,10 +818,11 @@ inline Asm &Asm::defineFunction2(const std::string &name, std::uint32_t register
 	align4();
 	put32(m_bytes, nameOff);
 	put32(m_bytes, (std::uint32_t)params.size());
+	// the 16-bit register count, then the 16-bit flag word (AptFunction2Flags)
 	m_bytes.push_back((std::uint8_t)registerCount);
+	m_bytes.push_back((std::uint8_t)(registerCount >> 8));
 	m_bytes.push_back((std::uint8_t)flags);
 	m_bytes.push_back((std::uint8_t)(flags >> 8));
-	m_bytes.push_back((std::uint8_t)(flags >> 16));
 	put32(m_bytes, table);
 	std::size_t sizeAt = m_bytes.size();
 	put32(m_bytes, 0);

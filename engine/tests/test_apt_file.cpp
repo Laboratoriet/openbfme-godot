@@ -490,6 +490,21 @@ TEST_CASE("decoder: DefineFunction and DefineFunction2 nest, report their parame
 	CHECK(counts[APT_OP_END] == 1);
 }
 
+TEST_CASE("decoder: DefineFunction2 reads a 16-bit register count and a 16-bit flag word (RotWK RW 0xB1E1F0 reads the flags at + 0x0A / + 0x0B)")
+{
+	TestMovie m;
+	Asm a = m.program();
+	a.defineFunction2("wide", 0x0104, APT_FN2_PRELOAD_GLOBAL | APT_FN2_PRELOAD_PARENT, {}, [](Asm &g) { g.op(APT_OP_PUSHDUPLICATE); });
+	a.op(APT_OP_END);
+	std::shared_ptr<const AptCodeBlock> b = decodeOne(m, a);
+	REQUIRE(b);
+	REQUIRE(b->instructions.size() == 2);
+	const AptFunctionDef *fn = b->instructions[0].function.get();
+	REQUIRE(fn);
+	CHECK(fn->registerCount == 0x0104u);
+	CHECK(fn->flags == 0x0180u);
+}
+
 TEST_CASE("decoder: a function body that overruns its declared size is an error")
 {
 	TestMovie m;

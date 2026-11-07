@@ -456,8 +456,9 @@ private:
 		std::uint32_t trailerAt;
 		if (v2)
 		{
-			def->registerCount = m_data[pos + 8];
-			def->flags = (std::uint32_t)m_data[pos + 9] | ((std::uint32_t)m_data[pos + 10] << 8) | ((std::uint32_t)m_data[pos + 11] << 16);
+			// two 16-bit fields: the register count at + 0x08, the flag word at + 0x0A (AptFunction2Flags; RW 0xB1E1F0 reads + 0x0A / + 0x0B)
+			def->registerCount = (std::uint32_t)m_data[pos + 8] | ((std::uint32_t)m_data[pos + 9] << 8);
+			def->flags = (std::uint32_t)m_data[pos + 10] | ((std::uint32_t)m_data[pos + 11] << 8);
 			paramTable = rd32(pos + 12);
 			bodySize = (std::int32_t)rd32(pos + 16);
 			trailerAt = pos + 20;

@@ -12,6 +12,7 @@
 #include "GameClient/MessageStream/MetaEvent.h"
 #include "GameClient/Radar.h"
 #include "GameLogic/Module/StancesBehavior.h"
+#include "Libraries/Source/Apt/Apt.h"
 #include "GameLogic/WeaponSetToggle.h"
 
 #include <cmath>
@@ -423,6 +424,10 @@ TEST_CASE("hud4 palantir: no engine call reaches a clip before the movie reporte
 		CHECK_MESSAGE(e.find("does not resolve") == std::string::npos, e);
 	}
 	CHECK(h.hud->palantir()->buttonFrames().size() >= 6); // the arc's six frames and the side bar's reported themselves
-	// QA-1 U18: InitialSetup's extern.MinLOD is answered as RotWK's host answers a name it has no handler for (RW 0x623B47 / 0x623AD3), noted
-	CHECK(h.hud->windows().noteCount("extern-retail-unhandled") >= 1);
+	// QA-1 U18: InitialSetup's register 2 is _global (flag word 0x016A, RW 0xB1E1F0): extern.PalantirMinLOD ("0", an Apt string, true) sets _global.MinLOD
+	AptValue minLOD;
+	REQUIRE(h.hud->windows().apt().vm().global()->getMember("MinLOD", minLOD));
+	CHECK(minLOD.isBoolean());
+	CHECK(minLOD.asBool());
+	CHECK(h.hud->windows().noteCount("extern-retail-unhandled") == 0);
 }

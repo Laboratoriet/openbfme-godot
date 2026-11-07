@@ -158,9 +158,9 @@ void WindowManager::init()
 	// loadAptWindow("Apt\\", "AptLevel0.apt", 1, 0, 0), the focus vector is cleared and gets 12, the dirty/focus flag is set and
 	// bit 2 of the AptLevel0 record is cleared.
 	registerBuiltinCallbacks();
-	// [S-180 candidate] `_global.InGame` is read by the shell movies (MainMenu EscapeKeyPressed, MpGameSetup's host / client switch, SkirmishOpenPlay) and
-	// written by none of them (movie scripts searched); spec menus-apt.md 3.3 says the extern object is used "when _global.InGame is set".  The
-	// engine hosting the movies is the only writer left, so the manager sets it true.  Retail's writer was not found.
+	// [S-180 candidate] `_global.InGame` is read by the shell movies (MainMenu EscapeKeyPressed, MpGameSetup's host / client switch, SkirmishOpenPlay);
+	// its retail writer is each movie's InitialSetup (`if (extern.InGame) _global.InGame = true`: register 2 is _global, flag word 0x016A,
+	// RW 0xB1E1F0). The manager still sets it before AptLevel0 loads, so a movie that reads it before its own InitialSetup ran sees true.
 	m_apt->vm().global()->setMember("InGame", AptValue::boolean(true));
 	const int index = loadAptWindow("Apt\\", "AptLevel0.apt", true, 0, 0);
 	m_focus.clear();

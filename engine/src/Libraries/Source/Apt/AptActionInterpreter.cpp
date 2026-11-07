@@ -686,13 +686,10 @@ AptValue AptActionInterpreter::callScript(AptFunction *fn, const AptValue &thisV
 			}
 			preload(parent, "_parent");
 		}
+		// the last preload: byte + 0x0B bit 0 stores the global object (RW 0xB1E3AD .. 0xB1E3BA); RotWK has no `extern` preload
 		if (def.flags & APT_FN2_PRELOAD_GLOBAL)
 		{
 			preload(AptValue::object(m_global), "_global");
-		}
-		if (def.flags & APT_FN2_PRELOAD_EXTERN)
-		{
-			preload(AptValue::externValue(), "extern");
 		}
 		for (std::size_t i = 0; i < def.params.size(); ++i)
 		{

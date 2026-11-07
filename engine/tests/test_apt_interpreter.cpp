@@ -388,13 +388,13 @@ TEST_CASE("VM: DefineFunction2 - registers, parameter registers, preload flags i
 		// params (reg 3 'a'), (reg 2 'b'), nothing preloaded: a - b
 		a.defineFunction2("sub", 4, APT_FN2_SUPPRESS_THIS | APT_FN2_SUPPRESS_ARGUMENTS | APT_FN2_SUPPRESS_SUPER, { { 3, "a" }, { 2, "b" } },
 			[&](Asm &f) { f.pushDataIdx({ r3, r2 }).op(APT_OP_SUBTRACT).op(APT_OP_RETURN); });
-		// this -> r1, _root -> r2, _global -> r3, extern -> r4
-		a.defineFunction2("preloads", 5, APT_FN2_PRELOAD_THIS | APT_FN2_PRELOAD_ROOT | APT_FN2_PRELOAD_GLOBAL | APT_FN2_PRELOAD_EXTERN, {},
+		// this -> r1, _root -> r2, _global -> r3 (RotWK's order, RW 0xB1E1F0); r4 is not preloaded
+		a.defineFunction2("preloads", 5, APT_FN2_PRELOAD_THIS | APT_FN2_PRELOAD_ROOT | APT_FN2_PRELOAD_GLOBAL, {},
 			[&](Asm &f) {
 				f.pushString("this").pushDataIdx({ r1 }).op(APT_OP_SETVARIABLE);
 				f.pushString("root").pushDataIdx({ r2 }).op(APT_OP_SETVARIABLE);
 				f.pushString("global").pushDataIdx({ r3 }).op(APT_OP_SETVARIABLE);
-				f.pushString("ext").pushDataIdx({ r4 }).op(APT_OP_SETVARIABLE);
+				f.pushString("r4").pushDataIdx({ r4 }).op(APT_OP_SETVARIABLE);
 			});
 		// arguments -> r1; a parameter without a register stays a named local
 		a.defineFunction2("args", 2, APT_FN2_PRELOAD_ARGUMENTS, { { 0, "named" } }, [&](Asm &f) {
@@ -414,10 +414,43 @@ TEST_CASE("VM: DefineFunction2 - registers, parameter registers, preload flags i
 	CHECK(fx.var("this").asObject() == clip);
 	CHECK(fx.var("root").asObject() == fx.root);
 	CHECK(fx.var("global").asObject() == fx.vm.global());
-	CHECK(fx.var("ext").isExtern());
+	CHECK(fx.var("r4").isUndefined());
 	CHECK(fx.vm.callFunction(fx.var("args"), AptValue(), { AptValue::integer(7), AptValue::integer(8) }).toNumber() == 9.0f); // arguments.length (2) + the named local (arg0 = 7)
 	CHECK(fx.vm.callFunction(fx.var("fresh"), AptValue(), {}).isUndefined());
 	fx.vm.clearErrors();
+}
+
+TEST_CASE("VM: DefineFunction2's flag word is the 16-bit field after the 16-bit register count; its 0x100 preloads _global, never extern")
+{
+	// The retail InitialSetup shape (RotWK Palantir.apt / QuitMenu.apt: register count 03 00, flag bytes 6A 01): PreloadRoot -> r1, PreloadGlobal -> r2,
+	// then `if (extern.PalantirMinLOD) r2.MinLOD = true`. RotWK's SetupBeforeExecution (RW 0xB1E1F0) tests + 0x0A for _root (0x40, RW 0xB1E319) and
+	// + 0x0B bit 0 for _global (RW 0xB1E3AD), so the movie writes _global.MinLOD; read as an `extern` preload it wrote extern.MinLOD instead
+	Fx fx;
+	fx.host.setExternValue("PalantirMinLOD", "0"); // an Apt string: true in an Apt 7 movie (AptValue::toBoolean)
+	std::vector<std::uint8_t> header;
+	REQUIRE(fx.run([&](TestMovie &m, Asm &a) {
+		std::uint32_t r1 = m.constRegister(1), r2 = m.constRegister(2);
+		a.constantPool({ "extern", "PalantirMinLOD", "MinLOD" });
+		const std::uint32_t at = a.offset();
+		a.defineFunction2("InitialSetup", 3, APT_FN2_SUPPRESS_THIS | APT_FN2_SUPPRESS_ARGUMENTS | APT_FN2_SUPPRESS_SUPER | APT_FN2_PRELOAD_ROOT | APT_FN2_PRELOAD_GLOBAL, {},
+			[&](Asm &f) {
+				f.pushValueOfVar(0).getNamedMember(1).op(APT_OP_NOT).branchIfTrue("skip");
+				f.pushDataIdx({ r2 }).pushConstByte(2).op(APT_OP_EA_PUSHTRUE).op(APT_OP_SETMEMBER);
+				f.label("skip");
+				f.pushString("rootSeen").pushDataIdx({ r1 }).op(APT_OP_SETVARIABLE);
+			});
+		// the operand follows the opcode, 4-aligned in the file: name, parameter count, then the two 16-bit fields
+		const std::uint32_t data = ((at + 1 + 3) & ~3u) - a.startOffset();
+		header.assign(a.bytes().begin() + data + 8, a.bytes().begin() + data + 12);
+		a.pushByte(0).pushString("InitialSetup").op(APT_OP_CALLFUNCTION).op(APT_OP_POP);
+	}));
+	CHECK(header == std::vector<std::uint8_t>{ 0x03, 0x00, 0x6A, 0x01 });
+	CHECK(fx.errorsText() == "");
+	AptValue minLOD;
+	REQUIRE(fx.vm.global()->getMember("MinLOD", minLOD));
+	CHECK(minLOD.asBool());
+	CHECK(fx.var("rootSeen").asObject() == fx.root);
+	CHECK(fx.host.externSets.empty()); // nothing is written through extern
 }
 
 TEST_CASE("VM: a function defined inside a function keeps reading and writing the enclosing function's locals")

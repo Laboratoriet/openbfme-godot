@@ -12,8 +12,8 @@
 // "SWF spec" at each handler.
 //
 // Registers: DefineFunction2 functions get their own register file (registerCount entries, preload
-// flags fill registers 1.. in the SWF order this, arguments, super, _root, _parent, _global, then the
-// EA PreloadExtern); top-level programs and DefineFunction (v1) functions share one global file,
+// flags fill registers 1.. in the SWF order this, arguments, super, _root, _parent, _global: RotWK's
+// SetupBeforeExecution, RW 0xB1E1F0, AptFunction2Flags); top-level programs and DefineFunction (v1) functions share one global file,
 // which is why EA compiled code saves registers on the value stack (PushData of a register, restore
 // with SetRegister+Pop at the function's end, e.g. MainMenu root frame 0).
 //

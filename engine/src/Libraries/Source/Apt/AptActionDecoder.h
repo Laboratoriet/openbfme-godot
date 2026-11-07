@@ -115,19 +115,22 @@ enum AptOp : std::uint8_t
 	APT_OP_EA_PUSHLONG = 0xB7
 };
 
-// DefineFunction2 flag bits (OpenSAGE Function.cs; EA adds PreloadExtern).
+// DefineFunction2 flags: the 16-bit word at + 0x0A of the action's data (after the name pointer, the parameter count and the 16-bit register count
+// at + 0x08; BFME2 decomp AptScriptFunction.h, struct AptAction_DefineFunction2: short nRegisterCount, short nFlags). TARGET FACT: RotWK's
+// AptScriptFunction2::SetupBeforeExecution (RW 0xB1E1F0 .. 0xB1E3D3; BFME2 decomp AptScriptFunction.cpp) tests byte + 0x0A for 0x01 (this, RW 0xB1E249),
+// 0x04 (arguments, RW 0xB1E27F), 0x10 (super, RW 0xB1E2BB), 0x40 (_root, RW 0xB1E319), 0x80 (_parent, RW 0xB1E362) and byte + 0x0B for 0x01 (_global,
+// RW 0xB1E3AD), and fills registers 1.. in that order: SWF's DefineFunction2 flag word. It tests no other bit; the suppress bits are named for the tests.
 enum AptFunction2Flags : std::uint32_t
 {
-	APT_FN2_PRELOAD_GLOBAL = 0x000001,
-	APT_FN2_PRELOAD_THIS = 0x000100,
-	APT_FN2_SUPPRESS_THIS = 0x000200,
-	APT_FN2_PRELOAD_ARGUMENTS = 0x000400,
-	APT_FN2_SUPPRESS_ARGUMENTS = 0x000800,
-	APT_FN2_PRELOAD_SUPER = 0x001000,
-	APT_FN2_SUPPRESS_SUPER = 0x002000,
-	APT_FN2_PRELOAD_ROOT = 0x004000,
-	APT_FN2_PRELOAD_PARENT = 0x008000,
-	APT_FN2_PRELOAD_EXTERN = 0x010000
+	APT_FN2_PRELOAD_THIS = 0x0001,
+	APT_FN2_SUPPRESS_THIS = 0x0002,
+	APT_FN2_PRELOAD_ARGUMENTS = 0x0004,
+	APT_FN2_SUPPRESS_ARGUMENTS = 0x0008,
+	APT_FN2_PRELOAD_SUPER = 0x0010,
+	APT_FN2_SUPPRESS_SUPER = 0x0020,
+	APT_FN2_PRELOAD_ROOT = 0x0040,
+	APT_FN2_PRELOAD_PARENT = 0x0080,
+	APT_FN2_PRELOAD_GLOBAL = 0x0100
 };
 
 // One typed PushData / ConstantPool entry, resolved from the .const table at decode time.
