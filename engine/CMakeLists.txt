@@ -734,6 +734,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_sources(openbfme PRIVATE src/GodotDevice/IOSFilesBridge.mm src/GodotDevice/GodotIOSFiles.cpp)
     target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_FILES=1)
     target_link_libraries(openbfme PRIVATE "-framework UniformTypeIdentifiers")
+    # IOS-47: the benchmark's battery and thermal state (UIDevice, NSProcessInfo), the IOSDeviceStatus class (registered under
+    # OPENBFME_IOS_DEVICE_STATUS only).
+    target_sources(openbfme PRIVATE src/GodotDevice/IOSDeviceStatusBridge.mm src/GodotDevice/GodotIOSDeviceStatus.cpp)
+    target_compile_definitions(openbfme PRIVATE OPENBFME_IOS_DEVICE_STATUS=1)
     # IOS-22: MetalFX, for Godot's Metal driver. Its MetalFX check (MTLFX::SpatialScalerDescriptor::supportsDevice, metal-cpp: an Objective-C class
     # looked up at run time) reads false when no image in the process links MetalFX.framework, and Godot 4.7.2's iOS export never links it (its
     # system frameworks come in by auto-linking, and metal-cpp has none for MetalFX): the Duo logged "MetalFX spatial upscaling is not supported"

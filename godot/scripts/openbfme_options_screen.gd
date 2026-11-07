@@ -116,6 +116,7 @@ const HELP := {
 	"OpenBFMECrashReports": "When OpenBFME crashes, a report goes to the OpenBFME team by itself at the next start: the version, the system, the crash and the end of the log, without names, folders or addresses. Off: the crash message offers Send report instead.",
 	"OpenBFMEShareResults": "After each LAN or online game: your install id, nickname and the game's summary (map, armies, teams, winner) go to the OpenBFME statistics service. Off: nothing is sent.",
 	"note:Online": "The original game's network settings, and what OpenBFME's online services receive.",
+	"Benchmark.run": "About 2 minutes: a large battle with a fixed camera path. Shows fps, frame times, stalls and memory, and saves them (user://benchmarks).", # lane IOS-47
 	"note:Performance": "Uber performance mode changes how the game itself runs: read its warning.",
 	"note:Controls": "The original game's hot keys (CommandMap.ini) as the game reads them. Changing them here comes later.",
 }
@@ -249,6 +250,8 @@ func _process(_delta: float) -> void:
 					_show_tab(_tab)
 				elif _tab == TOUCH_TAB: # lane IOS-46: HELP, SHOW, RESET TIPS, BACK
 					touch_press(String(e.key))
+				elif _tab == "Performance" and String(e.key) == BENCHMARK_KEY: # lane IOS-47: RUN
+					run_benchmark()
 			"cancel":
 				close(false)
 			"reset":
@@ -873,7 +876,22 @@ func _performance_rows() -> Array:
 	if not locked.is_empty():
 		row["enabled"] = false # lane UBERJOIN-1: greyed, with the reason in the help line
 		row["help"] = locked
-	return [row]
+	# lane IOS-47: the benchmark, from the main menu only (it starts a game of its own)
+	var game := get_tree().current_scene if is_inside_tree() else null
+	var can: bool = game != null and game.has_method("start_benchmark") and int(game.get("_state")) == int(game.State.MENU)
+	var bench := {"kind": "button", "key": BENCHMARK_KEY, "label": "Benchmark", "value_text": "RUN", "enabled": can,
+		"help": HELP[BENCHMARK_KEY] if can else "The benchmark starts a game of its own: run it from the main menu's Options."}
+	return [row, _section("BENCHMARK"), bench] # its own heading: a row's room between it and the Uber box, so a near miss there never starts a game
+
+
+## lane IOS-47: RUN: the page closes keeping its settings (ACCEPT), then game.gd starts the benchmark's game from the menu
+const BENCHMARK_KEY := "Benchmark.run"
+func run_benchmark() -> void:
+	var game := get_tree().current_scene
+	if game == null or not game.has_method("start_benchmark"):
+		return
+	close(true)
+	game.start_benchmark.call_deferred()
 
 
 func _hotkey_list() -> Array:

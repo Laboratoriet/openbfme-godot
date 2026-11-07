@@ -37,7 +37,7 @@ const REQUIRED_ROWS := {
 	"Interface": ["AlternateMouseSetup", "OpenBFMECrashReports", "OpenBFMEGameClock", "OpenBFMEHealthBars", "OpenBFMEMainMenuStyle", "OpenBFMEPingKey", "OpenBFMEPingWheel", "OpenBFMEUIScale", "Retail.HealthBars"],
 	"Online": ["OpenBFMEShareResults", "OpenBFMEShowPing", "Retail.OnlineIp", "Retail.OnlinePortNum", "Retail.RefreshNat", "Retail.SendDelay",
 		"Social.challenges", "Social.hidden", "Social.invites", "Social.presence", "Social.requests"], # ONLINEMENU-1: who may ask, invite, challenge, see you
-	"Performance": ["OpenBFMEUberPerformance"],
+	"Performance": ["Benchmark.run", "OpenBFMEUberPerformance"], # lane IOS-47: Run benchmark
 	"Controls": [],
 }
 ## lane IOS-20: rows a tab shows on iOS only (the extension's IOSAudioSession class exists there only; game_options.gd ios_audio_available)

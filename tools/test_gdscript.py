@@ -111,6 +111,7 @@ ALLOWLIST = {
     "ios37_toolbar_test.gd": "touch: the command toolbar's taps press the CommandMap's keys, hold shows help, groups (hold = Ctrl+n, tap = n), disabled states, against a stand-in HUD (IOS-37)",
     "ios43_touch_test.gd": "touch: aiming powers and hero abilities: banner, aim above the finger, lift / tap wait for ✓ / ✕, cancel, refusal, target pick, On tap, against a stand-in HUD (IOS-43)",
     "ios46_tips_test.gd": "touch help: each tip shows once and is remembered, Show tips off / Card only show none, Reset tips, learned tips skipped, the guide's steps and Skip, the help card is modal, against a stand-in HUD (IOS-46)",
+    "ios47_benchmark_test.gd": "benchmark: frame-time statistics (mean, p95 / p99, stalls), the results file's name, save / read back and validation, the summary card fits the stand-in's window (IOS-47)",
     "ios45_touch_test.gd": "touch: the iOS input bridge's events: a mouse in use only once its pointer shows (not a listed GCMouse, the touch layer's own events or a Pencil), the last mouse going, scroll as wheel notches, a missed right-modifier release (IOS-45)",
     "ios40_touch_test.gd": "touch: Button taps, tap to preview (help + gold ring) and tap again to use a costing button; disarms; autocast double tap; Preview all / Act at once, against a stand-in HUD (IOS-40)",
     "online_list_test.gd": "online list parsing and paging against synthetic responses",
@@ -162,6 +163,7 @@ DENYLIST = {
     "replay_refusal_test.gd": "manual: mixed stub checks and retail replay subprocess; not wholly asset-free",
     "windows_crash_test.gd": "manual: destructive Windows debug crash/minidump probe; explicit opt-in required",
     "edainfactions1_test.gd": "manual: needs the Edain 4.8.5.3 install (OPENBFME_EDAIN_INSTALL); without it the script only parses",
+    "ios47_benchmark_run_test.gd": "manual: needs private retail assets (the benchmark's 8 s run in a headless game)",
 }
 ENGINE_ERRORS = re.compile(r"(?m)^\s*(?:SCRIPT ERROR|ERROR):")
 

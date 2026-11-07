@@ -18,6 +18,10 @@
 ##                           value: GAME FAIL, exit 2); without it Options.ini OpenBFMEMaxZoomOut (default 2.5)
 ##     --uber1=<troops>      (lane UBER-1, with --auto; an 8-player --map) scripts/uber1_player.gd: a battle of that many living troops in the real client,
 ##                           its render frames timed (--uber1-seconds=S, default 20): average fps, 1% low, worst frame, logic frames/s; prints UBER1 lines
+##     --benchmark[=vanilla|edain]  (lane IOS-47; implies --auto) scripts/benchmark/benchmark_run.gd: the benchmark's large scripted battle (seed
+##                           BENCHMARK_SEED, a fixed camera path, ~2 min: --benchmark-seconds=S), its results printed (BENCHMARK lines) and saved to
+##                           user://benchmarks/, the summary card shown (--benchmark-shot=<png> saves it), then quits. "edain" needs Edain mounted
+##                           (--mod-install=<the Edain folder>). Options > Performance > Run benchmark runs the mounted variant from the menu
 ##     --zoom1=<a,b,...>     (lane ZOOM-1, with --auto) the scenarios of scripts/zoom1_player.gd (zoom: the same spot at 1x / 1.5x / 2x / 2.5x / 3x, the
 ##                           frame rate at 1x and 2.5x; bars: both armies with every health bar on); prints ZOOM1 lines; --screens writes zoom1-*.png
 ##     --ownerfix2=<a,b,...> (lane OWNERFIX-2, with --auto) scripts/ownerfix2_player.gd: the owner's 2026-10-17 playtest items in the real game (auras, cp,
@@ -414,6 +418,14 @@ var _play1 := PackedStringArray()
 var _zoom1 := PackedStringArray() # lane ZOOM-1
 var _play_script := "res://scripts/play1_player.gd" # lane SPELL-3: --spell3 runs its scenarios through scripts/spell3_player.gd (PLAY-1's input helpers)
 var _uber1 := 0 # lane UBER-1: --uber1=<troops>
+var _benchmark := ""          # lane IOS-47: --benchmark[=vanilla|edain] (or Options > Performance > Run benchmark): the variant to run
+var _benchmark_seconds := 120.0  # lane IOS-47: --benchmark-seconds=S (the smoke test's short run)
+var _benchmark_shot := ""     # lane IOS-47: --benchmark-shot=<png>: the summary card's picture
+var _benchmark_menu := false  # lane IOS-47: started from the Options menu (the game leaves to the menu, the card shows there)
+var _benchmark_from_menu := false  # lane IOS-47: --benchmark-from-menu: start_benchmark() at the main menu, the card's picture, quit
+const BENCHMARK_SEED := 47047 # lane IOS-47: the benchmark's fixed seed (its map is DEFAULT_MAP, its slots FactionMen against one AI)
+const BenchmarkRun := preload("res://scripts/benchmark/benchmark_run.gd")
+const BenchmarkCard := preload("res://scripts/benchmark/benchmark_card.gd")
 var _hud5 := PackedStringArray() # lane HUD-5
 var _rules_shot := 0 # lane RULES-1: --rules-shot=<factor>
 var _lobby_cp := 0 # lane OWNERFIX-2: --lobby-cp=<percent>
@@ -803,6 +815,18 @@ func _ready() -> void:
 			_crash_test_logic = true
 		elif arg == "--auto":
 			_auto = true
+		elif arg.begins_with("--benchmark-seconds="):
+			_benchmark_seconds = maxf(5.0, arg.substr(20).to_float()) # lane IOS-47
+		elif arg.begins_with("--benchmark-shot="):
+			_benchmark_shot = arg.substr(17)
+		elif arg == "--benchmark-from-menu":
+			_benchmark_from_menu = true # lane IOS-47: the check of Options > Performance > Run benchmark's path (with --auto)
+			_auto = true
+		elif arg == "--benchmark" or arg.begins_with("--benchmark="):
+			_benchmark = "vanilla" if arg == "--benchmark" else arg.substr(12) # lane IOS-47: a scripted run of its own (implies --auto)
+			_auto = true
+			if _seed == 0:
+				_seed = BENCHMARK_SEED # (a --seed later on the line wins)
 		elif arg.begins_with("--perf-stat="):
 			_perf_stat = arg.substr(12)
 		elif arg.begins_with("--perf-log="):
@@ -2444,7 +2468,7 @@ func _begin_game(message: Dictionary) -> void:
 	var world_was_visible: bool = _world.visible
 	_world.hide() # keep partially constructed terrain behind the loading screen
 	_on_load_progress(0) # present the initial bar before synchronous loading
-	var opts := {"progress": Callable(self, "_on_load_progress"), "test_hooks": _end or _wotr_flow or not _zoom1.is_empty() or _rules_shot > 0 or not _gamemodes.is_empty() or _uber1 > 0 or _play_script.ends_with("spell3_player.gd") or _play_script.ends_with("weatherfx1_player.gd") or _play_script.ends_with("ownerfix1_player.gd") or _play_script.ends_with("devport7_player.gd") or _play_script.ends_with("banner1_player.gd") or _play_script.ends_with("ownerfix2_player.gd") or not _trees1.is_empty() or _play_script.ends_with("aidata1_player.gd")} # lane ZOOM-1: the bars scenario hurts some units (logged)
+	var opts := {"progress": Callable(self, "_on_load_progress"), "test_hooks": _end or _wotr_flow or not _zoom1.is_empty() or _rules_shot > 0 or not _gamemodes.is_empty() or _uber1 > 0 or not _benchmark.is_empty() or _play_script.ends_with("spell3_player.gd") or _play_script.ends_with("weatherfx1_player.gd") or _play_script.ends_with("ownerfix1_player.gd") or _play_script.ends_with("devport7_player.gd") or _play_script.ends_with("banner1_player.gd") or _play_script.ends_with("ownerfix2_player.gd") or not _trees1.is_empty() or _play_script.ends_with("aidata1_player.gd")} # lane ZOOM-1: the bars scenario hurts some units (logged)
 	if _record and _net_state.is_empty():
 		opts["record"] = _last_replay_path() # lane MP-2: every skirmish is recorded
 	if _pingwheel.has("hash"):
@@ -3289,6 +3313,18 @@ func _run_auto() -> void:
 	if _wotr_flow:
 		await _run_wotr() # lane WOTR-1
 		return
+	if _benchmark_from_menu:
+		# lane IOS-47: what Options > Performance > Run benchmark does (the page's RUN calls start_benchmark), then the card over the menu
+		await start_benchmark()
+		await _wait_seconds(1.5)
+		print("BENCHMARK from the menu: back in state %s, shell %s" % [State.keys()[_state], _shell.shell_stack()])
+		if not _benchmark_shot.is_empty():
+			await RenderingServer.frame_post_draw
+			var image := get_viewport().get_texture().get_image()
+			if image != null:
+				print("BENCHMARK card picture %s: %s" % [_benchmark_shot, error_string(image.save_png(_benchmark_shot))])
+		get_tree().quit(0 if _state != State.PLAYING else 1)
+		return
 	if not await _auto_lobby_and_start():
 		return
 	await _step(30)
@@ -3411,6 +3447,9 @@ func _run_auto() -> void:
 		var zplayer = zscript.new()
 		await zplayer.run(self, _zoom1)
 		get_tree().quit(0 if zplayer.fail_count == 0 else 1)
+		return
+	if not _benchmark.is_empty():
+		await _run_benchmark() # lane IOS-47
 		return
 	if _uber1 > 0:
 		var uscript: GDScript = load("res://scripts/uber1_player.gd")
@@ -9156,3 +9195,99 @@ func _wotr_force_battle_end() -> void:
 	print("GAME WOTR the enemy's forces fall: ", _world.debug_kill_player_objects(enemy, keep))
 	if fortress >= 0:
 		print("GAME WOTR last hit: ", _world.debug_damage_object(fortress, 1.0e7, source))
+
+
+# ---- lane IOS-47: the benchmark ------------------------------------------------------------------------------------------------------------------
+
+## "edain" when Edain is mounted (an install-folder mod or the Mods folder's), else "vanilla": the variant a run from the menu measures
+func _benchmark_variant() -> String:
+	var release := get_node_or_null("/root/Release")
+	var mount: Dictionary = release.last_mount if release != null else {}
+	var mod: Dictionary = mount.get("mod", {})
+	var names := "%s %s" % [mod.get("install_mod_name", ""), " ".join(PackedStringArray(mod.get("list", PackedStringArray())))]
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--mod-install="):
+			names += " " + a
+	return "edain" if names.to_lower().contains("edain") else "vanilla"
+
+
+## Options > Performance > Run benchmark (scripts/openbfme_options_screen.gd), from the main menu: the benchmark's skirmish (its map, seed and slots)
+## through the lobby as --auto starts one, the run, then back to the menu, where the summary card shows. The lobby's choices are the player's
+## Skirmish.ini's from then on (the shell writes them, as for any game)
+func start_benchmark() -> void:
+	if _state != State.MENU or not _benchmark.is_empty():
+		return
+	_benchmark = _benchmark_variant()
+	_benchmark_menu = true
+	_seed = BENCHMARK_SEED
+	_map_key = DEFAULT_MAP
+	_faction = "FactionMen"
+	_opponents = 1
+	if not _scripted_run():
+		_profile_made = true # the player's own profile: none is made (a scripted run's own profile store needs one: the lobby's popup)
+	print("BENCHMARK from the menu: %s" % _benchmark)
+	if not await _auto_lobby_and_start():
+		print("BENCHMARK FAIL: the benchmark's skirmish did not start")
+		_benchmark_failed("The benchmark's game did not start (a skirmish profile is needed: play one skirmish first).")
+		return
+	var waited := 0.0
+	while _state != State.PLAYING and _state != State.FAILED and waited < 300.0:
+		await _wait_seconds(0.5)
+		waited += 0.5
+	if _state != State.PLAYING:
+		print("BENCHMARK FAIL: the game did not start")
+		_benchmark_failed("The benchmark's game did not start.")
+		return
+	await _run_benchmark()
+
+
+## the card says why the benchmark could not run; the menu stays
+func _benchmark_failed(why: String) -> void:
+	_benchmark = ""
+	_benchmark_menu = false
+	var card := BenchmarkCard.new()
+	get_tree().root.add_child(card)
+	var touch := get_node_or_null("/root/TouchControls")
+	card.show_results({"error": why}, touch._scale if touch != null and touch.is_active() else 1.0)
+
+
+## the run (BenchmarkRun), its card; a scripted run (--benchmark) saves the card's picture (--benchmark-shot) and quits, one from the menu leaves the
+## game as a player does (the quit menu's Exit, Yes) and shows the card over the menus
+func _run_benchmark() -> void:
+	var mounted := _benchmark_variant()
+	var r: Dictionary
+	if _benchmark != mounted:
+		r = {"error": "--benchmark=%s, but the game runs %s (Edain: --mod-install=<the Edain folder>, or Edain on in Options > Mods)" % [_benchmark, mounted]}
+	else:
+		await _wait_seconds(1.0)
+		r = await BenchmarkRun.new().run(self, _benchmark, _benchmark_seconds)
+	var bad: PackedStringArray = PackedStringArray([r.error]) if r.has("error") else BenchmarkRun.Stats.validate(r)
+	print("BENCHMARK %s" % ("DONE" if bad.is_empty() else "FAIL " + "; ".join(bad)))
+	var touch := get_node_or_null("/root/TouchControls")
+	var px: float = touch._scale if touch != null and touch.is_active() else 1.0
+	if _benchmark_menu:
+		_world.set_paused(false)
+		_toggle_quit_menu()
+		await _wait_seconds(2.0)
+		await _click_quit("ExitMission")
+		await _wait_seconds(1.5)
+		await _click_quit("Yes")
+		var waited := 0.0
+		while _state == State.PLAYING and waited < 30.0:
+			await _wait_seconds(0.5)
+			waited += 0.5
+		await _wait_seconds(1.5)
+	var card := BenchmarkCard.new()
+	get_tree().root.add_child(card)
+	card.show_results(r, px)
+	if not _benchmark_menu:
+		await _wait_seconds(0.6)
+		if not _benchmark_shot.is_empty():
+			await RenderingServer.frame_post_draw
+			var image := get_viewport().get_texture().get_image()
+			if image != null:
+				print("BENCHMARK card picture %s: %s" % [_benchmark_shot, error_string(image.save_png(_benchmark_shot))])
+		get_tree().quit(0 if bad.is_empty() else 1)
+		return
+	_benchmark = ""
+	_benchmark_menu = false
