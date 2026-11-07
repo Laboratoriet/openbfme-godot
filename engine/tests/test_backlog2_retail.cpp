@@ -9,6 +9,7 @@
 #include "Common/NumericState.h"
 #include "Common/Player.h"
 #include "Common/RandomValue.h"
+#include "Common/StateHash.h"
 #include "Common/Thing/ThingTemplate.h"
 #include "GameLogic/AI/AIPathfindHost.h"
 #include "GameLogic/AI/AIStateMachine.h"
@@ -576,6 +577,147 @@ TEST_CASE("BACKLOG2 S-951: an economy plot's explicit unpack (MSG_CASTLE_UNPACK_
 	CHECK(built->getPosition()->x == flag->getPosition()->x);
 	CHECK(built->getPosition()->y == flag->getPosition()->y);
 	CHECK(c.money() == 5000u - (std::uint32_t)price);
+}
+
+// ---- S-951 snapshot: a camp or plot a player paid to unpack, saved and loaded (CastleBehavior::xfer version 3) ---------------------------------------------------
+namespace
+{
+// every object's modules, each with its own state hash, in object list order
+struct ModuleHash
+{
+	ObjectID id;
+	std::string where; // the object's template and the module's class
+	std::uint32_t hash;
+};
+
+std::vector<ModuleHash> moduleHashes(const GameLogic &logic)
+{
+	std::vector<ModuleHash> out;
+	for (const Object *o = logic.getFirstObject(); o; o = o->getNextObject())
+	{
+		for (const std::unique_ptr<BehaviorModule> &m : o->modules())
+		{
+			StateHasher h;
+			m->crc(h);
+			out.push_back({ o->getID(), o->getTemplate()->getName() + " " + m->getModuleClassName(), h.value() });
+		}
+	}
+	return out;
+}
+
+// the modules whose hash differs between the saved and the loaded game, named (empty when none does)
+std::string moduleDifference(const std::vector<ModuleHash> &saved, const std::vector<ModuleHash> &loaded)
+{
+	if (saved.size() != loaded.size())
+	{
+		return std::to_string(saved.size()) + " modules saved, " + std::to_string(loaded.size()) + " loaded";
+	}
+	std::string out;
+	for (size_t i = 0; i < saved.size(); ++i)
+	{
+		if (saved[i].id != loaded[i].id || saved[i].where != loaded[i].where || saved[i].hash != loaded[i].hash)
+		{
+			out += " object " + std::to_string(saved[i].id) + " " + saved[i].where + ";";
+		}
+	}
+	return out;
+}
+} // namespace
+
+TEST_CASE("BACKLOG2 S-951 snapshot: a camp flag a player paid to unpack (MSG_CASTLE_UNPACK, 2000) loads with the price it was paid: the loaded game hashes as the saved "
+		  "one, module by module")
+{
+	OPENBFME_REQUIRE_START(s);
+	CampGame c(*s);
+	GameLogic &logic = *c.logic;
+	Object *flag = c.capturedFlag("CampFlag", { 1500.0f, 1500.0f, 0.0f });
+	CastleBehavior *cb = dynamic_cast<CastleBehavior *>(flag->findModule("CastleBehavior"));
+	REQUIRE(cb);
+	c.setMoney(2500);
+	c.live->dispatch().dispatch(GameMessage(MSG_CASTLE_UNPACK, c.pi));
+	REQUIRE(cb->storedPrice() == 2000.0f);
+	int frames = 0;
+	while (cb->state() != CastleBehavior::STATE_UNPACKED && frames < 100)
+	{
+		logic.runLogicFrame();
+		++frames;
+	}
+	REQUIRE(cb->state() == CastleBehavior::STATE_UNPACKED);
+	REQUIRE(cb->storedPrice() == 2000.0f); // kept after the unpack (only initiateUnpack RW 0x79C1A4 clears it), so it stays in the state hash
+	const ObjectID flagId = flag->getID();
+	std::vector<std::uint8_t> bytes;
+	std::string error;
+	REQUIRE_MESSAGE(logic.saveSnapshot(bytes, &error), error);
+	const std::uint32_t savedHash = logic.computeStateHash();
+	const std::vector<ModuleHash> saved = moduleHashes(logic);
+	// the game moves on, then the save is loaded back
+	for (int i = 0; i < 10; ++i)
+	{
+		logic.runLogicFrame();
+	}
+	REQUIRE_MESSAGE(c.live->loadSnapshot(bytes, &error), error);
+	CHECK_MESSAGE(moduleDifference(saved, moduleHashes(logic)).empty(), "differs:" << moduleDifference(saved, moduleHashes(logic)));
+	CHECK(logic.computeStateHash() == savedHash);
+	flag = logic.findObjectByID(flagId);
+	REQUIRE(flag);
+	cb = dynamic_cast<CastleBehavior *>(flag->findModule("CastleBehavior"));
+	REQUIRE(cb);
+	CHECK(cb->state() == CastleBehavior::STATE_UNPACKED);
+	CHECK(cb->storedPrice() == 2000.0f);
+	std::vector<std::uint8_t> again;
+	REQUIRE_MESSAGE(logic.saveSnapshot(again, &error), error);
+	CHECK(again == bytes);
+}
+
+TEST_CASE("BACKLOG2 S-951 snapshot: an economy plot saved between its explicit unpack (MSG_CASTLE_UNPACK_EXPLICIT_OBJECT, RohanFarmMultiplayer) and the farm's rise "
+		  "loads with the price and the template, and the loaded plot raises the farm")
+{
+	OPENBFME_REQUIRE_START(s);
+	CampGame c(*s);
+	GameLogic &logic = *c.logic;
+	Object *flag = c.capturedFlag("EconomyPlotFlag", { 1500.0f, 1500.0f, 0.0f });
+	CastleBehavior *cb = dynamic_cast<CastleBehavior *>(flag->findModule("CastleBehavior"));
+	REQUIRE(cb);
+	const ThingTemplate *farm = logic.things().findTemplate("RohanFarmMultiplayer");
+	REQUIRE(farm);
+	c.setMoney(5000);
+	GameMessage m(MSG_CASTLE_UNPACK_EXPLICIT_OBJECT, c.pi);
+	m.appendIntegerArgument((int)farm->getTemplateID());
+	c.live->dispatch().dispatch(m);
+	REQUIRE(cb->state() == CastleBehavior::STATE_PACKED);
+	REQUIRE(cb->storedPrice() == 200.0f); // gamedata.ini: ROHAN_FLAG_ECONOMY_UNPACK_FARM_COST
+	REQUIRE(cb->explicitTemplateName() == "RohanFarmMultiplayer");
+	const ObjectID flagId = flag->getID();
+	std::vector<std::uint8_t> bytes;
+	std::string error;
+	REQUIRE_MESSAGE(logic.saveSnapshot(bytes, &error), error);
+	const std::uint32_t savedHash = logic.computeStateHash();
+	const std::vector<ModuleHash> saved = moduleHashes(logic);
+	for (int i = 0; i < 10; ++i)
+	{
+		logic.runLogicFrame();
+	}
+	REQUIRE_MESSAGE(c.live->loadSnapshot(bytes, &error), error);
+	CHECK_MESSAGE(moduleDifference(saved, moduleHashes(logic)).empty(), "differs:" << moduleDifference(saved, moduleHashes(logic)));
+	CHECK(logic.computeStateHash() == savedHash);
+	flag = logic.findObjectByID(flagId);
+	REQUIRE(flag);
+	cb = dynamic_cast<CastleBehavior *>(flag->findModule("CastleBehavior"));
+	REQUIRE(cb);
+	CHECK(cb->storedPrice() == 200.0f);
+	CHECK(cb->explicitTemplateName() == "RohanFarmMultiplayer");
+	// the loaded plot raises the farm it was paid for (RW 0x79BEAC: the explicit object by name)
+	for (int i = 0; i < 5 && cb->state() == CastleBehavior::STATE_PACKED; ++i)
+	{
+		logic.runLogicFrame();
+	}
+	CHECK(cb->explicitTemplateName().empty());
+	int farms = 0;
+	for (Object *o = logic.getFirstObject(); o; o = o->getNextObject())
+	{
+		farms += o->getTemplate()->getFinalOverride() == farm->getFinalOverride() && !o->isDestroyed() && o->getProducerID() == flagId ? 1 : 0;
+	}
+	CHECK(farms == 1);
 }
 
 // ---- review r1: a construction determinism vector with several units, movement effects, the wall segment's 20 % call site -----------------------------------------

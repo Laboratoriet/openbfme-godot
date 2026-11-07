@@ -1634,7 +1634,9 @@ void CastleModules::registerAll(ModuleFactory &modules)
 // ---- lane SAVE-4b: the snapshots (OpenBFME native, S-4190: each class's fields in its crc's order; the last error text is the report's) ----------------
 void CastleBehavior::xfer(Xfer &x)
 {
-	XferVersion v{ 1, 2 }; // 2: lane CASTLEAREA-1's areas and set
+	// 2: lane CASTLEAREA-1's areas and set; 3: a player's unpack price and explicit object, written only once an unpack set one (other castles keep their bytes)
+	const bool paid = m_storedPrice != 0.0f || !m_explicitTemplate.empty();
+	XferVersion v{ 1, (std::uint8_t)(x.isLoading() || paid ? 3 : 2) };
 	x.xferVersion(v);
 	FoundationAIUpdate::xfer(x);
 	SnapshotXfer::enumIn(x, m_state, STATE_IDLE, STATE_ABANDONED, "a castle's state");
@@ -1677,6 +1679,21 @@ void CastleBehavior::xfer(Xfer &x)
 				registerArea(std::move(a), index);
 			}
 		}
+	}
+	// version 3: the unpack price (+ 0x4C, RW 0x799039 / 0x797B06) and the explicit object's template (+ 0x98, RW 0x79C18D), which crc hashes once either is set.
+	// Version 2 left them out, so a castle a player paid to unpack (a camp flag's 2000, an economy plot's farm) loaded with a price of 0 and the load was
+	// refused by its own state hash. Retail: RotWK's CastleBehavior::DoXfer (RW 0x79B9D6, (1, 2), docs/SAVES-RETAIL.md) transfers + 0x98 (the AsciiString at
+	// RW 0x79BB91) but not + 0x4C. RETAIL QUIRK NOT KEPT (as S-4253's claimant flag): a retail load forgets the price of a castle that still holds it; the port
+	// saves it (S-4190: the port's own layout). A version 1 or 2 snapshot loads with price 0 and no explicit object
+	if (v.current >= 3)
+	{
+		x.xferReal(&m_storedPrice);
+		x.xferAsciiString(&m_explicitTemplate);
+	}
+	else if (x.isLoading())
+	{
+		m_storedPrice = 0.0f;
+		m_explicitTemplate.clear();
 	}
 }
 

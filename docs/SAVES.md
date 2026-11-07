@@ -1089,6 +1089,22 @@ Every new field is versioned, and a block writes its new version only when the s
 
 The headless check (`openbfme_peer --load-save`) starts a campaign mission's save the way a real load does: the header's carry-over (or, for a first mission without one, the campaign's fresh records) and the mission's delayed list.
 
+### CastleBehavior version 3: a player's unpack price and explicit object
+
+A castle a player pays to unpack (a camp flag, a castle flag or an economy plot: MSG_CASTLE_UNPACK, MSG_CASTLE_UNPACK_EXPLICIT_OBJECT) keeps the price
+it paid (+ 0x4C, RW 0x799039 / 0x797B06) and, until the unpack runs, the explicit object's template (+ 0x98, RW 0x79C18D). The state hash covers
+both once either is set (lane BACKLOG2), but version 2 of the snapshot did not save them, so such a save loaded with a price of 0 and was refused by its
+own state hash.
+
+| Where | Block / class | Version | Field (type) | An older save loads with |
+|---|---|---|---|---|
+| `CastleModules.cpp` | CastleBehavior | 3 (written once a player's unpack set the price or the explicit object) | the unpack price (real, + 0x4C); the explicit object's template (name string, + 0x98) | versions 1 and 2: price 0, no explicit object |
+
+Retail: RotWK's `CastleBehavior::DoXfer` (RW 0x79B9D6, (1, 2); `docs/SAVES-RETAIL.md`) transfers + 0x98 (an AsciiString, RW 0x79BB91) but not
++ 0x4C, so a retail load forgets the price of a castle that still holds it. (Retail's registerOwnedObject hands the price to a CASTLE_KEEP keep's
++ 0x33C and clears + 0x4C, RW 0x79ACCD .. 0x79ACE4; a camp or an economy plot has no such keep and holds it. The port does not make that hand-off yet: its
+castles keep the price.) RETAIL QUIRK NOT KEPT, as S-4253's claimant flag: the port's CastleBehavior layout is its own (S-4190) and saves both.
+
 ### Developer commands (current implementation)
 
 Linux / POSIX shell, from the repository root: the screen test needs a built

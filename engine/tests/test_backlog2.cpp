@@ -144,3 +144,66 @@ TEST_CASE("BACKLOG2 S-951: the limit column prices the unpack at 99999999 while 
 	CHECK(f.alice()->getMoney()->countMoney() == money - 300);
 	CHECK(cb->storedPrice() == 300.0f);
 }
+
+#include "Common/StateHash.h"
+#include "Common/XferLoad.h"
+#include "Common/XferSave.h"
+
+TEST_CASE("BACKLOG2 S-951 snapshot: a castle a player paid to unpack keeps its unpack price (+ 0x4C) and explicit object (+ 0x98) through the snapshot, so "
+		  "the loaded castle hashes as the saved one; a castle nobody paid for keeps its version 2 bytes")
+{
+	ProdWorld f;
+	f.load("Object CSaveFlag\n  KindOf = IMMOBILE BASE_FOUNDATION\n  Behavior = CastleBehavior ModuleTag_castle\n"
+		   "    CastleToUnpackForFaction = Alpha Base_Alpha 300\n  End\nEnd\n");
+	f.load(kBarracksObjects);
+	Object *flag = f.make("CSaveFlag", f.teamOf("Alice"));
+	REQUIRE(flag);
+	CastleBehavior *cb = dynamic_cast<CastleBehavior *>(flag->findModule("CastleBehavior"));
+	REQUIRE(cb);
+	// nothing paid: the price and the explicit object are not in the state hash, and the snapshot keeps the version 2 layout (an older game's bytes)
+	XferSave unpaid;
+	cb->xfer(unpaid);
+	REQUIRE_FALSE(unpaid.data().empty());
+	CHECK(unpaid.data()[0] == 2);
+	GameLogicDispatch dispatch(*f.logic);
+	CastleCommands::registerHandlers(dispatch);
+	f.alice()->selection().clear();
+	f.alice()->selection().push_back(flag->getID());
+	// MSG_CASTLE_UNPACK_EXPLICIT_OBJECT (RW 0x77C338): initiateUnpack keeps the template (RW 0x79C18D), RW 0x797B06 pays its price and keeps it
+	const ThingTemplate *archer = f.w.get("Archer");   // BuildCost 150
+	const ThingTemplate *soldier = f.w.get("Soldier"); // BuildCost 100
+	REQUIRE(archer);
+	REQUIRE(soldier);
+	GameMessage m(MSG_CASTLE_UNPACK_EXPLICIT_OBJECT, f.alice()->getPlayerIndex());
+	m.appendIntegerArgument((int)archer->getTemplateID());
+	dispatch.dispatch(m);
+	REQUIRE(cb->state() == CastleBehavior::STATE_PACKED);
+	REQUIRE(cb->explicitTemplateName() == "Archer");
+	REQUIRE(cb->storedPrice() == 150.0f);
+	StateHasher before;
+	cb->crc(before);
+	XferSave saved;
+	cb->xfer(saved);
+	REQUIRE_FALSE(saved.data().empty());
+	CHECK(saved.data()[0] == 3);
+	// changed after the save (another explicit unpack: another template and price), then loaded back: the saved ones return
+	cb->initiateUnpack(false, soldier);
+	REQUIRE(cb->explicitTemplateName() == "Soldier");
+	REQUIRE(cb->storedPrice() == 100.0f);
+	{
+		XferLoad load(saved.data());
+		cb->xfer(load);
+	}
+	CHECK(cb->storedPrice() == 150.0f);
+	CHECK(cb->explicitTemplateName() == "Archer");
+	StateHasher after;
+	cb->crc(after);
+	CHECK(after.value() == before.value());
+	// a version 2 snapshot (written before version 3, or by a castle nobody paid for) loads with price 0 and no explicit object
+	{
+		XferLoad load(unpaid.data());
+		cb->xfer(load);
+	}
+	CHECK(cb->storedPrice() == 0.0f);
+	CHECK(cb->explicitTemplateName().empty());
+}
