@@ -866,6 +866,7 @@ void AIWorld::attach()
 	m_logic.installPhaseWork("partitionAndCollision", [this]() {
 		processCollisions();
 		processCrateContacts(); // lane MODCOMPAT-MOD1: the crates' contacts, after the AI units' pass (S-780)
+		processWallContacts();  // the wall-scaling hordes' contacts with SCALEABLE_WALL pieces (S-4461)
 	});
 	// PROD-1's hand-off: what production asks the AI of a produced object (move to the rally point, follow the exit path, idle, regroup) runs here, at the call sites
 	// production already has (GameLogic/AI/AICommandSink.h)
@@ -1698,6 +1699,65 @@ void AIWorld::processCrateContacts()
 			++m_crateContacts;
 			ObjectCollide::onCollide(first, second);
 			ObjectCollide::onCollide(second, first);
+		}
+	}
+}
+
+// The wall-scaling hordes' contacts (S-4461). RotWK's collision manager gives a HORDE object a record when AIData HordesWaitForHordes is set (RW 0x68E31F:
+// RW 0x68E3E2 .. 0x68E3FD read AIData + 0xB9, which retail's AIData.ini sets to Yes; NO_COLLIDE never gets one), and every object without NO_COLLIDE has
+// one, so a horde that walks into a wall piece meets it in the contact walk (RW 0xB6D060: the shapes' overlap test, then each object's collide modules).
+// A horde's contain is one of its collide modules: HordeContain's collide entry RW 0x86C61E (its + 0x24 interface's slot 0, vtable RW 0xC5D250) keeps a
+// SCALEABLE_WALL the horde faces as the wall to scale, which starts its members' climb (HordeWallScaling.cpp). The overlap pass above has only the AI
+// units and walls have no AI, so the hordes meet the walls here: each horde in id order (no NO_COLLIDE, no noCollisions status, in the collision manager)
+// meets the SCALEABLE_WALL pieces whose shapes overlap its own, in id order.
+// INFERENCE (S-4461): only these pairs are made, and only the horde's contain entry is asked: the entry is the only collide module that acts on a
+// wall (a scan of the binary finds the SCALEABLE_WALL test, template + 0x121 bit 1, in three places only: this entry, the member step RW 0x86E214 and
+// the locomotor look-ahead RW 0x5E8AFA); the other modules of the pair are not run for it.
+void AIWorld::processWallContacts()
+{
+	if (!m_mapReady || !m_logic.settings().hordesWaitForHordes)
+	{
+		return; // RW 0x68E3FD: without HordesWaitForHordes a horde has no collision record and meets nothing
+	}
+	static const int kNoCollide = CombatNames::kindOf("NO_COLLIDE"), kHorde = CombatNames::kindOf("HORDE");
+	static const int kScaleableWall = ObjectTemplateInfoBuilder::kindOfIndex("SCALEABLE_WALL");
+	static const unsigned kNoCollisions = (unsigned)CombatNames::statuses().noCollisions;
+	const auto registered = [&](const Object &o) {
+		return o.isInWorld() && !o.isDestroyed() && !o.isKindOf((unsigned)kNoCollide) && !o.testStatus(kNoCollisions) && !o.isOutOfCollisionManager();
+	};
+	for (const auto &entry : m_ais) // in id order
+	{
+		AIUpdateInterface *ai = entry.second;
+		Object *horde = ai ? ai->getObject() : nullptr;
+		if (!horde || !horde->isKindOf((unsigned)kHorde) || !registered(*horde) || horde->geometryShapes().empty())
+		{
+			continue;
+		}
+		HordeContain *contain = dynamic_cast<HordeContain *>(horde->getContain());
+		if (!contain)
+		{
+			continue;
+		}
+		PartitionFilterFn wallPiece([&](Object &o) { return &o != horde && o.isKindOf((unsigned)kScaleableWall) && registered(o); });
+		const PartitionHits hits = m_logic.partition().iterateObjectsInRange(*horde->getPosition(), CombatQueries::boundingSphereRadius(*horde),
+		                                                                     FROM_BOUNDINGSPHERE_3D, { &wallPiece }, ITER_FASTEST);
+		m_wallHits.clear();
+		for (const PartitionHit &h : hits)
+		{
+			m_wallHits.push_back(h.object->getID());
+		}
+		std::sort(m_wallHits.begin(), m_wallHits.end());
+		for (PathfindObjectID wallId : m_wallHits)
+		{
+			Object *wall = m_logic.findObjectByID(wallId);
+			if (!wall || wall->isDestroyed() ||
+			    !NotifyCrushModules::geometriesOverlap(horde->geometryShapes(), *horde->getPosition(), horde->getOrientation(), wall->geometryShapes(),
+			                                           *wall->getPosition(), wall->getOrientation()))
+			{
+				continue;
+			}
+			++m_wallContacts;
+			contain->collideWithWall(wall); // RW 0x86C61E
 		}
 	}
 }

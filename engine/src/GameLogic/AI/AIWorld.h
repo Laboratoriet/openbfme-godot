@@ -239,6 +239,11 @@ public:
 	// the objects after a load or a new map
 	void processCrateContacts();
 	unsigned long long crateContacts() const { return m_crateContacts; } ///< the overlapping crate pairs met so far (statistics)
+	// S-4461: the wall-scaling hordes' contacts: each HORDE object with a HordeContain (in id order; a collision record needs AIData HordesWaitForHordes,
+	// RW 0x68E3E2) meets the SCALEABLE_WALL pieces whose shapes overlap its own (in id order) through its contain's collide entry (RW 0x86C61E), which
+	// keeps the wall to scale. Nothing is saved: the contacts are found again each frame
+	void processWallContacts();
+	unsigned long long wallContacts() const { return m_wallContacts; } ///< the overlapping horde / wall pairs met so far (statistics)
 	size_t crateCount() const { return m_crates.size(); }
 	// lane PHYS-1: RW moveAllies 0x6F503B (AIUpdateAllies.cpp): every stationary ally on the cells along `path` is asked to step away; false when not done
 	bool moveAllies(AIUpdateInterface &mover, Path &path, bool force);
@@ -344,6 +349,8 @@ private:
 	std::vector<PathfindObjectID> m_crates, m_crateScratch, m_crateHits;
 	bool m_cratesValid = false;
 	unsigned long long m_crateContacts = 0;
+	std::vector<PathfindObjectID> m_wallHits; // processWallContacts' scratch
+	unsigned long long m_wallContacts = 0;
 	PathfindWallMeshSource *m_wallMeshes = nullptr; // lane WALL-1
 	int m_moveAlliesDepth = 0; // lane PHYS-1: RW pathfinder + 0x1C1BC, the recursion guard of moveAllies
 	int m_peakTickCells = 0;

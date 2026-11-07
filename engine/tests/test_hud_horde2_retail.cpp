@@ -1012,11 +1012,15 @@ struct WallCross
 	float highest = 0.0f, endHighest = 0.0f;
 	int climbingFrames = 0, rappellingFrames = 0, groundInMiddle = 0;
 	bool crossed = false;
+	// a horde (S-4461, WIP): its members are watched; the wall contacts the collision pass made and whether the horde kept a wall
+	unsigned long long contacts = 0;
+	bool kept = false;
+	int climbers = 0;
 };
 
 // `templateName` goes from x 600 to x 850 across a span of 15 DolGoldurWallSegmentSmall pieces end to end along y at x 700 (going round its ends is a
 // long way); its height and model conditions are watched every frame
-WallCross crossWall(const char *templateName)
+WallCross crossWall(const char *templateName, bool horde = false)
 {
 	WallCross r;
 	const int climbing = AIUpdateInterface::modelConditionBit("CLIMBING");
@@ -1035,17 +1039,35 @@ WallCross crossWall(const char *templateName)
 	{
 		a.logic.runLogicFrame();
 	}
+	const unsigned long long contacts0 = a.ai->wallContacts();
+	HordeContain *hc = horde ? hordeContainOf(o) : nullptr;
+	std::map<ObjectID, bool> climbed;
 	o->getAIUpdateInterface()->aiMoveToPosition(Coord3D{ 850.0f, 600.0f, 0.0f }, CMD_FROM_PLAYER);
 	for (int f = 0; f < 400; ++f)
 	{
 		a.logic.runLogicFrame();
-		const Coord3D &p = *o->getPosition();
-		r.highest = p.z > r.highest ? p.z : r.highest;
-		r.climbingFrames += o->testModelCondition(climbing) ? 1 : 0;
-		r.rappellingFrames += o->testModelCondition(rappelling) ? 1 : 0;
-		// on the ground in the middle of the wall's thickness: walking through it
-		r.groundInMiddle += std::fabs(p.x - 700.0f) < 5.0f && std::fabs(p.y - 600.0f) < 15.0f * minor && p.z == 0.0f ? 1 : 0;
+		r.kept = r.kept || (hc && hc->wallToScale() != 0);
+		for (ObjectID id : horde ? a.memberIds(o) : std::vector<ObjectID>{ o->getID() })
+		{
+			const Object *u = a.logic.findObjectByID(id);
+			if (!u)
+			{
+				continue;
+			}
+			const Coord3D &p = *u->getPosition();
+			r.highest = p.z > r.highest ? p.z : r.highest;
+			r.climbingFrames += u->testModelCondition(climbing) ? 1 : 0;
+			r.rappellingFrames += u->testModelCondition(rappelling) ? 1 : 0;
+			climbed[id] = climbed[id] || u->testModelCondition(climbing);
+			// on the ground in the middle of the wall's thickness: walking through it
+			r.groundInMiddle += std::fabs(p.x - 700.0f) < 5.0f && std::fabs(p.y - 600.0f) < 15.0f * minor && p.z == 0.0f ? 1 : 0;
+		}
 	}
+	for (const auto &kv : climbed)
+	{
+		r.climbers += kv.second ? 1 : 0;
+	}
+	r.contacts = a.ai->wallContacts() - contacts0;
 	r.crossed = o->getPosition()->x > 800.0f;
 	r.endHighest = o->getPosition()->z;
 	return r;
@@ -1068,4 +1090,24 @@ TEST_CASE("wallclimb retail: a MinorSpider (a climber that is no horde, HeroHuma
 	CHECK(r.groundInMiddle == 0);
 	CHECK(r.crossed);
 	CHECK(r.endHighest == 0.0f);
+}
+
+TEST_CASE("wallclimb retail (WIP, S-4461): a goblin horde ordered across a wall meets it in the collision pass (RW 0x68E3E2: AIData HordesWaitForHordes "
+		  "gives hordes a record; RW 0x86C61E keeps the wall), but its members do not climb yet")
+{
+	if (!haveWorld())
+	{
+		return;
+	}
+	const WallCross r = crossWall("GoblinFighterHorde", true);
+	std::printf("  info: goblin horde across a wall: contacts %llu, kept %d, highest %.3f, climbers %d, member samples on the ground in the wall %d, crossed %d\n",
+		r.contacts, r.kept ? 1 : 0, r.highest, r.climbers, r.groundInMiddle, r.crossed ? 1 : 0);
+	CHECK(r.contacts > 0); // tolerance: the frames the horde overlaps the span depend on its path; that it meets the wall at all is the point
+	CHECK(r.kept);
+	// WIP: the members trail the horde, take fallback paths (goal type 4) before it touches the wall, and the member order leaves those alone
+	// (RW 0x877C77 .. 0x877C87), so none reaches the climb step RW 0x86E214: they still walk through on the ground
+	CHECK(r.highest == 0.0f);
+	CHECK(r.climbers == 0);
+	CHECK(r.groundInMiddle == 11); // member samples on the ground within 5 of the wall's middle line
+	CHECK(r.crossed);
 }
