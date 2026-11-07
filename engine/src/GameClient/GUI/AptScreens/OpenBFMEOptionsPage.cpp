@@ -505,8 +505,12 @@ bool OpenBFMEOptionsPage::mouse(int kind, float x, float y)
 	{
 		return false;
 	}
-	const int tab = tabAt(x, y);
-	const int button = buttonAt(x, y); // lane CHEAT-1
+	// lane IOS-49: an open drop-down list is over everything (it is drawn last and takes the clicks inside it, lane OPTS-4): a press over a tab or a
+	// Button row under it is the list's (its entry, or the press that closes it), never the page's (the Touch tab: Aim powers' list lies over the
+	// HELP button below it, whose press took the entries' clicks and opened the Help page)
+	const bool listOpen = m_layer.openDropDown() != nullptr;
+	const int tab = listOpen ? -1 : tabAt(x, y);
+	const int button = listOpen ? -1 : buttonAt(x, y); // lane CHEAT-1
 	if (kind == 0)
 	{
 		m_hoverRow = rowAt(x, y);

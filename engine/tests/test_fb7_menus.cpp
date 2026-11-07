@@ -1648,6 +1648,61 @@ std::string volumeText(int value)
 
 // Bug 1 (the owner at 2560 x 1440, Graphics+ "Look"): the open list had the next row's value and arrow button drawn through it, and that row took the
 // clicks on the list. The rows are engine gadgets without a placeholder; a row made later is nearer the window list's head (drawn later, asked first)
+// lane IOS-49: the Touch tab's case: a Button row (HELP) under a drop-down's open list; a click on the list's entry over the button chooses the entry
+// and presses nothing; with the list closed the button takes its click again
+TEST_CASE("ios49 options retail: an open drop-down list takes a click over a Button row under it; closed, the button is pressed")
+{
+	OPENBFME_REQUIRE_RETAIL(mount);
+	ShellFx fx(mount, "StaticGameLOD = High\n");
+	AptOptionsScreen *options = fx.openOptionsFromMainMenu();
+	REQUIRE(options);
+	options->setExtensionAvailable(true);
+	fx.tick(40);
+	std::string error;
+	REQUIRE_MESSAGE(options->openExtension(&error), error);
+	OpenBFMEOptionsPage *page = options->extensionPage();
+	REQUIRE(page);
+	OpenBFMEPageSpec spec = stackedChoices();
+	spec.rows.resize(1); // "look": two entries
+	OpenBFMEPageRow help;
+	help.kind = OpenBFMEPageRow::Kind::Button;
+	help.key = "help";
+	help.label = u"Tips and help";
+	help.valueText = u"HELP";
+	spec.rows.push_back(help);
+	REQUIRE_MESSAGE(page->show(spec, &error), error);
+	fx.tick(10);
+	options->takeExtensionEvents();
+	GameWindow *look = page->gadget("look");
+	REQUIRE(look);
+	GameWindow *lookList = GadgetComboBoxGetListBox(look);
+	REQUIRE(lookList);
+	std::array<int, 4> helpBox{};
+	REQUIRE(page->rect("help", helpBox));
+	const std::array<int, 4> arrow = screenRect(GadgetComboBoxGetDropDownButton(look));
+	clickStage(fx, (arrow[0] + arrow[2]) / 2.0f, (arrow[1] + arrow[3]) / 2.0f);
+	REQUIRE(fx.layer->openDropDown() == look);
+	const std::array<int, 4> list = screenRect(lookList);
+	// a point inside the list's second entry and inside the HELP button's box
+	const float x = (float)std::max(list[0], helpBox[0]) + 4.0f;
+	const float y = (float)std::max(list[1] + 24, helpBox[1]) + 3.0f;
+	REQUIRE(x < (float)std::min(list[2], helpBox[2])); // tolerance: containment (the point lies in both boxes), not a measured size
+	REQUIRE(y < (float)std::min(list[3], helpBox[3])); // tolerance: containment (the point lies in both boxes), not a measured size
+	clickStage(fx, x, y);
+	std::vector<OpenBFMEPageEvent> events = options->takeExtensionEvents();
+	REQUIRE(events.size() == 1);
+	CHECK(events[0].kind == OpenBFMEPageEvent::Kind::Value);
+	CHECK(events[0].key == "look");
+	CHECK(events[0].value == 1);
+	CHECK(fx.layer->openDropDown() == nullptr);
+	// the list closed: the same point is the button's
+	clickStage(fx, x, y);
+	events = options->takeExtensionEvents();
+	REQUIRE(events.size() == 1);
+	CHECK(events[0].kind == OpenBFMEPageEvent::Kind::Press);
+	CHECK(events[0].key == "help");
+}
+
 TEST_CASE("opts4 gadget layer retail: an open drop-down list is drawn after every other gadget and takes the clicks inside it")
 {
 	OPENBFME_REQUIRE_RETAIL(mount);
