@@ -134,7 +134,7 @@ public:
 	// needs it is built, and compiling it (Godot -> SPIR-V -> Metal) stalls that frame: 0.1 .. 0.8 s on an M2 Max the first time a unit type
 	// appears, longer on a phone. Every variant a factory generates is recorded process-wide (id -> code); Warm_Shaders creates the shaders of a
 	// recorded list ahead of play (the menus), so their compiles run then, and Get_Shader hands out the warmed shader of the same id.
-	static const std::map<std::string, std::string> &Recorded_Shader_Variants();
+	static std::map<std::string, std::string> Recorded_Shader_Variants(); // a copy: the shared cache may be filling it from another thread
 	// creates the shaders of `variants` (id -> code) not yet warm; returns how many it created
 	static int Warm_Shaders(const std::map<std::string, std::string> &variants);
 	static size_t Warm_Shader_Count();
@@ -153,6 +153,9 @@ private:
 	std::vector<std::pair<std::string, std::string>> TextureSwaps; // stop S-5015
 	bool AlphaOverride = false;
 	bool SelectionDecals = false; // lane SELWALL-1
+	// Shared entries live while a requesting factory owns them; the process lookup
+	// holds weak pointers and cannot keep GPU resources alive at shutdown.
+	std::vector<std::shared_ptr<const Ref<Shader>>> ShaderOwners;
 	std::map<std::string, Ref<Shader>> Shaders;
 	std::map<std::string, Ref<Texture2D>> Textures; // by virtual path
 	std::map<std::string, std::string> PackedHouseTextureNotes; // retain S-1482 on cache hits

@@ -56,6 +56,8 @@ public:
 	// centred on it, so its dimming plane covers a window taller than 4:3
 	void draw(RID item, const Rect2 &rect, const AptCanvasOp &op, bool stretchWithStage, bool backdrop = false);
 	void endBuild();
+	// Both editions' presentation: retained membership survives owner hiding, but hidden scenes do no GPU or pose work.
+	void syncVisibility(bool forceHidden = false);
 	// Per render frame: the animation clocks, the poses and the cameras.
 	void advance();
 	const std::set<std::string> &errors() const { return m_errors; }
@@ -72,6 +74,7 @@ private:
 		ObjectID blackId, whiteId;
 		Camera3D *camBlack = nullptr, *camWhite = nullptr;
 		W3DInstancer *inst = nullptr;
+		ObjectID instId;
 		int64_t model = -1, instance = -1;
 		int cameraBone = -1;
 		std::string renderObject, clip;
@@ -84,6 +87,7 @@ private:
 		Ref<ShaderMaterial> material;
 	};
 	bool create(Slot &slot, const AptCanvasOp &op);
+	bool ownerVisible() const;
 	void pose(Slot &slot, double nowMs);
 	void release(Slot &slot);
 
