@@ -536,6 +536,11 @@ public:
 	// lane SMOOTH-1: the drawable's render pose of an object (the interpolated transform the instancer draws) next to its logic position, SAGE coordinates:
 	// { ok, x, y, z, angle, logic_x, logic_y, logic_z, logic_angle }
 	Dictionary get_render_pose(int64_t id) const;
+	// lane VIS-1 (the visual survey's probe; reads only): what the drawable of an object shows, SAGE coordinates: { ok, x, y, z, ground, house_color,
+	// house_colors_on, entries: [ { class, kind, model, instance, posed, clip, frame, shadow_bits, casts_map, house_kind, missing_model,
+	// bones, min_bone_z, min_bone, feet: [ { name, x, y, z } ] } ] }. min_bone_z is the lowest posed pivot's world z (the root pivot and pivots at the
+	// model origin left out); feet are the pivots whose name holds FOOT / TOE / ANKLE
+	Dictionary get_render_debug(int64_t id) const;
 	// lane VISUAL-2 (scripts and proof captures): the live particle systems whose position is within `radius` of (x, y) and their particles
 	Dictionary get_particles_near(double x, double y, double radius) const;
 	// lane VISUAL-2 (scripts and proof captures): the trees that sway (by sway type), the sway's breeze version and the current SwayOffsets 1 .. 10

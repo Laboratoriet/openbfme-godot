@@ -62,6 +62,9 @@
 ##                           siege engine topples the trees it drives into); trees1-*.png in --screens
 ##     --herocast1=<a,...>   (lane HEROCAST-1, with --auto) scripts/herocast1_player.gd: gandalfs (two Gandalfs of different ranks selected by a
 ##                           drag box cast Lightning Sword at a spot: only the senior one casts); herocast1-<name>.png
+##     --vissurvey=<a,...>   (lane VIS-1, with --auto) scripts/vissurvey_player.gd: the visual survey of every unit, hero and building of the named factions
+##                           (men, elves, dwarves, isengard, mordor, wild, angmar; --vis-catalog=<json> from tools/visual/survey_catalog.py); contact sheets
+##                           in --vis-out, probes in --vis-data; "VISSURVEY RESULT" ends the run (test hooks: objects made, hurt and killed, logged)
 ##     --visual2=<a,...>     (lane VISUAL-2, with --auto) scripts/visual2_player.gd: fog (what the local player sees of the enemy in the fog: drawn
 ##                           objects, particles), trees (the sway), look (views for the colour comparison); visual2-*.png in --screens
 ##     --start-spot=<n>      (with --auto) slot 0 clicks the lobby's start spot n first (RW 0x845830): e.g. 0 = Player_1_Start, a fortress map's fortress
@@ -440,6 +443,7 @@ var _hud7 := PackedStringArray() # lane HUD-7 (scripts/hud7_player.gd: radar, de
 var _pingwheel := PackedStringArray() # the ping wheel's scenarios (scripts/ping_wheel_player.gd)
 var _autocast1 := PackedStringArray() # lane AUTOCAST-1 (scripts/autocast1_player.gd: witchking)
 var _herocast1 := PackedStringArray() # lane HEROCAST-1 (scripts/herocast1_player.gd: gandalfs)
+var _vissurvey := PackedStringArray() # lane VIS-1 (scripts/vissurvey_player.gd: the visual survey, one scenario per faction)
 var _visual2 := PackedStringArray() # lane VISUAL-2 (scripts/visual2_player.gd: fog, trees, look)
 var _trees1 := PackedStringArray() # lane TREES1 (scripts/trees1_player.gd: harvest, crush)
 var _start_spot := -1            # lane HUD-5
@@ -981,6 +985,8 @@ func _ready() -> void:
 			_autocast1 = arg.substr(12).split(",", false)
 		elif arg.begins_with("--herocast1="):
 			_herocast1 = arg.substr(12).split(",", false)
+		elif arg.begins_with("--vissurvey="):
+			_vissurvey = arg.substr(12).split(",", false)
 		elif arg.begins_with("--visual2="):
 			_visual2 = arg.substr(10).split(",", false)
 		elif arg.begins_with("--trees1="):
@@ -2468,7 +2474,7 @@ func _begin_game(message: Dictionary) -> void:
 	var world_was_visible: bool = _world.visible
 	_world.hide() # keep partially constructed terrain behind the loading screen
 	_on_load_progress(0) # present the initial bar before synchronous loading
-	var opts := {"progress": Callable(self, "_on_load_progress"), "test_hooks": _end or _wotr_flow or not _zoom1.is_empty() or _rules_shot > 0 or not _gamemodes.is_empty() or _uber1 > 0 or not _benchmark.is_empty() or _play_script.ends_with("spell3_player.gd") or _play_script.ends_with("weatherfx1_player.gd") or _play_script.ends_with("ownerfix1_player.gd") or _play_script.ends_with("devport7_player.gd") or _play_script.ends_with("banner1_player.gd") or _play_script.ends_with("ownerfix2_player.gd") or not _trees1.is_empty() or _play_script.ends_with("aidata1_player.gd")} # lane ZOOM-1: the bars scenario hurts some units (logged)
+	var opts := {"progress": Callable(self, "_on_load_progress"), "test_hooks": _end or _wotr_flow or not _zoom1.is_empty() or _rules_shot > 0 or not _gamemodes.is_empty() or _uber1 > 0 or not _benchmark.is_empty() or _play_script.ends_with("spell3_player.gd") or _play_script.ends_with("weatherfx1_player.gd") or _play_script.ends_with("ownerfix1_player.gd") or _play_script.ends_with("devport7_player.gd") or _play_script.ends_with("banner1_player.gd") or _play_script.ends_with("ownerfix2_player.gd") or not _trees1.is_empty() or _play_script.ends_with("aidata1_player.gd") or not _vissurvey.is_empty()} # lane ZOOM-1: the bars scenario hurts some units (logged)
 	if _record and _net_state.is_empty():
 		opts["record"] = _last_replay_path() # lane MP-2: every skirmish is recorded
 	if _pingwheel.has("hash"):
@@ -3352,6 +3358,16 @@ func _run_auto() -> void:
 		return
 	if _qa:
 		await _run_qa()
+		return
+	if not _vissurvey.is_empty():
+		# lane VIS-1: the visual survey (logged test hooks)
+		var vs: GDScript = load("res://scripts/vissurvey_player.gd")
+		if vs == null or not vs.can_instantiate():
+			_fail("scripts/vissurvey_player.gd does not load")
+			return
+		var pvs = vs.new()
+		await pvs.run(self, _vissurvey)
+		get_tree().quit(0 if pvs.fail_count == 0 else 1)
 		return
 	if not _gamemodes.is_empty():
 		var g1: GDScript = load("res://scripts/gamemodes1_player.gd")

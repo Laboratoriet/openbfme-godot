@@ -372,6 +372,7 @@ void GameWorld::_bind_methods()
 	ClassDB::bind_method(D_METHOD("get_frame_hashes"), &GameWorld::get_frame_hashes);
 	ClassDB::bind_method(D_METHOD("get_render_interpolation"), &GameWorld::get_render_interpolation);
 	ClassDB::bind_method(D_METHOD("get_render_pose", "id"), &GameWorld::get_render_pose);
+	ClassDB::bind_method(D_METHOD("get_render_debug", "id"), &GameWorld::get_render_debug); // lane VIS-1
 	ClassDB::bind_method(D_METHOD("get_particles_near", "x", "y", "radius"), &GameWorld::get_particles_near);
 	ClassDB::bind_method(D_METHOD("get_tree_sway"), &GameWorld::get_tree_sway);
 	ClassDB::bind_method(D_METHOD("get_economy"), &GameWorld::get_economy);
@@ -4425,6 +4426,136 @@ Dictionary GameWorld::get_render_pose(int64_t id) const
 	}
 	d["instances"] = drawn;
 	d["fog_lit_instances"] = fogLit;
+	return d;
+}
+
+// lane VIS-1: the visual survey's probe (godot/scripts/vissurvey_player.gd). Reads the drawable, its entries' views and the instancer's poses; changes nothing
+Dictionary GameWorld::get_render_debug(int64_t id) const
+{
+	Dictionary d;
+	d["ok"] = false;
+	if (!m_game || id <= 0)
+	{
+		return d;
+	}
+	Drawable *dr = m_game->drawables().findByObject((::ObjectID)id);
+	if (!dr)
+	{
+		return d;
+	}
+	const size_t view = (size_t)dr->getID();
+	const Coord3D pos = *dr->getPosition();
+	const float ground = m_game->logic().getGroundHeight(pos.x, pos.y);
+	d["ok"] = true;
+	d["x"] = pos.x;
+	d["y"] = pos.y;
+	d["z"] = pos.z;
+	d["ground"] = ground;
+	d["house_color"] = (int64_t)dr->getHouseColor();
+	d["house_colors_on"] = m_houseColors;
+	d["view_valid"] = view < m_views.size() && m_views[view].valid;
+	W3DInstancer *dyn = instancerOf(m_dynamicId);
+	const float *basis = dr->getBasis();
+	const float scale = dr->getInstanceScale();
+	Array entries;
+	std::vector<DrawEntry> &des = dr->entries();
+	std::vector<std::pair<std::string, ::Matrix3D>> bones;
+	for (size_t k = 0; k < des.size(); ++k)
+	{
+		const DrawEntry &e = des[k];
+		Dictionary en;
+		en["class"] = toGodot(e.className);
+		en["kind"] = (int64_t)e.kind;
+		en["missing_model"] = e.missingModel;
+		en["module_hidden"] = e.moduleHidden;
+		const EntryView *ev = view < m_views.size() && m_views[view].valid && k < m_views[view].entries.size() ? &m_views[view].entries[k] : nullptr;
+		en["instance"] = ev ? ev->instance : (int64_t)-1;
+		en["posed"] = ev && ev->posed;
+		en["model"] = ev ? toGodot(ev->model) : String();
+		if (e.draw)
+		{
+			W3DDrawPoseView f;
+			e.draw->poseView(f);
+			en["clip"] = f.clip0 ? toGodot(*f.clip0) : String();
+			en["frame"] = f.frame0;
+			en["clip1"] = f.clip1 ? toGodot(*f.clip1) : String();
+			en["raw_model"] = f.modelName ? toGodot(*f.modelName) : String();
+			const ModelConditionInfo *state = e.draw->currentModelState();
+			long long bits = 0;
+			if (state && state->hasShadow)
+			{
+				bits = state->shadow.type;
+			}
+			else if (const FieldValue *field = dr->getTemplate() ? dr->getTemplate()->findField("Shadow") : nullptr)
+			{
+				const long long *b = std::get_if<long long>(field);
+				bits = b ? *b : 0;
+			}
+			en["shadow_bits"] = (int64_t)bits;
+			en["casts_map"] = e.kind != W3D_DRAWKIND_FLOOR && ObjectShadow::castsMap(dr->getTemplate(), dynamic_cast<const W3DModelDrawModuleData *>(e.data), state);
+			en["house_kind"] = (int64_t)Render_House_Color_Params(dr->getHouseColor(), dr->customColorKind(), dr->customColors()).kind;
+		}
+		if (ev && ev->instance >= 0 && dyn && dyn->get_instance_bones_native(ev->instance, bones))
+		{
+			const Coord3D at = e.constructionOffsetZ != 0.0f ? dr->entryPosition(e) : pos;
+			auto world = [&](const ::Matrix3D &m) {
+				const ::Vector3 t = m.Get_Translation();
+				const float l[3] = { t.X * scale, t.Y * scale, t.Z * scale };
+				float w[3];
+				for (int a = 0; a < 3; ++a)
+				{
+					w[a] = basis[a * 3 + 0] * l[0] + basis[a * 3 + 1] * l[1] + basis[a * 3 + 2] * l[2];
+				}
+				return Vector3(at.x + w[0], at.y + w[1], at.z + w[2]);
+			};
+			en["bones"] = (int64_t)bones.size();
+			float minZ = 1.0e9f;
+			String minName;
+			Array feet;
+			Vector3 lo(1.0e9f, 1.0e9f, 1.0e9f), hi(-1.0e9f, -1.0e9f, -1.0e9f);
+			for (size_t b = 1; b < bones.size(); ++b) // pivot 0 is the hierarchy's root (at the origin)
+			{
+				const ::Vector3 t = bones[b].second.Get_Translation();
+				const Vector3 w = world(bones[b].second);
+				lo = Vector3(std::min(lo.x, w.x), std::min(lo.y, w.y), std::min(lo.z, w.z));
+				hi = Vector3(std::max(hi.x, w.x), std::max(hi.y, w.y), std::max(hi.z, w.z));
+				std::string upper = bones[b].first;
+				for (char &c : upper)
+				{
+					c = (char)std::toupper((unsigned char)c);
+				}
+				if (upper.find("FOOT") != std::string::npos || upper.find("TOE") != std::string::npos || upper.find("ANKLE") != std::string::npos)
+				{
+					Dictionary fd;
+					fd["name"] = toGodot(bones[b].first);
+					fd["x"] = w.x;
+					fd["y"] = w.y;
+					fd["z"] = w.z;
+					feet.push_back(fd);
+				}
+				// a pivot at the model origin (a ROOTTRANSFORM / origin helper) is not a body part; neither are the FX / arrow helpers
+				if (t.X * t.X + t.Y * t.Y + t.Z * t.Z < 0.01f || upper.find("FX") != std::string::npos || upper.find("ARROW") != std::string::npos)
+				{
+					continue;
+				}
+				if (w.z < minZ)
+				{
+					minZ = w.z;
+					minName = toGodot(bones[b].first);
+				}
+			}
+			if (lo.x <= hi.x)
+			{
+				en["lo"] = lo; // the posed pivots' world bounds (the survey's crop)
+				en["hi"] = hi;
+			}
+			en["min_bone_z"] = minZ < 1.0e8f ? (double)minZ : 0.0;
+			en["min_bone"] = minName;
+			en["feet"] = feet;
+		}
+		entries.push_back(en);
+	}
+	d["entries"] = entries;
 	return d;
 }
 

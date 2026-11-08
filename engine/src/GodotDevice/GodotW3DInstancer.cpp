@@ -2858,6 +2858,29 @@ bool W3DInstancer::get_bone_transform_native(int64_t instance, int bone, ::Matri
 	return true;
 }
 
+bool W3DInstancer::get_instance_bones_native(int64_t instance, std::vector<std::pair<std::string, ::Matrix3D>> &out) const
+{
+	out.clear();
+	if (instance < 0 || instance >= (int64_t)Instances.size())
+	{
+		return false;
+	}
+	const Instance &inst = Instances[(size_t)instance];
+	if (inst.Model < 0 || inst.Model >= (int)Models.size() || !Models[(size_t)inst.Model]->Proto || !Models[(size_t)inst.Model]->Proto->Tree)
+	{
+		return false;
+	}
+	ensure_pose(instance);
+	const HTreeClass &tree = *Models[(size_t)inst.Model]->Proto->Tree;
+	const int pivots = std::min(tree.Num_Pivots(), inst.Pose.Num_Pivots());
+	out.reserve((size_t)pivots);
+	for (int i = 0; i < pivots; ++i)
+	{
+		out.emplace_back(tree.Get_Pivot(i).Name, inst.Pose.Transform[(size_t)i]);
+	}
+	return true;
+}
+
 Dictionary W3DInstancer::get_stats() const
 {
 	Dictionary s;

@@ -217,6 +217,9 @@ public:
 	bool get_bone_transform_native(int64_t instance, int bone, ::Matrix3D &out) const;
 	// lane UI-2 (C++ only): a pivot of a model's hierarchy by name (case-insensitive); -1 when absent
 	int get_bone_index_native(int64_t model, const std::string &name) const;
+	// lane VIS-1 (C++ only, the visual survey's probe): every pivot of an instance's hierarchy with its posed transform in W3D model space (as
+	// get_bone_transform_native). False for an unknown instance or a model without a hierarchy.
+	bool get_instance_bones_native(int64_t instance, std::vector<std::pair<std::string, ::Matrix3D>> &out) const;
 	// { instances, models, draw_items, multimeshes, palette_texels, shaders, textures, pose_ms, upload_ms, mapper_ms, visible_instances }
 	Dictionary get_stats() const;
 	PackedStringArray get_errors() const;
