@@ -42,6 +42,7 @@ HOVER_SHARE = 0.06
 STRIDE_LO, STRIDE_HI = 0.7, 1.45
 SLIDE_MIN_SPEED = 8.0
 CONTACT = 0.8
+WINDOW = 0.6
 FLICKER_SHARE = 0.004
 MAGENTA_SHARE = 0.003
 BLACK_SHARE = 0.25
@@ -127,32 +128,48 @@ def lowest(member: dict) -> tuple[float | None, float, str]:
 
 
 def slide_of(samples: list) -> dict:
-    """the planted foot's world speed against the body's, over the move samples"""
-    ratios, speeds, rel = [], [], []
-    prev = None
-    # ground contact: the lowest foot within CONTACT of the lowest any foot reached during the move (a run's flight phase is left out)
-    floor = min((f[2] for s in samples if len(s) >= 8 and s[7] for f in s[7]), default=0.0)
-    for s in samples:
-        if len(s) < 8 or not s[7]:
-            prev = None
-            continue
-        t, x, y, feet = float(s[0]) / 1000.0, float(s[2]), float(s[3]), s[7]
-        if prev is not None and len(prev[3]) == len(feet):
-            dt = t - prev[0]
-            if 0.004 < dt < 0.1:
-                vb = math.hypot(x - prev[1], y - prev[2]) / dt
-                k = min(range(len(feet)), key=lambda i: feet[i][2])  # the planted foot: the lowest
-                vf = math.hypot(feet[k][0] - prev[3][k][0], feet[k][1] - prev[3][k][1]) / dt
-                if vb > SLIDE_MIN_SPEED and feet[k][2] < floor + CONTACT and prev[3][k][2] < floor + CONTACT:
-                    ratios.append(vf / vb)
-                    speeds.append(vb)
-                    # the foot's speed relative to the body (Night 4's measure: 1 = the stride matches the speed)
-                    rel.append(math.hypot((feet[k][0] - prev[3][k][0]) / dt - (x - prev[1]) / dt, (feet[k][1] - prev[3][k][1]) / dt - (y - prev[2]) / dt) / vb)
-        prev = (t, x, y, feet)
-    if len(ratios) < 10:
+    """the planted foot against the body over the move samples (one per render frame). The drawable's position may step with the logic frames, so
+    the body's velocity is taken over a WINDOW-second window, and the feet relative to the body (the posed model, smooth every frame)."""
+    rows = [(float(s[0]) / 1000.0, float(s[2]), float(s[3]), s[7]) for s in samples if len(s) >= 8 and s[7]]
+    if len(rows) < 20:
         return {}
-    return {"slip": round(statistics.median(ratios), 3), "stride_ratio": round(statistics.median(rel), 3), "body_speed": round(statistics.median(speeds), 1),
-            "n": len(ratios)}
+    # ground contact: the lowest foot within CONTACT of the lowest any foot reached during the move (a run's flight phase is left out)
+    floor = min(f[2] for r in rows for f in r[3])
+
+    def body_velocity(i: int) -> tuple[float, float] | None:
+        t0 = rows[i][0]
+        j0 = next((j for j in range(i, -1, -1) if t0 - rows[j][0] >= WINDOW / 2), None)
+        j1 = next((j for j in range(i, len(rows)) if rows[j][0] - t0 >= WINDOW / 2), None)
+        if j0 is None or j1 is None:
+            return None
+        dt = rows[j1][0] - rows[j0][0]
+        return ((rows[j1][1] - rows[j0][1]) / dt, (rows[j1][2] - rows[j0][2]) / dt)
+
+    pts = []
+    for i in range(1, len(rows)):
+        (t, x, y, feet), (pt, px, py, pfeet) = rows[i], rows[i - 1]
+        dt = t - pt
+        if not (0.004 < dt < 0.1) or len(feet) != len(pfeet):
+            continue
+        vb = body_velocity(i)
+        if vb is None or math.hypot(*vb) < SLIDE_MIN_SPEED:
+            continue
+        k = min(range(len(feet)), key=lambda n: feet[n][2])  # the planted foot: the lowest
+        if feet[k][2] >= floor + CONTACT or pfeet[k][2] >= floor + CONTACT:
+            continue
+        # the foot relative to the body (the model's own motion): world foot minus the drawable's position, in both frames
+        rvx = ((feet[k][0] - x) - (pfeet[k][0] - px)) / dt
+        rvy = ((feet[k][1] - y) - (pfeet[k][1] - py)) / dt
+        sb = math.hypot(*vb)
+        pts.append((sb, math.hypot(rvx, rvy) / sb, math.hypot(vb[0] + rvx, vb[1] + rvy) / sb))
+    if not pts:
+        return {}
+    top = sorted(p[0] for p in pts)[max(0, int(len(pts) * 0.9) - 1)]
+    pts = [p for p in pts if p[0] >= 0.75 * top]  # the steady run only (not the start, the stop or a turn)
+    if len(pts) < 10:
+        return {}
+    return {"slip": round(statistics.median(p[2] for p in pts), 3), "stride_ratio": round(statistics.median(p[1] for p in pts), 3),
+            "body_speed": round(statistics.median(p[0] for p in pts), 1), "n": len(pts)}
 
 
 def frozen_of(samples: list) -> bool | None:
@@ -181,7 +198,7 @@ def object_log_lines(logs: list[str]) -> dict:
     """(config, template) -> the log lines about missing assets between its BEGIN and END"""
     out: dict = {}
     for log in logs:
-        config = Path(log).stem.replace("run-", "")
+        config = "-".join(Path(log).stem.replace("run-", "").split("-")[:2])  # run-<renderer>-<detail>[-<part>].log
         cur = None
         for line in open(log, errors="replace"):
             m = re.match(r"VISSURVEY BEGIN (\S+) (\S+)", line)
@@ -196,10 +213,22 @@ def object_log_lines(logs: list[str]) -> dict:
     return out
 
 
-def analyse(path: str, sheets: str, log_lines: dict) -> dict:
+BAR_KINDS = {"HERO", "MACHINE", "MONSTER", "MINE", "STRUCTURE", "HAS_HEALTH_BAR"}
+
+
+def bar_expected(kinds: list[str]) -> bool:
+    """RW 0x676346 (DrawableIconUI.cpp wantsHealthBar): the kinds a selected object shows a bar for with retail's settings"""
+    k = set(kinds)
+    if not (k & BAR_KINDS) or k & {"HORDE", "UNATTACKABLE", "ROCK_VENDOR", "WALL_UPGRADE"}:
+        return False
+    return not ("DEFENSIVE_WALL" in k and "HAS_HEALTH_BAR" not in k)
+
+
+def analyse(path: str, sheets: str, log_lines: dict, kindof: dict | None = None) -> dict:
     p = json.load(open(path))
     base = path[:-5]
     config, faction, template, kind = p["config"], p["faction"], p["template"], p["kind"]
+    kinds = (kindof or {}).get(template, [])
     lod = int(p.get("shadow_lod", 0))
     sheet = f"{sheets}/{faction}/{template}-{config}.jpg"
     flags = []
@@ -223,7 +252,7 @@ def analyse(path: str, sheets: str, log_lines: dict) -> dict:
                         flags.append({"kind": "missing", "what": f"model {e.get('model')} is not in the archives", "phase": ph["phase"]})
     info["models"] = sorted(m for m in models if m)
     info["shadow"] = shadow_names(bits)
-    lines = log_lines.get((config, template), [])
+    lines = log_lines.get((config, template), []) + list(p.get("asset_errors", []))
     if lines:
         flags.append({"kind": "missing", "what": f"{len(lines)} log line(s): {lines[0]}", "lines": lines[:6]})
     if not p.get("ok", True):
@@ -257,7 +286,7 @@ def analyse(path: str, sheets: str, log_lines: dict) -> dict:
         if zg:
             z = statistics.median(zg)
             info["drawable_above_ground"] = round(z, 2)
-            if z > 3.0:
+            if z > 3.0 and not {"AIRCRAFT", "FLYING"} & set(kinds):
                 flags.append({"kind": "hover-drawable", "what": f"the drawable stands {z:.1f} above the terrain (a flyer's is expected)", "phase": "idle"})
         sl = cells("slope")
         if sl and vals:
@@ -289,6 +318,16 @@ def analyse(path: str, sheets: str, log_lines: dict) -> dict:
         fz = frozen_of(samples)
         if fz:
             flags.append({"kind": "frozen", "what": "the feet keep their place relative to the body through the move", "phase": "move"})
+    # death: the body gone within two cells of the die strip (0.8 s of game time), or a die strip that never plays a death clip
+    die = cells("die")
+    if kind != "building" and die:
+        shown = [c for c in die if c.get("members") and c["members"][0].get("ok")]
+        dclips = {e.get("clip", "") for c in shown for e in c["members"][0].get("entries", [])}
+        info["die"] = {"cells_with_body": len(shown), "of": len(die), "clips": sorted(x for x in dclips if x)}
+        if len(shown) <= 2:
+            flags.append({"kind": "death", "what": f"the body is gone after {len(shown)} of {len(die)} die cells (0.4 s each)", "phase": "die"})
+        elif not any(("DIE" in x.upper() or "DTH" in x.upper() or "DEATH" in x.upper() or "DYING" in x.upper()) for x in dclips):
+            flags.append({"kind": "death", "what": "no death clip in the die strip: " + ", ".join(sorted(dclips))[:160], "phase": "die"})
     # T-pose: a skinned posed entry without a clip
     for ph in p.get("phases", []):
         if ph["phase"] in ("die", "destroyed"):
@@ -355,18 +394,17 @@ def analyse(path: str, sheets: str, log_lines: dict) -> dict:
         sel_cells = cells("idle") + cells("move")
         if sel_cells and not any(c.get("sel") for c in sel_cells):
             flags.append({"kind": "ring", "what": "selected, no selection decal listed", "phase": "idle"})
-        single = all(len(c.get("members", [])) <= 1 for c in sel_cells)
-        if kind == "hero" or single:
+        if bar_expected(kinds):
             info["bar_expected"] = True
             if sel_cells and not any(c.get("bar") for c in sel_cells):
-                flags.append({"kind": "bar", "what": "selected, no health bar (a hero / single unit: retail draws one for HERO, MONSTER, MACHINE)",
+                flags.append({"kind": "bar", "what": "selected, no health bar (KindOf " + "/".join(k for k in kinds if k in BAR_KINDS) + ")",
                               "phase": "idle"})
         imgs = set()
         for c in cells("move"):
             imgs.update(c.get("images", []))
         info["icons"] = sorted(imgs)
     else:
-        if cells("finished") and not any(c.get("bar") for c in cells("finished")):
+        if bar_expected(kinds) and cells("finished") and not any(c.get("bar") for c in cells("finished")):
             flags.append({"kind": "bar", "what": "selected structure, no health bar", "phase": "finished"})
     return {"config": config, "faction": faction, "template": template, "kind": kind, "sheet": sheet, "flags": flags, "info": info}
 
@@ -377,11 +415,13 @@ def main() -> int:
     ap.add_argument("--sheets", required=True)
     ap.add_argument("--logs", nargs="*", default=[])
     ap.add_argument("--out", required=True)
+    ap.add_argument("--catalog", help="the catalog (survey_catalog.py): its KindOf table decides which objects want a health bar")
     args = ap.parse_args()
     log_lines = object_log_lines(args.logs)
+    kindof = json.load(open(args.catalog)).get("kindof", {}) if args.catalog else {}
     rows = []
     for path in sorted(glob.glob(f"{args.data}/*/*/*.json")):
-        rows.append(analyse(path, args.sheets, log_lines))
+        rows.append(analyse(path, args.sheets, log_lines, kindof))
     Path(args.out).write_text(json.dumps(rows, indent=1))
     counts: dict = {}
     for r in rows:

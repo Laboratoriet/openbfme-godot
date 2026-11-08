@@ -40,6 +40,7 @@ var _enemy := -1
 var _enemy_name := ""
 var _enemy_keep := ""
 var _flat := Vector2()
+var _flat0 := Vector2()
 var _slope := Vector2()
 var _created: Array = []
 var _cell := 200
@@ -153,7 +154,10 @@ func _setup() -> void:
 		hud.set_shadow_decals(true, false)
 	hud.set_view_options({"health_bar_mode": "retail"})
 	game.get_tree().process_frame.connect(_process_sample)
+	var before := _new_asset_errors() # the map's own lines are not an object's
+	print("VISSURVEY instancer lines before the survey: %d" % before.size())
 	_find_spots()
+	_flat0 = _flat
 	print("VISSURVEY SETUP config %s mode %s renderer %s shadow_lod %d flat (%.0f, %.0f) slope (%.0f, %.0f) detail %s window %s" % [_config, _mode,
 		RenderingServer.get_current_rendering_method(), _shadow_lod, _flat.x, _flat.y, _slope.x, _slope.y, JSON.stringify(detail),
 		str(game.get_viewport().get_visible_rect().size)])
@@ -546,6 +550,24 @@ func _frame_height(template: String, kind: String) -> float:
 	return h
 
 
+# the instancers' error and warning lines added since the last object (a model, texture or animation the archives do not have)
+var _errors_seen := {}
+
+
+func _new_asset_errors() -> Array:
+	var out: Array = []
+	for c in world.get_children():
+		if c.get_class() != "W3DInstancer":
+			continue
+		var lines: Array = Array(c.get_errors()) + Array(c.get_warnings())
+		var key := str(c.get_instance_id())
+		var seen: int = _errors_seen.get(key, 0)
+		for i in range(seen, lines.size()):
+			out.append(String(lines[i]).substr(0, 240))
+		_errors_seen[key] = lines.size()
+	return out
+
+
 func _begin(faction: String, template: String, kind: String) -> void:
 	print("VISSURVEY BEGIN %s %s" % [faction, template])
 	_rows.clear()
@@ -559,6 +581,7 @@ func _end(ok: bool) -> void:
 	var template: String = _probe.template
 	_probe["samples"] = _samples
 	_probe["ok"] = ok
+	_probe["asset_errors"] = _new_asset_errors()
 	var dir := "%s/%s/%s" % [_data, _config, faction]
 	DirAccess.make_dir_recursive_absolute(dir)
 	var f := FileAccess.open("%s/%s.json" % [dir, template], FileAccess.WRITE)
@@ -598,6 +621,8 @@ func _survey_faction(key: String) -> String:
 				break
 			n += 1
 			_quiet_enemy()
+			# each object on its own patch of the flat spot (a cell an earlier object used keeps nothing for the next)
+			_flat = _flat0 + Vector2((_done % 3 - 1) * 90.0, (_done / 3 % 3 - 1) * 90.0)
 			var why := ""
 			if kind == "buildings":
 				why = await _survey_building(key, String(template), String(entry.builder))
@@ -641,7 +666,8 @@ func _survey_unit(faction: String, template: String, hero: bool) -> String:
 	_probe["bg_diff_box"] = _diff_box(_frame()).size.length() > 0.0
 	hud.select_objects(PackedInt64Array([_subject]))
 	# the enemy-owned twin, left of the object, outside its crop
-	var twin := _make(template, _enemy, Vector2(_flat.x - _world_width(box) * 1.6 - 30.0, _flat.y), 0.0)
+	# (full mode only: each owner colour is a model variant of its own, and the renderer's instance-uniform buffer is finite)
+	var twin := _make(template, _enemy, Vector2(_flat.x - _world_width(box) * 1.6 - 30.0, _flat.y), 0.0) if _mode == "full" else -1
 	await _logic(3)
 	await _strip("idle", 6 if _mode == "full" else 3, 1)
 	await _pixel_crops(twin)
@@ -779,7 +805,7 @@ func _survey_building(faction: String, template: String, builder: String) -> Str
 		_probe.notes.append("nothing drawn: crop at the middle")
 	_crop = _crop_of(box)
 	_probe["box"] = [box.position.x, box.position.y, box.size.x, box.size.y]
-	var twin := _make(template, _enemy, Vector2(float(at.x) - _world_width(box) * 1.6 - 40.0, float(at.y)), 0.0)
+	var twin := _make(template, _enemy, Vector2(float(at.x) - _world_width(box) * 1.6 - 40.0, float(at.y)), 0.0) if _mode == "full" else -1
 	if twin > 0:
 		world.debug_build_complete(twin)
 	hud.select_objects(PackedInt64Array([_subject]))

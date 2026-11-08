@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -82,7 +83,35 @@ def catalog(mount: bigfs.Mount) -> dict:
                     units.append(u)
         result[name] = {"side": (f.get("Side") or [""])[0], "builder": builder, "fortress": fortress, "units": units, "heroes": heroes,
                         "buildings": buildings}
+    kinds = object_kinds(mount)
+    result["kindof"] = {t: kinds.get(t, []) for f in result.values() for k in ("units", "heroes", "buildings") for t in f[k]}
     return result
+
+
+def object_kinds(mount: bigfs.Mount) -> dict[str, list[str]]:
+    """Object / ChildObject name -> its KindOf words (the block's first KindOf line, a module's own comes later; a ChildObject without one keeps
+    its parent's)"""
+    out: dict[str, list[str]] = {}
+    parents: dict[str, str] = {}
+    head = re.compile(r"^\s*(Object|ChildObject)\s+(\S+)(?:\s+(\S+))?", re.I)
+    kind = re.compile(r"^\s*KindOf\s*=\s*(.+)$", re.I)
+    for path in mount.list("data\\ini\\object\\", ".ini"):
+        cur = None
+        for raw in mount.read(path).decode("latin-1").splitlines():
+            line = inv.strip_comment(raw)
+            m = head.match(line)
+            if m:
+                cur = m.group(2)
+                if m.group(1).lower() == "childobject" and m.group(3):
+                    parents[cur] = m.group(3)
+                continue
+            m = kind.match(line)
+            if m and cur and cur not in out:
+                out[cur] = m.group(1).split()
+    for child, parent in parents.items():
+        if child not in out and parent in out:
+            out[child] = out[parent]
+    return out
 
 
 def main() -> int:
@@ -93,6 +122,8 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(cat, indent=1) + "\n")
     for name, f in cat.items():
+        if name == "kindof":
+            continue
         print(f"{name}: {len(f['units'])} units, {len(f['heroes'])} heroes, {len(f['buildings'])} buildings")
     return 0
 

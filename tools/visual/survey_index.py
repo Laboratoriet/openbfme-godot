@@ -50,7 +50,7 @@ ul{margin:4px 0 0 0;padding-left:18px} li{color:var(--flag)} li.none{color:var(-
            "(units: idle, move, attack, hero powers, slope, die; buildings: finished, damaged, badly damaged, destroyed). Flags from "
            "tools/visual/survey_flags.py; see bfme/VISUAL-SURVEY.md for the triage.</p>"]
     md = ["# Visual survey index (lane VIS-1)", "", f"Configurations: {', '.join(configs)}. Sheets: `<faction>/<object>-<config>.jpg`.", ""]
-    for fname, entry in cat.items():
+    for fname, entry in ((k, v) for k, v in cat.items() if k in KEYS):
         key = KEYS[fname]
         out.append(f"<h2>{html.escape(FACTION_NAMES[key])}</h2>")
         md += [f"## {FACTION_NAMES[key]}", "", "| object | kind | flags (" + ", ".join(configs) + ") |", "|---|---|---|"]
