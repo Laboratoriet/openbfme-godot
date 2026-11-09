@@ -124,6 +124,41 @@ TEST_CASE("hud input: a click selects a unit, the message reaches the logic and 
 	CHECK(logHas(*r.input, "MSG_DESTROY_SELECTED_GROUP"));
 }
 
+// The visual survey's dying units kept their ring through the whole death: RotWK's SlowDeathBehavior::onDie deselects the object for every player
+// (RW 0x861767 -> RW 0x625759) and makes it unselectable (RW 0x68BE3C), so the ring and the command bar go when the death starts.
+TEST_CASE("hud input retail: a selected mountain troll that is killed leaves the HUD's and the player's selection and cannot be clicked again")
+{
+	if (!haveWorld("hud input retail (dying troll)"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	Rig r(s);
+	const Coord3D c = r.freeSpot(center(r).x, center(r).y);
+	Object *troll = r.make("MordorMountainTroll", c.x, c.y);
+	r.lookAt(c);
+	r.frame(2);
+	const Coord3D at = *troll->getPosition();
+	const ICoord2D px = r.screenOf({ at.x, at.y, at.z + 20.0f });
+	r.leftClick(px.x, px.y);
+	REQUIRE(r.input->ui().selected() == std::vector<ObjectID>{ troll->getID() });
+	r.frame(1);
+	REQUIRE(selectionOf(r) == std::vector<ObjectID>{ troll->getID() });
+	REQUIRE(troll->isScriptSelectable());
+	troll->kill(DAMAGE_UNRESISTABLE, DEATH_NORMAL);
+	REQUIRE(troll->isEffectivelyDead());
+	const ObjectID id = troll->getID();
+	CHECK(selectionOf(r).empty()); // the logic's half, in the same call
+	CHECK_FALSE(troll->isScriptSelectable());
+	r.frame(1);
+	REQUIRE(r.logic().findObjectByID(id) != nullptr); // still dying (its corpse lies for seconds)
+	CHECK(r.input->ui().selected().empty());
+	r.leftClick(px.x, px.y);
+	CHECK(r.input->ui().selected().empty());
+	r.frame(1);
+	CHECK(selectionOf(r).empty());
+}
+
 TEST_CASE("hud input: a drag box selects the units inside, shift adds and toggles, a double click selects the units of the type on the screen")
 {
 	if (!haveWorld("hud input drag"))
@@ -678,6 +713,29 @@ TEST_CASE("synthetic HUD: click replaces selection, Shift adds and toggles")
 	r.modifier(KEY_LSHIFT, KEY_STATE_LSHIFT, false);
 	CHECK_FALSE(r.input->ui().isInPreferSelectionMode());
 	r.click(500, 500); r.selected({});
+}
+
+// RW 0x625759 GameLogic::deselectObject(obj, 0xFFFFF, affectClient = true): the client half InGameUI::deselectDrawable (RW 0x6257E5) drops the object
+// from the client's selection at the next update, once; a deselection without affectClient leaves the client alone.
+TEST_CASE("synthetic HUD: an object the logic deselects for the client leaves the selection once; selected again it stays")
+{
+	synthetichud::Rig r;
+	Object *a = r.place("TestFighter", 100, 100);
+	Object *b = r.place("TestArcher", 200, 100);
+	r.drag(50, 50, 250, 150);
+	r.selected({ a->getID(), b->getID() });
+	r.logic->deselectObject(*a, 0xFFFFFu, true);
+	CHECK(r.input->ui().selected().size() == 2u); // nothing changes before the client's next update
+	r.input->update();
+	r.selected({ b->getID() }); // the client's and the logic's selection
+	r.click(100, 100); // a KeepSelectableWhenDead corpse can be picked again: the old mark does not drop it a second time
+	r.selected({ a->getID() });
+	r.input->update();
+	r.selected({ a->getID() });
+	r.logic->deselectObject(*a, 0xFFFFFu, false); // the logic's selection only
+	r.input->update();
+	CHECK(r.input->ui().selected() == std::vector<ObjectID>{ a->getID() });
+	CHECK(r.players.getLocalPlayer()->selection().empty());
 }
 
 TEST_CASE("synthetic HUD: a porter hidden in construction loses its selection and pending placement")

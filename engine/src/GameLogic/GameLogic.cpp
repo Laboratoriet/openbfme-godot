@@ -1023,6 +1023,27 @@ void GameLogic::noteBeacon(BeaconNotice::Kind kind, int playerIndex, ObjectID ob
 	m_beaconNotices.push_back(n);
 }
 
+// RW 0x625759: see GameLogic.h
+void GameLogic::deselectObject(Object &obj, std::uint32_t playerMask, bool affectClient)
+{
+	bool anyPlayer = false;
+	for (int i = 0; i < m_players.getPlayerCount() && i < 32; ++i)
+	{
+		Player *p = (playerMask >> i) & 1u ? m_players.getNthPlayer(i) : nullptr;
+		if (!p)
+		{
+			continue;
+		}
+		anyPlayer = true;
+		std::vector<ObjectID> &sel = p->selection();
+		sel.erase(std::remove(sel.begin(), sel.end(), obj.getID()), sel.end());
+	}
+	if (affectClient && anyPlayer)
+	{
+		obj.setClientDeselectCount(++m_clientDeselectCount); // retail calls deselectDrawable once per player of the mask: the same drop
+	}
+}
+
 void GameLogic::noteRadarEvent(int type, const Coord3D &position, RadarEventNotice::Source source, int playerIndex)
 {
 	if (m_radarEventNotices.size() >= kRadarEventNotices)

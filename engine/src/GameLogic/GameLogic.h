@@ -565,6 +565,14 @@ public:
 	void noteBeacon(BeaconNotice::Kind kind, int playerIndex, ObjectID object, const Coord3D &position);
 	const std::vector<BeaconNotice> &beaconNotices() const { return m_beaconNotices; }
 	void noteRadarEvent(int type, const Coord3D &position, RadarEventNotice::Source source, int playerIndex);
+	// RW 0x625759 GameLogic::deselectObject(obj, playerMask, affectClient): every player of the mask (bit = player index, walked by RW 0x6A85EE)
+	// loses the object from its current selection (Player + its AIGroup; here Player::selection(), hashed). With affectClient the client's InGameUI
+	// drops the object's drawable (InGameUI::deselectDrawable, vslot 0x10C, RW 0x6257E5): here the object is marked with the next clientDeselectCount,
+	// which the client's HudInput::update reads (the simulation never calls the client). Not ported: Object RW 0x690B8C, which then clears the
+	// object's SELECTED model condition for its controlling player (no port code sets SELECTED)
+	void deselectObject(Object &obj, std::uint32_t playerMask, bool affectClient);
+	// how many client deselections deselectObject asked for in this logic (not hashed, not saved; never reset, so a client's count stays valid)
+	std::uint32_t clientDeselectCount() const { return m_clientDeselectCount; }
 	const std::vector<RadarEventNotice> &radarEventNotices() const { return m_radarEventNotices; }
 
 	// lane CAMP-1H: TheGameLogic + 0xA4, the game's difficulty (0 easy, 1 normal, 2 hard, 3 brutal): reset to 1 (GameLogic::reset RW 0x62D3EB),
@@ -1002,6 +1010,7 @@ private:
 	std::vector<BeaconNotice> m_beaconNotices; ///< lane CHAT-1: oldest first, at most kBeaconNotices
 	std::uint32_t m_beaconSeq = 0;
 	std::uint32_t m_radarEventSeq = 0;
+	std::uint32_t m_clientDeselectCount = 0; ///< deselectObject's client marks (not hashed, not saved)
 	ObjectClientHooks *m_clientHooks = nullptr;
 	ObjectCreatedProc m_objectCreatedProc;
 	ScriptEventProc m_scriptEventProc;

@@ -363,7 +363,9 @@ int SlowDeathBehavior::probabilityModifier(const DieModuleInterface::Event &even
 }
 
 // RW 0x861712 (the die interface slot 0): unless the die mux refuses; an AI already dead (+ 0x3BD) ends it, otherwise the AI is marked dead (RW 0x66264E); the object
-// leaves the selections (RW 0x625759, client) and the draw's ... (RW 0x68BE3C, template + 0x642 clear); every module with a SlowDeathBehaviorInterface (behavior slot 0x5C)
+// leaves every player's selection (TheGameLogic->deselectObject(obj, 0xFFFFF, true), RW 0x861767 -> RW 0x625759) and, unless the template is
+// KeepSelectableWhenDead (+ 0x642; no template: kept), becomes unselectable (Object::setSelectable(false) RW 0x68BE3C: + 0x454; BFME2 decomp
+// SlowDeathBehaviorUpdate.cpp:849-853); every module with a SlowDeathBehaviorInterface (behavior slot 0x5C)
 // whose die mux accepts the death joins with its probability; then roll GameLogicRandomValue(0, total - 1) (SlowDeathBehavior.cpp:0x32F), walk the weights (a roll
 // below a weight picks it, otherwise the weight is taken off), take the pick's weight off the total; a pick still applicable whose slot 0xC answers (RW 0x8BD372: true)
 // begins its slow death (slot 0), otherwise it leaves the candidates (swapped with the last) and the roll repeats
@@ -381,6 +383,16 @@ void SlowDeathBehavior::onDie(const DieModuleInterface::Event &event)
 			return;
 		}
 		ai->onDie();
+	}
+	obj->logic().deselectObject(*obj, 0xFFFFFu, true); // RW 0x86175F .. 0x861767
+	if (const ThingTemplate *tt = static_cast<const ThingTemplate *>(obj->getTemplate())) // RW 0x86176C .. 0x861780
+	{
+		const FieldValue *keep = tt->getFinalOverride()->findField("KeepSelectableWhenDead");
+		const bool *keepBool = keep ? std::get_if<bool>(keep) : nullptr;
+		if (!keepBool || !*keepBool)
+		{
+			obj->setScriptSelectable(false);
+		}
 	}
 	int total = 0;
 	std::vector<SlowDeathBehavior *> candidates;

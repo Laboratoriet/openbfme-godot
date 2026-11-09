@@ -4,6 +4,9 @@
 #include "CombatTestUtil.h"
 
 #include "GameLogic/Combat/CombatNames.h"
+#include "GameLogic/PlayerCommands.h"
+
+#include <utility>
 
 using namespace combattest;
 
@@ -227,6 +230,74 @@ TEST_CASE("combat damage: SlowDeathBehavior sinks the corpse after SinkDelay and
 	CHECK(w.byId(id)->getPosition()->z < z0); // sinking
 	w.frames(10);
 	CHECK(w.byId(id) == nullptr); // destroyed
+}
+
+// RW 0x861712 SlowDeathBehavior::onDie (BFME2 decomp SlowDeathBehaviorUpdate.cpp:849-853): after the AI is marked dead, TheGameLogic->deselectObject(obj,
+// 0xFFFFF, true) (RW 0x625759) takes the dying unit out of every player's selection and asks the client to drop it; then, unless the template is
+// KeepSelectableWhenDead (+ 0x642), Object::setSelectable(false) (RW 0x68BE3C: + 0x454).
+TEST_CASE("combat damage: a unit starting its slow death leaves every player's selection, is marked for the client and becomes unselectable (RW 0x861767)")
+{
+	CombatWorld w(
+		"Object KeepSwordsman\n"
+		"  KindOf = INFANTRY SELECTABLE\n"
+		"  KeepSelectableWhenDead = Yes\n"
+		"  Geometry = CYLINDER\n  GeometryMajorRadius = 8\n  GeometryHeight = 20\n"
+		"  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n  End\n"
+		"  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n"
+		"  Behavior = SlowDeathBehavior ModuleTag_Death\n    DeathTypes = ALL\n    DestructionDelay = 2000\n  End\n"
+		"End\n");
+	Object *a = w.unit("Swordsman", 'A', 300, 300);
+	Object *s = w.unit("Swordsman", 'B', 330, 300);
+	Object *k = w.unit("KeepSwordsman", 'B', 360, 300);
+	Object *other = w.unit("Swordsman", 'B', 390, 300);
+	w.frames(2);
+	Player *alice = w.playerOf('A'), *bob = w.playerOf('B');
+	bob->selection() = { s->getID(), k->getID(), other->getID() };
+	alice->selection() = { a->getID(), s->getID() }; // retail walks every player of the mask, not only the owner
+	CHECK(s->isScriptSelectable());
+	const std::uint32_t marks = w.logic->clientDeselectCount();
+	CHECK(s->clientDeselectCount() == 0u);
+	DamageInfo big = hit(a, 1000.0f, DAMAGE_SLASH);
+	s->attemptDamage(big);
+	REQUIRE(s->isEffectivelyDead());
+	CHECK(bob->selection() == std::vector<ObjectID>{ k->getID(), other->getID() });
+	CHECK(alice->selection() == std::vector<ObjectID>{ a->getID() });
+	CHECK(w.logic->clientDeselectCount() == marks + 1);
+	CHECK(s->clientDeselectCount() == marks + 1);
+	CHECK_FALSE(s->isScriptSelectable());
+	CHECK_FALSE(PlayerCommands::isSelectable(*s));
+	// KeepSelectableWhenDead: deselected all the same, but it stays selectable
+	DamageInfo big2 = hit(a, 1000.0f, DAMAGE_SLASH);
+	k->attemptDamage(big2);
+	REQUIRE(k->isEffectivelyDead());
+	CHECK(bob->selection() == std::vector<ObjectID>{ other->getID() });
+	CHECK(k->clientDeselectCount() == marks + 2);
+	CHECK(k->isScriptSelectable());
+	CHECK(PlayerCommands::isSelectable(*k));
+	// the living unit is not touched
+	CHECK(other->clientDeselectCount() == 0u);
+	CHECK(other->isScriptSelectable());
+}
+
+TEST_CASE("combat damage: the slow death's deselection is part of the state hash (the selection and Object + 0x454 are simulation state)")
+{
+	auto run = [](bool selected) {
+		CombatWorld w;
+		Object *a = w.unit("Swordsman", 'A', 300, 300);
+		Object *s = w.unit("Swordsman", 'B', 330, 300);
+		w.frames(2);
+		if (selected)
+		{
+			w.playerOf('B')->selection() = { s->getID() };
+		}
+		const std::uint32_t alive = w.logic->computeStateHash();
+		DamageInfo big = hit(a, 1000.0f, DAMAGE_SLASH);
+		s->attemptDamage(big);
+		return std::make_pair(alive, w.logic->computeStateHash());
+	};
+	const auto plain = run(false), sel = run(true);
+	CHECK(plain.first != sel.first);   // the selection is hashed
+	CHECK(plain.second == sel.second); // after the death the selections are equal again: the unit left it
 }
 
 // RW 0x6955BC scoreTheKill: IGNORED_IN_GUI (0x695661..0x69566B) excludes the victim; enemy / other owner (0x6956E8..0x6956F7); the bounty call 0x695743 -> 0x6AC06F comes BEFORE
