@@ -7,6 +7,7 @@
 #include <cstdio>
 
 #include "Common/JobSystem.h"
+#include "GameClient/ObjectShadow.h"
 #include "GodotDevice/GodotRetailFileSystem.h"
 
 #include "Common/ArchiveFileSystem.h"
@@ -388,6 +389,9 @@ void W3DInstancer::_bind_methods()
 	ClassDB::bind_method(D_METHOD("set_instance_cast_shadow", "instance", "enabled"), &W3DInstancer::set_instance_cast_shadow);
 	ClassDB::bind_method(D_METHOD("set_shadow_receiving", "enabled"), &W3DInstancer::set_shadow_receiving);
 	ClassDB::bind_static_method("W3DInstancer", D_METHOD("set_shadow_maps_enabled", "enabled"), &W3DInstancer::set_shadow_maps_enabled);
+	ClassDB::bind_method(D_METHOD("set_instance_map_caster", "instance", "enabled"), &W3DInstancer::set_instance_map_caster);
+	ClassDB::bind_static_method("W3DInstancer", D_METHOD("set_shadow_mapping", "enabled"), &W3DInstancer::set_shadow_mapping);
+	ClassDB::bind_static_method("W3DInstancer", D_METHOD("get_shadow_mapping"), &W3DInstancer::get_shadow_mapping);
 	ClassDB::bind_method(D_METHOD("set_instance_transform", "instance", "transform"), &W3DInstancer::set_instance_transform);
 	ClassDB::bind_method(D_METHOD("remove_instance", "instance"), &W3DInstancer::remove_instance);
 	ClassDB::bind_method(D_METHOD("set_instance_clip", "instance", "clip", "start_time", "speed"), &W3DInstancer::set_instance_clip, DEFVAL(0.0), DEFVAL(1.0));
@@ -556,6 +560,47 @@ void W3DInstancer::set_instance_cast_shadow(int64_t instance, bool enabled)
 	inst.CastShadow = enabled;
 	note_pose_dirty();
 	mark_model(instance);
+}
+
+void W3DInstancer::set_instance_map_caster(int64_t instance, bool enabled)
+{
+	if (instance < 0 || instance >= (int64_t)Instances.size()) return;
+	Instance &inst = Instances[(size_t)instance];
+	if (inst.Removed || inst.MapCaster == enabled) return;
+	inst.MapCaster = enabled;
+	note_pose_dirty();
+	mark_model(instance);
+}
+
+void W3DInstancer::set_shadow_mapping(bool enabled)
+{
+	if (ShadowMappingAll == enabled) return;
+	ShadowMappingAll = enabled;
+	++ShadowMappingEpoch;
+}
+
+bool W3DInstancer::casts_into_map(const Instance &inst) const
+{
+	return ObjectShadow::drawsIntoMap(inst.CastShadow, inst.MapCaster, ShadowMappingAll);
+}
+
+void W3DInstancer::sync_shadow_mapping()
+{
+	if (ShadowMappingSeen == ShadowMappingEpoch) return;
+	ShadowMappingSeen = ShadowMappingEpoch;
+	// The shadow batches are written with the colour batches (pack_draw), from each draw item's last order. Packing them here also covers
+	// a scene that updates itself by hand (GameWorld's static layer reaches this from cull_draws).
+	for (std::unique_ptr<Model> &m : Models)
+	{
+		for (DrawItem &d : m->Draws)
+		{
+			if (d.MM.is_valid() && d.Buffer.size() >= (int64_t)d.Allocated * 16)
+			{
+				pack_draw(*m, d);
+			}
+		}
+	}
+	note_pose_dirty(); // the casters now posed off screen (update_now) follow the new set
 }
 
 void W3DInstancer::ensure_occlusion_passes(MeshGpu &gpu, bool mark, bool color)
@@ -2359,7 +2404,7 @@ void W3DInstancer::pack_draw(Model &m, DrawItem &d)
 	for (int id : d.Order)
 	{
 		const Instance &inst = Instances[(size_t)id];
-		if (!inst.CastShadow)
+		if (!casts_into_map(inst))
 		{
 			continue;
 		}
@@ -2394,7 +2439,7 @@ void W3DInstancer::pack_draw(Model &m, DrawItem &d)
 		for (int id : d.Order)
 		{
 			const Instance &inst = Instances[(size_t)id];
-			if (!inst.CastShadow)
+			if (!casts_into_map(inst))
 			{
 				continue;
 			}
@@ -2416,6 +2461,7 @@ void W3DInstancer::cull_draws()
 	{
 		return;
 	}
+	sync_shadow_mapping();
 	const auto t0 = std::chrono::steady_clock::now();
 	std::vector<Plane> planes;
 	Transform3D nodeXf;
@@ -2527,6 +2573,7 @@ void W3DInstancer::update_now()
 {
 	if (!Assets) return;
 	if (LayoutDirty) rebuild_layout();
+	sync_shadow_mapping();
 
 	update_mappers();
 
@@ -2562,7 +2609,7 @@ void W3DInstancer::update_now()
 		Instance &inst = Instances[i];
 		if (!inst.Removed && (inst.PoseStale || (timeMoved && inst.Anim != nullptr && !inst.Explicit) || inst.ShareLeader >= 0))
 		{
-			if (cull && !(inst.CastShadow && ShadowMapsEnabled)) // an off-screen caster still throws an on-screen shadow
+			if (cull && !(casts_into_map(inst) && ShadowMapsEnabled)) // an off-screen caster still throws an on-screen shadow
 			{
 				// the bounding sphere of the model around the instance's origin, scaled by the larger of the node's and the instance's scale
 				const Vector3 centre = nodeXf.xform(inst.Xf.origin);

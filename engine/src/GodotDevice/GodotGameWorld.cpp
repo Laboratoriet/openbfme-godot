@@ -925,6 +925,7 @@ void GameWorld::build_static_layer(const Ref<RetailFileSystem> &fs, Dictionary &
 			staticInst->set_instance_cast_shadow(instance, ObjectShadow::castsMap(d.info ? d.info->tmpl : nullptr, module,
 				p.draw ? p.draw->currentModelState() : nullptr));
 		}
+		staticInst->set_instance_map_caster(instance, ObjectShadow::mapCaster(p.kind)); // retail's shadow map at UseShadowMapping (S-3304)
 		if (d.fate == MAPOBJ_CLIENT_SHRUB || d.fate == MAPOBJ_CLIENT_PROP)
 		{
 			FootprintView f;
@@ -2028,6 +2029,7 @@ void GameWorld::refresh_view(size_t id, W3DInstancer *dyn, const LogicSnapshot *
 				{
 					dyn->set_instance_cast_shadow(ev.instance, e.kind != W3D_DRAWKIND_FLOOR &&
 						ObjectShadow::castsMap(d->getTemplate(), dynamic_cast<const W3DModelDrawModuleData *>(e.data), shadowState));
+					dyn->set_instance_map_caster(ev.instance, ObjectShadow::mapCaster(e.kind)); // retail's shadow map at UseShadowMapping
 					ev.shadowState = shadowState;
 					ev.shadowData = e.data;
 					ev.shadowInstance = ev.instance;
@@ -2165,6 +2167,7 @@ void GameWorld::refresh_view(size_t id, W3DInstancer *dyn, const LogicSnapshot *
 					ev.opacity = 1.0f; // a new instance starts opaque
 					dyn->set_instance_cast_shadow(ev.instance, e.kind != W3D_DRAWKIND_FLOOR &&
 						ObjectShadow::castsMap(d->getTemplate(), dynamic_cast<const W3DModelDrawModuleData *>(e.data), nullptr));
+					dyn->set_instance_map_caster(ev.instance, ObjectShadow::mapCaster(e.kind)); // retail's shadow map at UseShadowMapping
 				}
 			}
 			else if (entryXfChanged && ev.instance >= 0)

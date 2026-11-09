@@ -2,7 +2,10 @@
 ## The scene's existing main object light supplies coverage; the shaders retain their retail lighting.
 extends RefCounted
 
-static func configure(sun: DirectionalLight3D, lighting: Dictionary, lod: int = 3) -> void:
+## `use_mapping`: the static level's UseShadowMapping (get_detail_state().use_shadow_mapping; High and UltraHigh, ShadowLOD >= 3 in a
+## custom level). With it every drawn model casts, as in RotWK's own shadow map (ObjectShadow::mapCaster); without it only the volume
+## shadow objects do, standing in for Medium's stencil volumes.
+static func configure(sun: DirectionalLight3D, lighting: Dictionary, lod: int = 3, use_mapping: bool = true) -> void:
 	var enabled := lod >= 2
 	if lighting.has("direction"):
 		var direction: Vector3 = lighting.direction
@@ -26,8 +29,10 @@ static func configure(sun: DirectionalLight3D, lighting: Dictionary, lod: int = 
 		float((packed >> 8) & 255) / 255.0,
 		float(packed & 255) / 255.0, 1.0 if enabled else 0.0))
 	ClassDB.class_call_static("W3DInstancer", "set_shadow_maps_enabled", enabled)
+	ClassDB.class_call_static("W3DInstancer", "set_shadow_mapping", enabled and use_mapping)
 
 static func disable() -> void:
 	RenderingServer.directional_shadow_atlas_set_size(4096, false) # Godot's default, so a later scene does not inherit ours
 	RenderingServer.global_shader_parameter_set("w3d_shadow", Vector4(1.0, 1.0, 1.0, 0.0))
 	ClassDB.class_call_static("W3DInstancer", "set_shadow_maps_enabled", false)
+	ClassDB.class_call_static("W3DInstancer", "set_shadow_mapping", false)

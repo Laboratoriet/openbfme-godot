@@ -408,6 +408,7 @@ Node3D *MapObjectBuilder::build_objects(const Ref<RetailFileSystem> &fsRef, cons
 			target->set_instance_cast_shadow(instance, ObjectShadow::castsMap(d.info ? d.info->tmpl : nullptr, module,
 				p.draw ? p.draw->currentModelState() : nullptr));
 		}
+		target->set_instance_map_caster(instance, ObjectShadow::mapCaster(p.kind)); // retail's shadow map at UseShadowMapping (S-3304)
 		if (infantryLightBit >= 0 && d.info && d.info->kindOf_test(infantryLightBit))
 		{
 			target->set_instance_infantry_light(instance, true); // RENDER-1: the infantry light set (S-390)
