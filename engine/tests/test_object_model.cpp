@@ -20,8 +20,11 @@ using namespace objtest;
 TEST_CASE("object shadows: template, state override and force-disable eligibility")
 {
 	World w;
-	REQUIRE(w.load("Object Volume\n Shadow = SHADOW_VOLUME\nEnd\nObject Decal\n Shadow = SHADOW_DECAL\nEnd\nObject Absent\nEnd\n").empty());
+	REQUIRE(w.load("Object Volume\n Shadow = SHADOW_VOLUME\nEnd\nObject Decal\n Shadow = SHADOW_DECAL\nEnd\nObject Absent\nEnd\n"
+		"Object NonSelf\n Shadow = SHADOW_VOLUME_NON_SELF_2\nEnd\n").empty());
 	CHECK(ObjectShadow::castsMap(w.get("Volume"), nullptr, nullptr));
+	// The NON_SELF volumes (the Mordor trolls, Ents, fell beasts) go to the same volumetric manager as SHADOW_VOLUME (RW 0x49A2EB).
+	CHECK(ObjectShadow::castsMap(w.get("NonSelf"), nullptr, nullptr));
 	CHECK_FALSE(ObjectShadow::castsMap(w.get("Decal"), nullptr, nullptr)); // a blob decal in retail, not a silhouette (S-3304)
 	CHECK_FALSE(ObjectShadow::castsMap(w.get("Absent"), nullptr, nullptr));
 	CHECK_FALSE(ObjectShadow::castsMap(nullptr, nullptr, nullptr));
@@ -37,6 +40,17 @@ TEST_CASE("object shadows: template, state override and force-disable eligibilit
 	CHECK_FALSE(ObjectShadow::castsMap(w.get("Volume"), nullptr, &state));
 	state.shadow.type = 2; // the state's SHADOW_VOLUME overrides the template's decal
 	CHECK(ObjectShadow::castsMap(w.get("Decal"), nullptr, &state));
+	state.shadow.type = 1 << 7; // SHADOW_VOLUME_NON_SELF_1
+	CHECK(ObjectShadow::castsMap(w.get("Decal"), nullptr, &state));
+	state.shadow.type = 1 << 9; // SHADOW_VOLUME_NON_SELF_3 (the fell beasts, Drogoth)
+	CHECK(ObjectShadow::castsMap(w.get("Decal"), nullptr, &state));
+	state.shadow.type = 1 << 10; // SHADOW_ALPHA_DECAL_DYNAMIC, next to the volumes, goes to the projected manager
+	CHECK_FALSE(ObjectShadow::castsMap(w.get("Volume"), nullptr, &state));
+	state.shadow.type = 1 << 2; // SHADOW_VOLUME_NEW (the V2 manager)
+	CHECK(ObjectShadow::castsMap(w.get("Decal"), nullptr, &state));
+	state.shadow.type = 1 << 15; // SHADOW_VOLUME_NEW_OR_DECAL
+	CHECK(ObjectShadow::castsMap(w.get("Decal"), nullptr, &state));
+	state.shadow.type = 1 << 8; // SHADOW_VOLUME_NON_SELF_2, for the force-disable check below
 	W3DModelDrawModuleData module;
 	module.m_shadowForceDisable = true;
 	CHECK_FALSE(ObjectShadow::castsMap(w.get("Volume"), &module, &state));
