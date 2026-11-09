@@ -15,7 +15,7 @@
 ##   --vis-config=<label>   the file label of this run (default: the renderer and the shadow detail, e.g. "fwd-def")
 ##   --vis-shadow=low       ShadowLOD Low for the run (blob shadows, no maps); default: the detail level's own
 ##   --vis-mode=lite        fewer cells (idle and move, finished and damaged) for the second renderer / detail
-##   --vis-only=<a,b>       only these templates; --vis-limit=<n> at most n objects per faction and kind
+##   --vis-only=<a,b>       only these templates; --vis-limit=<n> at most n objects per faction and kind; --vis-zoom-out=<f> a wider frame
 ## Prints "VISSURVEY BEGIN <faction> <template>" / "VISSURVEY END ..." around each object (tools/visual/survey_flags.py splits the log by them).
 ## Changes nothing in the game's code paths: everything goes through the GameWorld / InGameHud test hooks that other players use.
 extends "res://scripts/scenario_player.gd"
@@ -35,6 +35,7 @@ var _mode := "full"
 var _shadow := "default"
 var _only: PackedStringArray = []
 var _limit := 0
+var _zoom_out := 1.0         # --vis-zoom-out=<f>: the object fills 1/f of the usual share of the window (more room around it)
 var _me := -1
 var _enemy := -1
 var _enemy_name := ""
@@ -77,6 +78,8 @@ func _run(p_game: Node, scenarios: PackedStringArray) -> void:
 			_shadow = arg.substr(13)
 		elif arg.begins_with("--vis-only="):
 			_only = arg.substr(11).split(",", false)
+		elif arg.begins_with("--vis-zoom-out="):
+			_zoom_out = maxf(float(arg.substr(15)), 0.25)
 		elif arg.begins_with("--vis-limit="):
 			_limit = int(arg.substr(12))
 	if _config.is_empty():
@@ -544,7 +547,7 @@ func _frame_height(template: String, kind: String) -> float:
 	if b.size == Vector2.ZERO:
 		b = _diff_box(_frame())
 	await _clear()
-	var target := _vp_size().y * (0.42 if kind == "building" else 0.30)
+	var target := _vp_size().y * (0.42 if kind == "building" else 0.30) / _zoom_out
 	if b.size.y > 4.0:
 		h = clampf(h * maxf(b.size.y, b.size.x * 0.6) / target, maxh * 0.12, maxh * 2.2)
 	return h

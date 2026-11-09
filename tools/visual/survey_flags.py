@@ -252,7 +252,10 @@ def analyse(path: str, sheets: str, log_lines: dict, kindof: dict | None = None)
                         flags.append({"kind": "missing", "what": f"model {e.get('model')} is not in the archives", "phase": ph["phase"]})
     info["models"] = sorted(m for m in models if m)
     info["shadow"] = shadow_names(bits)
-    lines = log_lines.get((config, template), []) + list(p.get("asset_errors", []))
+    # the instancers' lines: errors and missing assets are flags; the [S-nnn] notes (an approximation the renderer names) are the object's stops
+    inst = list(p.get("asset_errors", []))
+    info["stops"] = sorted({m.group(0) for line in inst for m in [re.match(r"\[S-\d+\]", line)] if m})
+    lines = log_lines.get((config, template), []) + [line for line in inst if line.startswith("ERROR") or LOG_MISSING.search(line)]
     if lines:
         flags.append({"kind": "missing", "what": f"{len(lines)} log line(s): {lines[0]}", "lines": lines[:6]})
     if not p.get("ok", True):
@@ -303,7 +306,7 @@ def analyse(path: str, sheets: str, log_lines: dict, kindof: dict | None = None)
                     flags.append({"kind": "hover-slope", "what": f"the lowest pivot is {d:.1f} higher on the slope than on the flat", "phase": "slope"})
     # slide / frozen (move samples)
     samples = p.get("samples", [])
-    if kind != "building" and samples:
+    if kind != "building" and samples and p.get("mode") == "full":  # lite: three cells of a move that is still starting (too short)
         s = slide_of(samples)
         if s:
             info["slide"] = s
