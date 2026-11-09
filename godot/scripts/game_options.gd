@@ -448,7 +448,7 @@ func apply_detail() -> Dictionary:
 		return _detail
 	ClassDB.class_call_static("GameWorld", "set_texture_reduction", _detail.texture_reduction)
 	if game != null and game.has_method("set_shadow_lod"):
-		game.set_shadow_lod(_detail.shadow_lod)
+		game.set_shadow_lod(_detail.shadow_lod, 1 if _detail.use_shadow_mapping else 0)
 	if _world != null and _world.has_method("get_fx_player"):
 		var fx = _world.get_fx_player()
 		if fx != null:

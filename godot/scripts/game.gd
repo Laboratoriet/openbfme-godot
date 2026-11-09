@@ -3157,16 +3157,17 @@ func _apply_lighting(rep: Dictionary) -> void:
 	_shadow_lighting = lit
 	# the detail level's ShadowLOD; without a level (GameOptions.apply_detail reports why) no shadow map is drawn
 	var detail: Dictionary = _shell.get_detail_state() if _shell != null else {}
-	set_shadow_lod(int(detail.shadow_lod) if detail.get("ok", false) else 0)
+	set_shadow_lod(int(detail.shadow_lod) if detail.get("ok", false) else 0, 1 if detail.get("use_shadow_mapping", false) else 0)
 	var dir: Vector3 = lit.direction
 	if dir.length() > 0.0001:
 		_sun.transform = Transform3D(Basis.looking_at(dir.normalized(), Vector3.UP if absf(dir.normalized().y) < 0.99 else Vector3.RIGHT), Vector3.ZERO)
 	add_child(_sun)
 
 
-func set_shadow_lod(lod: int) -> void:
+## `use_mapping`: the level's UseShadowMapping (object_shadows.gd), 1 or 0; -1 takes a custom level's rule, ShadowLOD High or more (RW 0x6019D1)
+func set_shadow_lod(lod: int, use_mapping: int = -1) -> void:
 	if _sun != null:
-		load("res://scripts/object_shadows.gd").configure(_sun, _shadow_lighting, lod)
+		load("res://scripts/object_shadows.gd").configure(_sun, _shadow_lighting, lod, lod >= 3 if use_mapping < 0 else use_mapping > 0)
 	_push_shadow_decals()
 
 

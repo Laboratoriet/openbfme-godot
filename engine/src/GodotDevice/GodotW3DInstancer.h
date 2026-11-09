@@ -160,6 +160,13 @@ public:
 	Dictionary get_occlusion_pass_counts() const;
 	// Presentation only. Shadow-only batches share the posed mesh and palette, but contain only eligible instances.
 	void set_instance_cast_shadow(int64_t instance, bool enabled);
+	// The instance is one of retail's shadow-map casters (ObjectShadow::mapCaster: a model or a prop, whatever its Shadow type): while
+	// set_shadow_mapping is on it is drawn into the shadow map like a set_instance_cast_shadow instance (ObjectShadow::drawsIntoMap).
+	void set_instance_map_caster(int64_t instance, bool enabled);
+	// Engine-wide: the static level's UseShadowMapping (GlobalData + 0x62, RW 0x47D5C9), set by object_shadows.gd. Every instancer
+	// rewrites its shadow batches at its next update after a change.
+	static void set_shadow_mapping(bool enabled);
+	static bool get_shadow_mapping() { return ShadowMappingAll; }
 	// Set before adding models. UI / standalone model viewers default to no shadow reception.
 	void set_shadow_receiving(bool enabled) { ShadowReceiving = enabled; }
 	// Engine-wide, set with the w3d_shadow global (object_shadows.gd): while no shadow map is drawn, casters are pose-culled like any instance.
@@ -325,6 +332,7 @@ private:
 		bool Occluder = false;                // lane OCCLUDE-1: set_instance_occlusion (INSTANCE_CUSTOM.w += W3D_OCCLUSION_OCCLUDER_BIT)
 		int OcclusionSlot = 0;                // lane OCCLUDE-1: (INSTANCE_CUSTOM.w += slot << W3D_OCCLUSION_SLOT_SHIFT)
 		bool CastShadow = false;
+		bool MapCaster = false;               // set_instance_map_caster
 		std::vector<std::uint8_t> HiddenSubs; // by sub object index; empty = none hidden (set_instance_hidden_subobjects)
 		bool Removed = false;                 // remove_instance: skipped by the pose and buffer passes
 		float Opacity = 1.0f;                 // set_instance_opacity (lane PROJ-2)
@@ -388,6 +396,11 @@ private:
 	std::vector<Instance> Instances;
 	bool ShadowReceiving = false;
 	static inline bool ShadowMapsEnabled = false;
+	static inline bool ShadowMappingAll = false;     // set_shadow_mapping
+	static inline uint64_t ShadowMappingEpoch = 0;   // bumped by every change of ShadowMappingAll
+	uint64_t ShadowMappingSeen = 0;                  // the epoch this instancer's shadow batches were last packed with
+	bool casts_into_map(const Instance &inst) const; // ObjectShadow::drawsIntoMap for this instance
+	void sync_shadow_mapping();                      // a changed set_shadow_mapping: every draw item's batches packed again
 	std::vector<Ref<ShaderMaterial>> AllMaterials;
 	std::vector<W3DMapperBinding> Mappers;
 

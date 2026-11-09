@@ -9,7 +9,9 @@
 
 #include "GameLogic/ArmorSet.h"
 #include "GameLogic/WeaponSet.h"
+#include "GameClient/GameLODManager.h"
 #include "GameClient/ObjectShadow.h"
+#include "GameClient/OptionPreferences.h"
 
 #include <algorithm>
 #include <map>
@@ -56,6 +58,54 @@ TEST_CASE("object shadows: template, state override and force-disable eligibilit
 	CHECK_FALSE(ObjectShadow::castsMap(w.get("Volume"), &module, &state));
 	state.shadow.type = 0;
 	CHECK_FALSE(ObjectShadow::castsMap(w.get("Volume"), nullptr, &state));
+}
+
+TEST_CASE("object shadows: the shadow-map casters per Shadow type and detail level (UseShadowMapping, RW 0x47D5C9)")
+{
+	World w;
+	REQUIRE(w.load("Object Volume\n Shadow = SHADOW_VOLUME\nEnd\nObject Decal\n Shadow = SHADOW_DECAL\nEnd\nObject Absent\nEnd\n"
+		"Object NonSelf\n Shadow = SHADOW_VOLUME_NON_SELF_3\nEnd\nObject AlphaDecal\n Shadow = SHADOW_ALPHA_DECAL\nEnd\n").empty());
+	W3DModelDrawModuleData forceDisable;
+	forceDisable.m_shadowForceDisable = true;
+	// what the instancer draws into the Godot map for one draw of a template (the call sites in GodotGameWorld / GodotMapObjectBuilder)
+	auto casts = [&](const StaticLODState &s, const char *object, int kind, const W3DModelDrawModuleData *module) {
+		const bool volume = kind != W3D_DRAWKIND_FLOOR && ObjectShadow::castsMap(w.get(object), module, nullptr);
+		return ObjectShadow::drawsIntoMap(volume, ObjectShadow::mapCaster(kind), s.useShadowMapping);
+	};
+	GameLODManager lod;
+	OptionPreferences prefs;
+	// a custom level's ShadowLOD (RW 0x6019D1): Off 0 .. UltraHigh 4; UseShadowMapping = ShadowLOD >= 3, which clears the volumes and decals
+	const char *names[] = { "Off", "Low", "Medium", "High", "UltraHigh" };
+	for (int shadow = 0; shadow < 5; ++shadow)
+	{
+		CAPTURE(shadow);
+		prefs.set("ShadowLOD", names[shadow]);
+		lod.setCustomFromPreferences(prefs);
+		REQUIRE(lod.setStaticLODLevel(GameLODManager::kCustomLevel, prefs));
+		const StaticLODState &s = lod.state();
+		REQUIRE(s.shadowLOD == shadow);
+		const bool mapping = shadow >= 3;
+		CHECK(s.useShadowMapping == mapping);
+		CHECK(s.useShadowVolumes == (shadow == 2));
+		// the volume objects cast at every level the Godot map is drawn (object_shadows.gd: Medium's stencil volumes, High's map)
+		CHECK(casts(s, "Volume", W3D_DRAWKIND_MODEL, nullptr));
+		CHECK(casts(s, "NonSelf", W3D_DRAWKIND_MODEL, nullptr));
+		// a SHADOW_DECAL unit (infantry, cavalry, heroes), a projected decal and a model with no Shadow: only in RotWK's own map
+		CHECK(casts(s, "Decal", W3D_DRAWKIND_MODEL, nullptr) == mapping);
+		CHECK(casts(s, "AlphaDecal", W3D_DRAWKIND_MODEL, nullptr) == mapping);
+		CHECK(casts(s, "Absent", W3D_DRAWKIND_MODEL, nullptr) == mapping);
+		// ShadowForceDisable skips addShadow (RW 0x4C4F10) but the map pass never reads it
+		CHECK(casts(s, "Volume", W3D_DRAWKIND_MODEL, &forceDisable) == mapping);
+		// props are drawn in the map pass (drawProps RW 0x4E3304), floors are not (drawFloors RW 0x4E2F6C is skipped)
+		CHECK(casts(s, "Decal", W3D_DRAWKIND_PROP, nullptr) == mapping);
+		CHECK_FALSE(casts(s, "Decal", W3D_DRAWKIND_FLOOR, nullptr));
+		CHECK_FALSE(casts(s, "Volume", W3D_DRAWKIND_FLOOR, nullptr));
+		// trees keep their Shadow type (W3DTreeBuffer's map path is not traced)
+		CHECK_FALSE(casts(s, "Decal", W3D_DRAWKIND_TREE, nullptr));
+		CHECK(casts(s, "Volume", W3D_DRAWKIND_TREE, nullptr));
+	}
+	CHECK_FALSE(ObjectShadow::mapCaster(W3D_DRAWKIND_NOTHING));
+	CHECK_FALSE(ObjectShadow::mapCaster(W3D_DRAWKIND_NOT_DRAWN));
 }
 
 namespace

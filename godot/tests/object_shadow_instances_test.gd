@@ -56,6 +56,22 @@ func _run() -> void:
 	for shadow in shadow_nodes:
 		_check(shadow.multimesh.visible_instance_count == 1, "toggling eligibility does not duplicate batches")
 		_check(shadow.multimesh.get_instance_transform(0).origin == Vector3(100, 0, 0), "the other instance now casts")
+	# a SHADOW_DECAL soldier is one of retail's map casters: it casts only while the level uses shadow mapping (ObjectShadow::mapCaster)
+	inst.set_instance_map_caster(a, true)
+	inst.update_now()
+	for shadow in shadow_nodes:
+		_check(shadow.multimesh.visible_instance_count == 1, "a map caster casts nothing without UseShadowMapping")
+	ClassDB.class_call_static("W3DInstancer", "set_shadow_mapping", true)
+	inst.update_now()
+	for shadow in shadow_nodes:
+		_check(shadow.multimesh.visible_instance_count == 2, "with UseShadowMapping the map caster casts too")
+		_check(shadow.multimesh.get_instance_transform(0).origin == Vector3.ZERO, "the map caster's own transform")
+	ClassDB.class_call_static("W3DInstancer", "set_shadow_mapping", false)
+	inst.update_now()
+	for shadow in shadow_nodes:
+		_check(shadow.multimesh.visible_instance_count == 1, "turning UseShadowMapping off removes the map caster again")
+		_check(shadow.multimesh.get_instance_transform(0).origin == Vector3(100, 0, 0), "the volume caster stays")
+	inst.set_instance_map_caster(a, false)
 	var camera := Camera3D.new()
 	root.add_child(camera)
 	camera.position = Vector3(0, 0, 10000)
