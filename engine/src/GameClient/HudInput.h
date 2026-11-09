@@ -131,4 +131,5 @@ private:
 	std::vector<std::string> m_scriptSteps; ///< lane OWNERFIX-1 r2
 	bool m_placementDeferred = false; // lane BUILD-5 r2
 	unsigned m_fogDeselectFrame = 0;  // lane VISUAL-2 r2: the client frame RW 0x6A2449's fogged deselection last ran in
+	std::uint32_t m_clientDeselectSeen = 0; // GameLogic::clientDeselectCount at the last update (RW 0x625759's client half)
 };

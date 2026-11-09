@@ -152,10 +152,21 @@ size_t HudInput::update()
 	// UNSELECTABLE alone: an unpacked castle is UNSELECTABLE and RW deselects nothing there)
 	static const int sold = ObjectTemplateInfoBuilder::objectStatusIndex("SOLD");
 	static const int unselectable = ObjectTemplateInfoBuilder::objectStatusIndex("UNSELECTABLE");
+	// GameLogic::deselectObject(obj, mask, affectClient = true) (RW 0x625759; a unit starting its slow death, RW 0x861767): its client half,
+	// InGameUI::deselectDrawable (RW 0x6257E5), drops the object here once. An object marked since the last update leaves the selection; a
+	// KeepSelectableWhenDead corpse selected again later stays. A count below the last one seen belongs to a new logic
+	const std::uint32_t deselects = m_logic.clientDeselectCount();
+	const std::uint32_t deselectSeen = deselects < m_clientDeselectSeen ? 0u : m_clientDeselectSeen;
+	m_clientDeselectSeen = deselects;
 	std::vector<ObjectID> gone;
 	for (ObjectID id : m_ui.selected())
 	{
 		Object *o = m_logic.findObjectByID(id);
+		if (o && deselects != deselectSeen && o->clientDeselectCount() > deselectSeen)
+		{
+			gone.push_back(id);
+			continue;
+		}
 		// Both editions: entering a construction site first calls InGameUI::deselectDrawable (RW 0x88C51B;
 		// BFME2 0x489256, DozerAIUpdateCtor.cpp::Rva00489256Do), then hides the porter. Mirror that call here
 		// before translating more input. UNSELECTABLE alone must not remove an unpacked castle (see above).

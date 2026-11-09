@@ -301,6 +301,10 @@ public:
 	// lane SCRIPT-2: RW Object + 0x454 (set by RW 0x68BE3C, the script's "Selectable" panel flag); the client's isSelectable also needs it
 	void setScriptSelectable(bool on) { m_scriptSelectable = on; }
 	bool isScriptSelectable() const { return m_scriptSelectable; }
+	// RW 0x625759 GameLogic::deselectObject's client half: GameLogic::clientDeselectCount() when the logic last asked the client to drop the object
+	// from its selection (0: never). Presentation only: not hashed, not saved
+	void setClientDeselectCount(std::uint32_t n) { m_clientDeselectCount = n; }
+	std::uint32_t clientDeselectCount() const { return m_clientDeselectCount; }
 	// lane MODCOMPAT-MOD1: RW Object::maskObject (RW 0x68BEB1): Object + 0x459 bit 1 (masking also deselects the object for every player but its own,
 	// RW 0x625759: the selection is the client's). Writers: RebuildHoleBehavior (RW 0x886630 / 0x886B51), SpawnBehavior's AggregateHealth (RW 0x86321B, not
 	// ported: S-1425) and RW 0x8A7754. Its readers (RW 0x6C91EB, 0x81E691, 0x83BDAF) are not ported: the masked hole is also UNSELECTABLE and UNATTACKABLE
@@ -604,6 +608,7 @@ private:
 	std::string m_name;
 	std::uint8_t m_scriptStatus = 0; ///< lane SCRIPT-2: RW + 0x457 (hashed when not zero)
 	bool m_scriptSelectable = false; ///< RW +0x454: ctor initializes from SELECTABLE; hash only deviations from the template-derived default
+	std::uint32_t m_clientDeselectCount = 0; ///< deselectObject's client half (see clientDeselectCount); not hashed, not saved
 	bool m_masked = false;           ///< RW + 0x459 bit 1 (maskObject; hashed when set)
 	TriggerEntry m_triggers[MAX_TRIGGERS_IN];  ///< lane SCRIPT-2: RW + 0x3DC
 	int m_triggerCount = 0;                      ///< RW + 0x45A
